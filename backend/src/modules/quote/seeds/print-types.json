@@ -1,0 +1,44 @@
+[
+    {
+        "code": "4c",
+        "name": "In 4 màu",
+        "shortName": "4 màu",
+        "description": "In 4 màu CMYK",
+        "sortOrder": 1
+    },
+    {
+        "code": "1c",
+        "name": "In 1 màu",
+        "shortName": "1 màu",
+        "description": "In 1 màu (đen)",
+        "sortOrder": 2
+    },
+    {
+        "code": "bw",
+        "name": "In đen trắng",
+        "shortName": "ĐT",
+        "description": "In đen trắng laser/toner",
+        "sortOrder": 3
+    },
+    {
+        "code": "4c1c",
+        "name": "4 màu + 1 màu",
+        "shortName": "4+1",
+        "description": "Mặt trước 4 màu, mặt sau 1 màu",
+        "sortOrder": 4
+    },
+    {
+        "code": "uv_spot",
+        "name": "UV Spot",
+        "shortName": "UV",
+        "description": "In phủ UV cục bộ",
+        "sortOrder": 5
+    },
+    {
+        "code": "pantone",
+        "name": "In Pantone",
+        "shortName": "PMS",
+        "description": "In màu Pantone pha sẵn",
+        "sortOrder": 6
+    }
+]

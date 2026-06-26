@@ -1,0 +1,63 @@
+{
+    "_description": "Templates thuyết phục và từ khóa ngữ cảnh sử dụng",
+    "persuasionTemplates": {
+        "quantity_discount": "In từ {threshold} cái trở lên, đơn giá giảm đáng kể — bạn muốn em tính giá cho số lượng lớn hơn không ạ?",
+        "quality_value": "Chênh lệch chỉ ~{priceDiff}đ/cái nhưng {benefit} — rất đáng ạ!",
+        "social_proof": "Đa số khách {segment} bên em đều chọn {choice} ạ.",
+        "urgency": "Hiện em đang có giá tốt cho đơn trong tuần này ạ.",
+        "upsell": "Nếu bạn thêm {addon} thì {benefit}, chỉ thêm ~{price}đ/{unit} thôi ạ.",
+        "combo": "Em recommend gói combo: {items} — tiết kiệm {percent}% so với in lẻ!"
+    },
+    "usageContextKeywords": {
+        "_description": "Từ khóa ngữ cảnh sử dụng — dùng để detect MỤC ĐÍCH khi khách không nói rõ sản phẩm",
+        "food": [
+            "thực phẩm",
+            "đồ ăn",
+            "food",
+            "ăn",
+            "uống",
+            "tủ lạnh",
+            "bảo quản lạnh"
+        ],
+        "outdoor": [
+            "ngoài trời",
+            "nắng",
+            "mưa",
+            "ngoại thất",
+            "ngoại trời",
+            "biển",
+            "sân"
+        ],
+        "indoor": [
+            "trong nhà",
+            "nội thất",
+            "văn phòng",
+            "nhà",
+            "phòng"
+        ],
+        "premium": [
+            "cao cấp",
+            "sang trọng",
+            "luxury",
+            "premium",
+            "VIP",
+            "đẳng cấp"
+        ],
+        "budget": [
+            "tiết kiệm",
+            "rẻ",
+            "giá tốt",
+            "kinh tế",
+            "cơ bản"
+        ],
+        "urgent": [
+            "gấp",
+            "nhanh",
+            "express",
+            "cần gấp",
+            "hôm nay",
+            "ngày mai",
+            "rush"
+        ]
+    }
+}

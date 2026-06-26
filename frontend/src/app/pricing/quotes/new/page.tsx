@@ -1,0 +1,319 @@
+'use client';
+
+import { useAuth } from '@/lib/auth-context';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { API_URL } from '@/lib/api';
+import { QuoteConfigurator } from '../_components/QuoteConfigurator';
+import { useQuoteCart, type QuoteCartItem } from '../_store/useQuoteCart';
+import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components/CustomerInfo';
+import { useToast } from '@/lib/ui/toast';
+import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
+
+type QuoteTab = 'loose' | 'bound' | 'large_format';
+
+/** Ánh xạ tab loại báo giá sang nhãn `type` cho CreateQuoteDto. */
+const mapTabToType = (tab: QuoteTab): string => {
+    switch (tab) {
+        case 'loose': return 'Sản phẩm rời';
+        case 'bound': return 'Sản phẩm cuốn';
+        case 'large_format': return 'In khổ lớn';
+    }
+};
+
+/**
+ * Trải phẳng `configParams` theo khóa snake_case của QuoteItemDto (không bọc
+ * `config_params`/`calculation_details` — tránh bị `forbidNonWhitelisted` loại bỏ).
+ * KHÔNG đổi logic tính giá, chỉ đổi hình dạng truyền tải.
+ */
+const mapItem = (it: QuoteCartItem): Record<string, unknown> => ({
+    ...(it.configParams as Record<string, unknown>),
+    product_name: it.name,
+    item_type: it.type,
+    product_type: it.type,
+    quantity: it.quantity,
+    item_total: it.total,
+});
+
+export default function NewQuotePage() {
+    const { token } = useAuth();
+    const router = useRouter();
+    const toast = useToast();
+
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [quoteTab, setQuoteTab] = useState<QuoteTab>('loose');
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Mirror nhẹ tên khách (để disable nút Lưu + lỗi inline) — nguồn thật là CustomerInfo
+    const [customerName, setCustomerName] = useState('');
+    const [errors, setErrors] = useState<QuoteDraftErrors>({});
+
+    const customerInfoRef = useRef<CustomerInfoHandle>(null);
+
+    // Cart Context
+    const { items, getTotalAmount, clearCart, addItem } = useQuoteCart();
+
+    const handleCustomerNameChange = useCallback((name: string) => {
+        setCustomerName(name);
+        // Xóa lỗi tên khi người dùng bắt đầu nhập
+        setErrors(prev => (prev.customerName ? { ...prev, customerName: undefined } : prev));
+    }, []);
+
+    // Hydration Effect for Edit Mode
+    useEffect(() => {
+        if (!token || typeof window === 'undefined') return;
+        const searchParams = new URLSearchParams(window.location.search);
+        const editId = searchParams.get('edit');
+        if (!editId) return;
+
+        let isMounted = true;
+        const hydrateQuote = async () => {
+            try {
+                const res = await fetch(`${API_URL}/erp/orders/${editId}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const json = await res.json();
+
+                if (!isMounted) return;
+
+                if (json.success && json.data) {
+                    const d = json.data;
+                    customerInfoRef.current?.setCustomerData({
+                        customer_name: d.customer_name || '',
+                        customer_phone: d.customer_phone || '',
+                        customer_address: d.customer_address || '',
+                        customer_unit: d.customer_unit || '',
+                        customer_email: d.customer_email || '',
+                        customer_tax_code: d.customer_tax_code || '',
+                        customer_contact: d.customer_contact || '',
+                        notes: d.notes || '',
+                    });
+
+                    clearCart();
+                    if (d.items && Array.isArray(d.items)) {
+                        d.items.forEach((item: any) => {
+                            let parsedConfig: any = {};
+                            let parsedDetails: any = {};
+                            try { parsedConfig = typeof item.config_params === 'string' ? JSON.parse(item.config_params) : (item.config_params || {}); } catch {}
+                            try { parsedDetails = typeof item.calculation_details === 'string' ? JSON.parse(item.calculation_details) : (item.calculation_details || {}); } catch {}
+
+                            addItem({
+                                name: item.product_name || 'Sản phẩm',
+                                type: item.type || 'loose',
+                                quantity: item.quantity || 1,
+                                unitPrice: item.quantity > 0 ? (parseFloat(item.item_total) / item.quantity) : 0,
+                                total: parseFloat(item.item_total) || 0,
+                                configParams: parsedConfig,
+                                details: parsedDetails
+                            });
+                        });
+                    }
+                } else {
+                    console.warn('Không tìm thấy báo giá ID:', editId);
+                }
+            } catch (error) {
+                console.error("Lỗi khi load dữ liệu Edit Quote", error);
+            }
+        };
+
+        hydrateQuote();
+        return () => { isMounted = false; };
+
+    }, [token, clearCart, addItem]);
+
+    // Prefill từ Báo giá mini (inbox): chỉ chạy khi KHÔNG ở chế độ edit.
+    // Mang theo template + tab + số lượng + kích thước qua URL param rồi nạp vào
+    // giỏ → useQuoteConfigurator hydrate sẵn (tái dùng đúng cơ chế Edit). Vật liệu/
+    // gia công KHÔNG prefill để nhân viên chọn theo whitelist (an toàn, đúng cấu hình).
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('edit')) return; // edit-mode tự lo
+        const tpl = sp.get('prefill_template');
+        if (!tpl) return;
+
+        const tab = (sp.get('prefill_tab') as QuoteTab) || 'loose';
+        const qty = parseInt(sp.get('prefill_qty') || '0') || undefined;
+        const w = parseFloat(sp.get('prefill_w') || '0') || undefined;
+        const h = parseFloat(sp.get('prefill_h') || '0') || undefined;
+        const name = sp.get('prefill_name') || 'Báo giá từ chat';
+
+        setQuoteTab(tab);
+        clearCart();
+        addItem({
+            name,
+            type: tab,
+            quantity: qty || 1,
+            unitPrice: 0,
+            total: 0,
+            configParams: { templateCode: tpl, ...(w ? { width: w } : {}), ...(h ? { height: h } : {}) },
+            details: {},
+        });
+        // Dọn query để F5 không nạp lại prefill (tránh ghi đè khi user đã chỉnh).
+        try { window.history.replaceState(null, '', window.location.pathname); } catch { /* noop */ }
+        // Chỉ chạy 1 lần lúc mount.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const draft = { customerName, itemsCount: items.length };
+    const canSave = !isSaving && isQuoteDraftValid(draft);
+
+    const handleSaveQuote = async () => {
+        if (!token) return;
+
+        const payload = customerInfoRef.current?.getPayload();
+        const draftName = customerInfoRef.current?.getDraftState().customerName ?? '';
+        const draftNow = { customerName: draftName, itemsCount: items.length };
+        const errs = validateQuoteDraft(draftNow);
+        setErrors(errs);
+        if (!isQuoteDraftValid(draftNow)) {
+            toast.show('error', errs.customerName || errs.items || 'Vui lòng kiểm tra lại thông tin báo giá');
+            return;
+        }
+        if (!payload) return;
+
+        setIsSaving(true);
+
+        const subtotal = getTotalAmount();
+        const vatAmount = subtotal * payload.vat_rate / 100;
+        const grandTotal = subtotal + vatAmount + payload.shipping_fee;
+
+        try {
+            const res = await fetch(`${API_URL}/erp/orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    type: mapTabToType(quoteTab),
+                    customer_name: payload.customer_name,
+                    customer_phone: payload.customer_phone,
+                    customer_unit: payload.customer_unit,
+                    tax_code: payload.customer_tax_code,
+                    customer_address: payload.customer_address,
+                    customer_note: payload.notes,
+                    total: subtotal,
+                    vat_rate: payload.vat_rate,
+                    vat_amount: vatAmount,
+                    shipping_fee: payload.shipping_fee,
+                    grand_total: grandTotal,
+                    items: items.map(mapItem),
+                })
+            });
+
+            if (!res.ok) {
+                let message = `Lưu báo giá thất bại (mã ${res.status})`;
+                try {
+                    const err = await res.json();
+                    const m = Array.isArray(err?.message) ? err.message.join(', ') : err?.message;
+                    message = m || err?.error || message;
+                } catch { /* giữ message mặc định theo status */ }
+                toast.show('error', message);
+                return; // KHÔNG clear cart khi lỗi
+            }
+
+            const data = await res.json();
+            if (data?.success === false) {
+                toast.show('error', data.message || data.error || 'Lưu báo giá thất bại');
+                return; // KHÔNG clear cart khi lỗi
+            }
+
+            toast.show('success', 'Lưu báo giá thành công!');
+            clearCart();
+            router.push('/pricing/quotes');
+        } catch (e) {
+            console.error(e);
+            toast.show('error', 'Có lỗi xảy ra khi lưu báo giá');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-screen bg-slate-100 overflow-hidden">
+            {/* Top Bar - Header Only */}
+            <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-20 relative">
+                <div className="flex items-center gap-4">
+                    <Link href="/pricing/quotes" aria-label="Quay lại danh sách báo giá" className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors shadow-sm">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
+                    </Link>
+                    <div>
+                        <h1 className="text-[16px] font-black text-slate-800 m-0 leading-none">Báo Giá Mới</h1>
+                        <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider m-0">Hệ thống In Nhanh Kỹ Thuật Số</p>
+                    </div>
+                </div>
+
+                {/* Centered Tabs */}
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+                    {[
+                        { id: 'loose', label: 'Sản phẩm Rời', icon: '📝' },
+                        { id: 'bound', label: 'Sản phẩm Cuốn', icon: '📖' },
+                        { id: 'large_format', label: 'In Khổ Lớn', icon: '🖨️' }
+                    ].map(t => (
+                        <button
+                            key={t.id}
+                            onClick={() => setQuoteTab(t.id as QuoteTab)}
+                            className={`px-3.5 py-1.5 font-semibold text-[12px] rounded-md flex items-center gap-1.5 transition-all duration-200 ${
+                                quoteTab === t.id
+                                ? 'bg-white text-indigo-700 shadow-sm'
+                                : 'text-slate-500 hover:text-indigo-600'
+                            }`}
+                        >
+                            <span className="text-[13px]">{t.icon}</span>
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <button onClick={() => router.back()} className="h-9 px-4 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-md text-[13px] font-bold shadow-sm transition-colors">
+                        HUỶ
+                    </button>
+                    <button onClick={handleSaveQuote} disabled={!canSave} aria-label="Lưu báo giá" className={`h-9 px-5 text-white rounded-md text-[13px] font-bold shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSaving ? 'bg-slate-500' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>
+                        {isSaving ? (
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                        )}
+                        LƯU BÁO GIÁ
+                    </button>
+                </div>
+            </div>
+
+            {/* Main Content Area: Sidebar + Configurator */}
+            <div className="flex-1 overflow-hidden flex relative">
+
+                {/* Shared Customer Info Sidebar (renders its own cart preview) */}
+                <CustomerInfo
+                    ref={customerInfoRef}
+                    token={token}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    setIsSidebarCollapsed={setIsSidebarCollapsed}
+                    onCustomerNameChange={handleCustomerNameChange}
+                    nameError={errors.customerName}
+                />
+
+                {/* Right: Configurator Area */}
+                <div className="flex-1 overflow-hidden relative bg-slate-100">
+                    {/* Expand Toggle Button (Visible only when collapsed) */}
+                    <div className={`transition-all duration-300 absolute z-20 top-3 ${isSidebarCollapsed ? 'left-0 opacity-100 visible' : '-left-10 opacity-0 invisible'}`}>
+                        <button
+                            onClick={() => setIsSidebarCollapsed(false)}
+                            aria-label="Mở rộng thông tin khách hàng"
+                            className="bg-white border border-l-0 border-slate-200 shadow-[2px_0_10px_rgba(0,0,0,0.08)] py-2.5 px-1.5 rounded-r-lg text-indigo-600 hover:bg-indigo-50 transition-colors group"
+                            title="Mở rộng thông tin khách hàng"
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover:translate-x-0.5 transition-transform"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>
+                        </button>
+                    </div>
+
+                    <div className="absolute inset-0 p-5 overflow-y-auto custom-scrollbar">
+                        <QuoteConfigurator token={token} activeTab={quoteTab} onTabChange={setQuoteTab} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}

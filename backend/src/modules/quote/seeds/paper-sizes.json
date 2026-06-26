@@ -1,0 +1,58 @@
+[
+    {
+        "code": "A5",
+        "name": "A5 (148×210mm)",
+        "widthMm": 148,
+        "heightMm": 210,
+        "sortOrder": 1
+    },
+    {
+        "code": "A4",
+        "name": "A4 (210×297mm)",
+        "widthMm": 210,
+        "heightMm": 297,
+        "sortOrder": 2
+    },
+    {
+        "code": "A3",
+        "name": "A3 (297×420mm)",
+        "widthMm": 297,
+        "heightMm": 420,
+        "sortOrder": 3
+    },
+    {
+        "code": "A2",
+        "name": "A2 (420×594mm)",
+        "widthMm": 420,
+        "heightMm": 594,
+        "sortOrder": 4
+    },
+    {
+        "code": "A1",
+        "name": "A1 (594×841mm)",
+        "widthMm": 594,
+        "heightMm": 841,
+        "sortOrder": 5
+    },
+    {
+        "code": "32x45",
+        "name": "32×45cm",
+        "widthMm": 320,
+        "heightMm": 450,
+        "sortOrder": 10
+    },
+    {
+        "code": "52x74",
+        "name": "52×74cm (2 trang A3)",
+        "widthMm": 520,
+        "heightMm": 740,
+        "sortOrder": 11
+    },
+    {
+        "code": "65x100",
+        "name": "65×100cm (4 trang A3)",
+        "widthMm": 650,
+        "heightMm": 1000,
+        "sortOrder": 12
+    }
+]

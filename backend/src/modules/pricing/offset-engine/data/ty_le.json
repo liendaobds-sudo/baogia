@@ -1,0 +1,77 @@
+{
+  "haoHut": [
+    {
+      "mocSoLuong": 1000,
+      "tyLe": 0.1
+    },
+    {
+      "mocSoLuong": 3000,
+      "tyLe": 0.08
+    },
+    {
+      "mocSoLuong": 4000,
+      "tyLe": 0.07
+    },
+    {
+      "mocSoLuong": 5000,
+      "tyLe": 0.06
+    },
+    {
+      "mocSoLuong": 7000,
+      "tyLe": 0.05
+    },
+    {
+      "mocSoLuong": 20000,
+      "tyLe": 0.04
+    },
+    {
+      "mocSoLuong": 50000,
+      "tyLe": 0.03
+    },
+    {
+      "mocSoLuong": 100000,
+      "tyLe": 0.02
+    },
+    {
+      "mocSoLuong": 999999,
+      "tyLe": 0.02
+    }
+  ],
+  "params": {
+    "MOQ_GiaCong": 1000,
+    "MOQ_BinhBai_Nho": 3000,
+    "MOQ_BinhBai_Lon": 3000,
+    "GiaMin_XLBM": 250000,
+    "GiaMin_Be": 250000,
+    "GiaMin_DanHop": 250000,
+    "GiaMin_DongGoi": 100000,
+    "TyLe_VAT": 0.08,
+    "TyLe_ChietKhau_Max": 0.1,
+    "TyLe_ChietKhau": 0.05,
+    "Gap_Cm": 0.3,
+    "MatThickness_Mm": 0.5,
+    "Gripper_Cm": 1,
+    "Tui_HeSoGapDay": 0.85,
+    "Tui_MepDanHong_Cm": 1.5,
+    "Tui_MepDanNoi_Cm": 1.5
+  },
+  "mocSoLuong": [
+    1,
+    299,
+    499,
+    699,
+    999,
+    1999,
+    2999,
+    4999,
+    6999,
+    9999,
+    19999,
+    29999,
+    39999,
+    49999,
+    69999,
+    99999,
+    999999
+  ]
+}

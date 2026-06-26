@@ -1,0 +1,296 @@
+[
+  {
+    "code": "C100",
+    "aliases": [],
+    "materialName": "Coucher 100gsm (65x86) Hikote",
+    "type": "Coucher",
+    "gsm": 100,
+    "priceVAT": 1342,
+    "priceNoVAT": 1242.59259259259,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "C120",
+    "aliases": [],
+    "materialName": "Coucher 120gsm (65x86) Hikote",
+    "type": "Coucher",
+    "gsm": 120,
+    "priceVAT": 1643,
+    "priceNoVAT": 1521.2962962963,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "C150",
+    "aliases": [],
+    "materialName": "Coucher 150gsm (65x86) Hikote",
+    "type": "Coucher",
+    "gsm": 150,
+    "priceVAT": 2029,
+    "priceNoVAT": 1878.7037037037,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "C200",
+    "aliases": [],
+    "materialName": "Coucher 200gsm (65x86) Hikote",
+    "type": "Coucher",
+    "gsm": 200,
+    "priceVAT": 2706,
+    "priceNoVAT": 2505.55555555556,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "C250",
+    "aliases": [],
+    "materialName": "Coucher 250gsm (65x86) Hikote",
+    "type": "Coucher",
+    "gsm": 250,
+    "priceVAT": 3390,
+    "priceNoVAT": 3138.88888888889,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "C300",
+    "aliases": [],
+    "materialName": "Coucher 300gsm (65x86) Hikote",
+    "type": "Coucher",
+    "gsm": 300,
+    "priceVAT": 4058,
+    "priceNoVAT": 3757.40740740741,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "B300",
+    "aliases": [],
+    "materialName": "Britol 300gsm (65x86)",
+    "type": "Britol",
+    "gsm": 300,
+    "priceVAT": 4528,
+    "priceNoVAT": 4192.59259259259,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "F60",
+    "aliases": [],
+    "materialName": "Ford 60gms (60x84) Indo",
+    "type": "Ford",
+    "gsm": 60,
+    "priceVAT": 726,
+    "priceNoVAT": 672.222222222222,
+    "sheetWidth": 60,
+    "sheetHeight": 84
+  },
+  {
+    "code": "F70",
+    "aliases": [],
+    "materialName": "Ford 70gms (65x86) INDO",
+    "type": "Ford",
+    "gsm": 70,
+    "priceVAT": 920,
+    "priceNoVAT": 851.851851851852,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "F80",
+    "aliases": [],
+    "materialName": "Ford 80gms (65x86) INDO",
+    "type": "Ford",
+    "gsm": 80,
+    "priceVAT": 1118,
+    "priceNoVAT": 1035.18518518519,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "F100",
+    "aliases": [],
+    "materialName": "Ford 100gms (79x109) INDO",
+    "type": "Ford",
+    "gsm": 100,
+    "priceVAT": 2170,
+    "priceNoVAT": 2009.25925925926,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "F120",
+    "aliases": [],
+    "materialName": "Ford 120gms (79x109) INDO",
+    "type": "Ford",
+    "gsm": 120,
+    "priceVAT": 2604,
+    "priceNoVAT": 2411.11111111111,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "F140",
+    "aliases": [],
+    "materialName": "Ford 140gms (79x109) INDO",
+    "type": "Ford",
+    "gsm": 140,
+    "priceVAT": 3038,
+    "priceNoVAT": 2812.96296296296,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "F180",
+    "aliases": [],
+    "materialName": "Ford 180gms (79x109) INDO",
+    "type": "Ford",
+    "gsm": 180,
+    "priceVAT": 4526,
+    "priceNoVAT": 4190.74074074074,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "F230",
+    "aliases": [],
+    "materialName": "Ford 230gms (79X109) INDO",
+    "type": "Ford",
+    "gsm": 230,
+    "priceVAT": 5783,
+    "priceNoVAT": 5354.62962962963,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "F250",
+    "aliases": [],
+    "materialName": "Ford 250gms (60x84) INDO",
+    "type": "Ford",
+    "gsm": 250,
+    "priceVAT": 3465,
+    "priceNoVAT": 3208.33333333333,
+    "sheetWidth": 60,
+    "sheetHeight": 84
+  },
+  {
+    "code": "F300",
+    "aliases": [],
+    "materialName": "Ford 300gms (79x109) INDO",
+    "type": "Ford",
+    "gsm": 300,
+    "priceVAT": 7440,
+    "priceNoVAT": 6888.88888888889,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "I250",
+    "aliases": [],
+    "materialName": "Ivory 250gsm (65x86) NIGHBO",
+    "type": "Ivory",
+    "gsm": 250,
+    "priceVAT": 2923,
+    "priceNoVAT": 2706.48148148148,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "I300",
+    "aliases": [],
+    "materialName": "Ivory 300gsm (65x86) NIGHBO",
+    "type": "Ivory",
+    "gsm": 300,
+    "priceVAT": 2901,
+    "priceNoVAT": 2686.11111111111,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "I350",
+    "aliases": [],
+    "materialName": "Ivory 350gsm (65x86) Nighbo",
+    "type": "Ivory",
+    "gsm": 350,
+    "priceVAT": 4265,
+    "priceNoVAT": 3949.07407407407,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "I400",
+    "aliases": [],
+    "materialName": "Ivory 400gsm (65x86) NIGHBO",
+    "type": "Ivory",
+    "gsm": 400,
+    "priceVAT": 4875,
+    "priceNoVAT": 4513.88888888889,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "D250",
+    "aliases": [
+      "Duplex 250"
+    ],
+    "materialName": "Duplex 250gsm (65x86) Hansol",
+    "type": "Duplex",
+    "gsm": 250,
+    "priceVAT": 2390,
+    "priceNoVAT": 2212.96296296296,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "D300",
+    "aliases": [
+      "Duplex 300"
+    ],
+    "materialName": "Duplex 300gsm (79x109) Hansol--HÀNG TỒN LÂU",
+    "type": "Duplex",
+    "gsm": 300,
+    "priceVAT": 6070,
+    "priceNoVAT": 5620.37037037037,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  },
+  {
+    "code": "D350",
+    "aliases": [
+      "Duplex 350"
+    ],
+    "materialName": "Duplex 350gsm (65x86) Hansol",
+    "type": "Duplex",
+    "gsm": 350,
+    "priceVAT": 3529,
+    "priceNoVAT": 3267.59259259259,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "D400",
+    "aliases": [
+      "Duplex 400"
+    ],
+    "materialName": "Duplex 400gsm (65x86) Hansol",
+    "type": "Duplex",
+    "gsm": 400,
+    "priceVAT": 4000,
+    "priceNoVAT": 3703.7037037037,
+    "sheetWidth": 65,
+    "sheetHeight": 86
+  },
+  {
+    "code": "Kraft nâu 280",
+    "aliases": [],
+    "materialName": "KRAFT NÂU 210gms (79X109)--HÀNG TỒN LÂU",
+    "type": "Khác",
+    "gsm": 210,
+    "priceVAT": 3534,
+    "priceNoVAT": 3272.22222222222,
+    "sheetWidth": 79,
+    "sheetHeight": 109
+  }
+]

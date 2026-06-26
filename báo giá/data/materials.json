@@ -1,0 +1,272 @@
+[
+  {
+    "code": "C100",
+    "materialName": "Coucher 100gsm (65x86) Hikote",
+    "type": "Coucher",
+    "priceVAT": 1342,
+    "priceNoVAT": 1242.59259259259,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "C120",
+    "materialName": "Coucher 120gsm (65x86) Hikote",
+    "type": "Coucher",
+    "priceVAT": 1643,
+    "priceNoVAT": 1521.2962962963,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "C150",
+    "materialName": "Coucher 150gsm (65x86) Hikote",
+    "type": "Coucher",
+    "priceVAT": 2029,
+    "priceNoVAT": 1878.7037037037,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "C200",
+    "materialName": "Coucher 200gsm (65x86) Hikote",
+    "type": "Coucher",
+    "priceVAT": 2706,
+    "priceNoVAT": 2505.55555555556,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "C250",
+    "materialName": "Coucher 250gsm (65x86) Hikote",
+    "type": "Coucher",
+    "priceVAT": 3390,
+    "priceNoVAT": 3138.88888888889,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "C300",
+    "materialName": "Coucher 300gsm (65x86) Hikote",
+    "type": "Coucher",
+    "priceVAT": 4058,
+    "priceNoVAT": 3757.40740740741,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "B300",
+    "materialName": "Britol 300gsm (65x86)",
+    "type": "Britol",
+    "priceVAT": 4528,
+    "priceNoVAT": 4192.59259259259,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "F60",
+    "materialName": "Ford 60gms (60x84) Indo",
+    "type": "Ford",
+    "priceVAT": 726,
+    "priceNoVAT": 672.222222222222,
+    "width": 60,
+    "height": 84
+  },
+  {
+    "code": "F70",
+    "materialName": "Ford 70gms (65x86) INDO",
+    "type": "Ford",
+    "priceVAT": 920,
+    "priceNoVAT": 851.851851851852,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "F80",
+    "materialName": "Ford 80gms (65x86) INDO",
+    "type": "Ford",
+    "priceVAT": 1118,
+    "priceNoVAT": 1035.18518518519,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "F100",
+    "materialName": "Ford 100gms (79x109) INDO",
+    "type": "Ford",
+    "priceVAT": 2170,
+    "priceNoVAT": 2009.25925925926,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "F120",
+    "materialName": "Ford 120gms (79x109) INDO",
+    "type": "Ford",
+    "priceVAT": 2604,
+    "priceNoVAT": 2411.11111111111,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "F140",
+    "materialName": "Ford 140gms (79x109) INDO",
+    "type": "Ford",
+    "priceVAT": 3038,
+    "priceNoVAT": 2812.96296296296,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "F180",
+    "materialName": "Ford 180gms (79x109) INDO",
+    "type": "Ford",
+    "priceVAT": 4526,
+    "priceNoVAT": 4190.74074074074,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "F230",
+    "materialName": "Ford 230gms (79X109) INDO",
+    "type": "Ford",
+    "priceVAT": 5783,
+    "priceNoVAT": 5354.62962962963,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "F250",
+    "materialName": "Ford 250gms (60x84) INDO",
+    "type": "Ford",
+    "priceVAT": 3465,
+    "priceNoVAT": 3208.33333333333,
+    "width": 60,
+    "height": 84
+  },
+  {
+    "code": "F300",
+    "materialName": "Ford 300gms (79x109) INDO",
+    "type": "Ford",
+    "priceVAT": 7440,
+    "priceNoVAT": 6888.88888888889,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "I250",
+    "materialName": "Ivory 250gsm (65x86) NIGHBO",
+    "type": "Ivory",
+    "priceVAT": 2923,
+    "priceNoVAT": 2706.48148148148,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "I300",
+    "materialName": "Ivory 300gsm (65x86) NIGHBO",
+    "type": "Ivory",
+    "priceVAT": 2901,
+    "priceNoVAT": 2686.11111111111,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "I350",
+    "materialName": "Ivory 350gsm (65x86) Nighbo",
+    "type": "Ivory",
+    "priceVAT": 4265,
+    "priceNoVAT": 3949.07407407407,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "I400",
+    "materialName": "Ivory 400gsm (65x86) NIGHBO",
+    "type": "Ivory",
+    "priceVAT": 4875,
+    "priceNoVAT": 4513.88888888889,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "D250",
+    "materialName": "Duplex 250gsm (65x86) Hansol",
+    "type": "Duplex",
+    "priceVAT": 2390,
+    "priceNoVAT": 2212.96296296296,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "D300",
+    "materialName": "Duplex 300gsm (79x109) Hansol--HÀNG TỒN LÂU",
+    "type": "Duplex",
+    "priceVAT": 6070,
+    "priceNoVAT": 5620.37037037037,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "D350",
+    "materialName": "Duplex 350gsm (65x86) Hansol",
+    "type": "Duplex",
+    "priceVAT": 3529,
+    "priceNoVAT": 3267.59259259259,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "D400",
+    "materialName": "Duplex 400gsm (65x86) Hansol",
+    "type": "Duplex",
+    "priceVAT": 4000,
+    "priceNoVAT": 3703.7037037037,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "Duplex 250",
+    "materialName": "Duplex 250gsm (65x86) Hansol",
+    "type": "Duplex",
+    "priceVAT": 2390,
+    "priceNoVAT": 2212.96296296296,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "Duplex 300",
+    "materialName": "Duplex 300gsm (79x109) Hansol--HÀNG TỒN LÂU",
+    "type": "Duplex",
+    "priceVAT": 6070,
+    "priceNoVAT": 5620.37037037037,
+    "width": 79,
+    "height": 109
+  },
+  {
+    "code": "Duplex 350",
+    "materialName": "Duplex 350gsm (65x86) Hansol",
+    "type": "Duplex",
+    "priceVAT": 3529,
+    "priceNoVAT": 3267.59259259259,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "Duplex 400",
+    "materialName": "Duplex 400gsm (65x86) Hansol",
+    "type": "Duplex",
+    "priceVAT": 4000,
+    "priceNoVAT": 3703.7037037037,
+    "width": 65,
+    "height": 86
+  },
+  {
+    "code": "Kraft nâu 280",
+    "materialName": "KRAFT NÂU 210gms (79X109)--HÀNG TỒN LÂU",
+    "type": "Khác",
+    "priceVAT": 3534,
+    "priceNoVAT": 3272.22222222222,
+    "width": 79,
+    "height": 109
+  }
+]

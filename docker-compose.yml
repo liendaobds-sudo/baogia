@@ -1,0 +1,81 @@
+# ZaloHub — Docker Compose (Production-ready)
+# Usage: docker compose up -d
+# Then: cd backend && DB_TYPE=postgres npm run start:dev
+
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: zalohub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zalohub
+      POSTGRES_PASSWORD: zalohub_secret
+      POSTGRES_DB: zalohub
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zalohub"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Redis — cache, queue (BullMQ), pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: zalohub-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MinIO — S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    container_name: zalohub-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: zalohub
+      MINIO_ROOT_PASSWORD: zalohub_minio_secret
+    ports:
+      - "9000:9000"    # S3 API
+      - "9001:9001"    # Web Console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Monitoring: Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: zalohub-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-change_me_in_production}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafanadata:/var/lib/grafana
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  grafanadata:

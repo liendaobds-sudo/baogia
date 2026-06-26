@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+build/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.sqlite
+*.sqlite3
+_backup/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# Uploads
+uploads/
+
+# Docker volumes
+postgres_data/
+redis_data/
+minio_data/
+
+# ── Secrets & runtime config (added 2026-06-15 cleanup) ──
+admin-password.txt
+*-password.txt
+# ai-config.json chứa AI provider API keys — KHÔNG commit
+ai-config.json
+automation-config.json
+# data/zeplao.db và mọi file DB
+*.db
+
+# ── Local archive of legacy/dev scripts (giữ máy local, không commit) ──
+_archive/

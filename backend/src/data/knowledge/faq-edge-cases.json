@@ -1,0 +1,169 @@
+{
+    "_description": "FAQ thường gặp và xử lý edge cases",
+    "faq": [
+        {
+            "patterns": [
+                "giao hàng",
+                "ship",
+                "delivery",
+                "bao lâu",
+                "mấy ngày",
+                "khi nào xong",
+                "khi nào nhận"
+            ],
+            "answer": "Thời gian in thông thường 2-3 ngày làm việc. In gấp 1-2 ngày có phụ thu 30-50%. Giao hàng nội thành miễn phí đơn từ 500k ạ.",
+            "intent": "hỏi_giao_hàng"
+        },
+        {
+            "patterns": [
+                "thanh toán",
+                "chuyển khoản",
+                "COD",
+                "tiền mặt",
+                "banking",
+                "momo",
+                "zalopay"
+            ],
+            "answer": "Em nhận thanh toán: chuyển khoản ngân hàng, tiền mặt khi nhận, MoMo/ZaloPay. Đặt cọc 50% khi đặt hàng, 50% khi nhận ạ.",
+            "intent": "hỏi_thanh_toán"
+        },
+        {
+            "patterns": [
+                "số lượng tối thiểu",
+                "in ít",
+                "đặt ít",
+                "MOQ",
+                "minimum"
+            ],
+            "answer": "In kỹ thuật số không giới hạn số lượng tối thiểu — in từ 1 cái cũng được. Tuy nhiên giá tốt nhất thường từ 100-500 cái trở lên ạ.",
+            "intent": "hỏi_số_lượng"
+        },
+        {
+            "patterns": [
+                "file thiết kế",
+                "gửi file",
+                "format",
+                "định dạng",
+                "ai",
+                "psd",
+                "pdf",
+                "corel"
+            ],
+            "answer": "Em nhận file AI (Illustrator), PSD (Photoshop), PDF, CorelDRAW. File cần: CMYK, 300dpi, có bleed 3mm. Nếu bạn chưa có file, em có đội thiết kế hỗ trợ ạ!",
+            "intent": "hỏi_file"
+        },
+        {
+            "patterns": [
+                "thiết kế",
+                "design",
+                "vẽ",
+                "tạo mẫu"
+            ],
+            "answer": "Bên em có đội thiết kế hỗ trợ, phí thiết kế từ 200k-500k tùy độ phức tạp. Nếu bạn có ý tưởng/hình mẫu thì em sẽ báo giá chính xác ạ.",
+            "intent": "hỏi_thiết_kế"
+        },
+        {
+            "patterns": [
+                "bảo hành",
+                "in lỗi",
+                "sai màu",
+                "lỗi in"
+            ],
+            "answer": "Bên em bảo hành 100% — nếu lỗi do in (sai màu, bẩn, lệch) em in lại miễn phí. Trước khi in em sẽ gửi proof để bạn duyệt ạ.",
+            "intent": "hỏi_bảo_hành"
+        },
+        {
+            "patterns": [
+                "proof",
+                "xem trước",
+                "duyệt",
+                "sample",
+                "mẫu thử"
+            ],
+            "answer": "Em sẽ gửi proof (bản mẫu) qua Zalo/email để bạn duyệt trước khi in. Nếu cần in mẫu thử thực tế, phí ~50k-100k/mẫu ạ.",
+            "intent": "hỏi_proof"
+        },
+        {
+            "patterns": [
+                "chào",
+                "hello",
+                "hi",
+                "xin chào",
+                "alo"
+            ],
+            "answer": "Dạ chào bạn! Em là trợ lý tư vấn in ấn của KPrint. Bạn cần in gì ạ? Em tư vấn giá và chất liệu phù hợp nhất cho bạn nhé! 😊",
+            "intent": "chào_hỏi"
+        },
+        {
+            "patterns": [
+                "cảm ơn",
+                "thank",
+                "thanks",
+                "cám ơn"
+            ],
+            "answer": "Dạ không có gì ạ! Bạn cần thêm gì cứ nhắn em nhé 😊",
+            "intent": "cảm_ơn"
+        }
+    ],
+    "edgeCases": {
+        "offTopic": {
+            "patterns": [
+                "thời tiết",
+                "bóng đá",
+                "ăn gì",
+                "phim",
+                "game",
+                "bitcoin",
+                "crypto"
+            ],
+            "response": "Dạ em chuyên về in ấn thôi ạ 😊 Bạn cần in gì em tư vấn giá và chất liệu phù hợp nhé!"
+        },
+        "profanity": {
+            "patterns": [
+                "đm",
+                "vcl",
+                "đéo",
+                "cc",
+                "clm",
+                "wtf",
+                "shit"
+            ],
+            "response": "ESCALATE_TO_HUMAN",
+            "note": "Chuyển cho nhân viên xử lý, không auto-reply"
+        },
+        "multiProduct": {
+            "patterns": [
+                "và",
+                "thêm",
+                "kèm",
+                "combo",
+                "cả",
+                "gồm"
+            ],
+            "guidance": "Detect khi khách hỏi nhiều sản phẩm → tách riêng và tư vấn từng SP, rồi gợi ý combo"
+        },
+        "rushOrder": {
+            "keywords": [
+                "gấp",
+                "nhanh",
+                "express",
+                "hôm nay",
+                "ngày mai",
+                "rush",
+                "cần gấp"
+            ],
+            "response": "Dạ em có dịch vụ in gấp! Tùy sản phẩm có thể giao trong 1-2 ngày, phụ thu 30-50%. Bạn cần gấp khi nào ạ?"
+        },
+        "portfolioRequest": {
+            "patterns": [
+                "mẫu",
+                "portfolio",
+                "xem mẫu",
+                "mẫu in",
+                "hình mẫu",
+                "gallery"
+            ],
+            "response": "Dạ bạn muốn xem mẫu sản phẩm gì ạ? Em gửi hình mẫu thực tế bên em đã in cho bạn tham khảo nhé!"
+        }
+    }
+}

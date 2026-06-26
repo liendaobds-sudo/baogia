@@ -1,0 +1,1840 @@
+{
+    "_version": "1.0",
+    "_description": "Bộ dữ liệu kiến thức in ấn - KPrint/ZeplaoPrint. Dùng cho cả template fallback (offline) và AI prompt (online).",
+    "products": {
+        "decal": {
+            "keywords": [
+                "decal",
+                "tem",
+                "sticker",
+                "nhãn dán",
+                "nhãn",
+                "tem nhãn",
+                "label",
+                "miếng dán"
+            ],
+            "displayName": "Decal / Tem nhãn",
+            "defaultQuestion": "Bạn dán vào đâu ạ? (VD: chai/hũ thực phẩm, điện thoại, hộp giấy, ngoài trời...) — em sẽ tư vấn chất liệu phù hợp nhất!",
+            "usageRules": [
+                {
+                    "id": "decal_food_jar",
+                    "context": [
+                        "hũ",
+                        "lọ",
+                        "chai",
+                        "bình",
+                        "yến",
+                        "yến sào",
+                        "mật ong",
+                        "nước mắm",
+                        "tương ớt",
+                        "nước ép",
+                        "sữa",
+                        "rượu",
+                        "bia",
+                        "dầu",
+                        "thực phẩm",
+                        "food",
+                        "đồ ăn"
+                    ],
+                    "material": {
+                        "name": "decal nhựa PVC chống nước",
+                        "type": "pvc_waterproof"
+                    },
+                    "reason": "sản phẩm thực phẩm thường để tủ lạnh, tiếp xúc ẩm ướt — decal giấy sẽ bong sau vài ngày",
+                    "socialProof": "Đa số khách in nhãn thực phẩm bên em đều chọn PVC chống nước ạ.",
+                    "sizes": [
+                        {
+                            "name": "5×8cm",
+                            "context": "hũ yến/lọ nhỏ 70-100ml"
+                        },
+                        {
+                            "name": "oval 4×6cm",
+                            "context": "hũ tròn nhỏ"
+                        },
+                        {
+                            "name": "7×10cm",
+                            "context": "chai nước/nước ép cuộn quanh"
+                        },
+                        {
+                            "name": "8×12cm",
+                            "context": "hộp thực phẩm"
+                        }
+                    ],
+                    "finishing": [
+                        "bế theo hình (die-cut)",
+                        "cán bóng"
+                    ],
+                    "finishingReason": "nhãn ôm sát sản phẩm, trông chuyên nghiệp hơn hình vuông/chữ nhật",
+                    "upsell": "Nếu bạn in từ 1000 cái trở lên, đơn giá sẽ giảm đáng kể ạ!"
+                },
+                {
+                    "id": "decal_cosmetics",
+                    "context": [
+                        "mỹ phẩm",
+                        "kem",
+                        "serum",
+                        "dầu gội",
+                        "sữa tắm",
+                        "nước hoa",
+                        "son",
+                        "phấn",
+                        "tinh dầu",
+                        "xà phòng",
+                        "sáp",
+                        "lọ mỹ phẩm"
+                    ],
+                    "material": {
+                        "name": "decal nhựa PVC + in nhũ vàng/bạc",
+                        "type": "pvc_metallic"
+                    },
+                    "reason": "sản phẩm mỹ phẩm cần nhãn sang trọng, bắt mắt — nhũ vàng/bạc tạo cảm giác cao cấp",
+                    "socialProof": "Hầu hết thương hiệu mỹ phẩm bên em đều chọn PVC nhũ vàng ạ.",
+                    "sizes": [
+                        {
+                            "name": "3×5cm",
+                            "context": "lọ mỹ phẩm nhỏ"
+                        },
+                        {
+                            "name": "4×7cm",
+                            "context": "lọ/chai trung bình"
+                        },
+                        {
+                            "name": "5×8cm",
+                            "context": "chai lớn"
+                        }
+                    ],
+                    "finishing": [
+                        "bế die-cut",
+                        "ép nhũ nóng (hot foil)",
+                        "cán mờ"
+                    ],
+                    "finishingReason": "ép nhũ vàng/bạc tạo điểm nhấn sang trọng cho thương hiệu",
+                    "upsell": "Thêm ép nhũ chỉ tăng ~500đ/cái nhưng nhìn sang hơn rất nhiều!"
+                },
+                {
+                    "id": "decal_electronics",
+                    "context": [
+                        "điện thoại",
+                        "phone",
+                        "iphone",
+                        "samsung",
+                        "laptop",
+                        "máy tính",
+                        "tablet",
+                        "ipad",
+                        "macbook",
+                        "loa",
+                        "tai nghe",
+                        "skin"
+                    ],
+                    "material": {
+                        "name": "decal nhựa vinyl cao cấp chống xước",
+                        "type": "vinyl_premium"
+                    },
+                    "reason": "dán trên thiết bị điện tử cần chống xước, chống phai, dễ tháo không để lại keo",
+                    "socialProof": "Khách dán skin điện thoại/laptop bên em đều chọn vinyl cao cấp — bền đẹp, tháo ra sạch ạ.",
+                    "sizes": [
+                        {
+                            "name": "7×15cm",
+                            "context": "mặt lưng điện thoại"
+                        },
+                        {
+                            "name": "30×20cm",
+                            "context": "nắp laptop 13-14 inch"
+                        },
+                        {
+                            "name": "35×24cm",
+                            "context": "nắp laptop 15-16 inch"
+                        }
+                    ],
+                    "finishing": [
+                        "cán mờ (matte)",
+                        "cán bóng (glossy)"
+                    ],
+                    "finishingReason": "cán mờ cho cảm giác cao cấp, cán bóng cho màu sắc nổi bật",
+                    "upsell": "Bạn muốn in thêm viền bảo vệ cạnh máy không? Chỉ thêm ~50% giá thôi ạ."
+                },
+                {
+                    "id": "decal_outdoor",
+                    "context": [
+                        "ngoài trời",
+                        "biển hiệu",
+                        "ô tô",
+                        "xe máy",
+                        "mũ bảo hiểm",
+                        "cửa hàng",
+                        "bảng hiệu",
+                        "xe tải",
+                        "container"
+                    ],
+                    "material": {
+                        "name": "decal nhựa PVC + cán UV chống phai",
+                        "type": "pvc_uv"
+                    },
+                    "reason": "tiếp xúc nắng mưa trực tiếp — cán UV giúp màu bền 2-3 năm không phai",
+                    "socialProof": "Biển hiệu/decal ngoài trời bên em đều cán UV — khách quay lại in tiếp luôn vì bền quá.",
+                    "sizes": [
+                        {
+                            "name": "tùy kích thước biển",
+                            "context": "biển hiệu"
+                        },
+                        {
+                            "name": "tùy thân xe",
+                            "context": "decal xe"
+                        }
+                    ],
+                    "finishing": [
+                        "cán UV 2 mặt",
+                        "bế contour"
+                    ],
+                    "finishingReason": "cán UV giúp chống phai nắng, bế contour cho hình dáng tùy chỉnh"
+                },
+                {
+                    "id": "decal_glass_wall",
+                    "context": [
+                        "tường",
+                        "kính",
+                        "gương",
+                        "cửa kính",
+                        "quầy",
+                        "quán",
+                        "cà phê",
+                        "cafe",
+                        "nhà hàng",
+                        "shop",
+                        "salon",
+                        "cửa sổ"
+                    ],
+                    "material": {
+                        "name": "decal nhựa PVC dán kính/tường",
+                        "type": "pvc_removable"
+                    },
+                    "reason": "dán trên bề mặt phẳng (kính, tường) — PVC dễ thi công, tháo gỡ sạch khi cần",
+                    "sizes": [
+                        {
+                            "name": "tùy kích thước kính",
+                            "context": "dán kính cửa hàng"
+                        },
+                        {
+                            "name": "A3-A2",
+                            "context": "poster dán tường"
+                        }
+                    ],
+                    "finishing": [
+                        "in ngược (cho kính)",
+                        "cán mờ"
+                    ],
+                    "finishingReason": "in ngược cho phép nhìn từ ngoài kính vào"
+                },
+                {
+                    "id": "decal_dry_packaging",
+                    "context": [
+                        "hộp giấy",
+                        "túi giấy",
+                        "bao bì",
+                        "thùng carton",
+                        "hộp quà",
+                        "hộp bánh",
+                        "hộp khô"
+                    ],
+                    "material": {
+                        "name": "decal giấy couche",
+                        "type": "paper_couche"
+                    },
+                    "reason": "dán trên bề mặt khô (hộp giấy/túi giấy) — decal giấy đẹp, tiết kiệm chi phí hơn PVC ~30%",
+                    "sizes": [
+                        {
+                            "name": "5×5cm",
+                            "context": "seal nhỏ"
+                        },
+                        {
+                            "name": "8×12cm",
+                            "context": "nhãn hộp thực phẩm"
+                        },
+                        {
+                            "name": "tùy kích thước hộp",
+                            "context": "nhãn chính"
+                        }
+                    ],
+                    "finishing": [
+                        "cán bóng",
+                        "bế die-cut"
+                    ],
+                    "finishingReason": "cán bóng cho màu sắc đẹp, bế die-cut cho hình dạng tùy chỉnh"
+                },
+                {
+                    "id": "decal_clothing",
+                    "context": [
+                        "áo",
+                        "quần",
+                        "vải",
+                        "túi vải",
+                        "nón",
+                        "mũ lưỡi trai",
+                        "đồng phục",
+                        "áo thun"
+                    ],
+                    "material": {
+                        "name": "in chuyển nhiệt (heat transfer)",
+                        "type": "heat_transfer"
+                    },
+                    "reason": "dán trên vải/áo cần chịu giặt — in chuyển nhiệt bám chắc, không bong sau nhiều lần giặt",
+                    "sizes": [
+                        {
+                            "name": "A4 (21×29.7cm)",
+                            "context": "in logo ngực/lưng"
+                        },
+                        {
+                            "name": "A3 (29.7×42cm)",
+                            "context": "in full lưng áo"
+                        }
+                    ],
+                    "finishing": [
+                        "ép nhiệt"
+                    ],
+                    "finishingReason": "ép nhiệt ở 150-180°C để bám chắc vào vải"
+                },
+                {
+                    "id": "decal_event",
+                    "context": [
+                        "sự kiện",
+                        "tiệc",
+                        "triển lãm",
+                        "hội nghị",
+                        "workshop",
+                        "event",
+                        "đám cưới",
+                        "sinh nhật"
+                    ],
+                    "material": {
+                        "name": "decal giấy couche cán bóng",
+                        "type": "paper_glossy"
+                    },
+                    "reason": "sử dụng trong nhà, 1 lần — couche cán bóng cho màu sắc đẹp với giá hợp lý",
+                    "sizes": [
+                        {
+                            "name": "3×3cm - 5×5cm",
+                            "context": "tem seal phong bì/hộp quà"
+                        },
+                        {
+                            "name": "customizable",
+                            "context": "tùy nhu cầu"
+                        }
+                    ],
+                    "finishing": [
+                        "cán bóng",
+                        "bế die-cut"
+                    ],
+                    "finishingReason": "cán bóng cho bắt mắt, bế die-cut cho hình dạng đặc biệt"
+                }
+            ]
+        },
+        "namecard": {
+            "keywords": [
+                "namecard",
+                "name card",
+                "danh thiếp",
+                "card visit",
+                "visiting card",
+                "business card",
+                "thẻ tên",
+                "card"
+            ],
+            "displayName": "Namecard / Danh thiếp",
+            "material": {
+                "name": "giấy couche 300gsm",
+                "type": "couche_300"
+            },
+            "reason": "giấy dày, cầm chắc tay — tiêu chuẩn cho namecard chuyên nghiệp",
+            "socialProof": "Đa số doanh nghiệp bên em đều chọn couche 300 cán mờ — vừa đẹp vừa bền ạ.",
+            "sizes": [
+                {
+                    "name": "9×5.5cm",
+                    "context": "kích thước chuẩn quốc tế"
+                }
+            ],
+            "finishing": [
+                "cán mờ (sang trọng)",
+                "cán bóng (nổi bật)",
+                "ép nhũ vàng/bạc"
+            ],
+            "finishingReason": "Cán mờ tạo cảm giác sang trọng, chuyên nghiệp. Chênh lệch chỉ ~200đ/cái.",
+            "upsell": "Thêm ép nhũ logo chỉ +500đ/cái — namecard trông cao cấp hơn hẳn!",
+            "alternatives": [
+                {
+                    "name": "giấy mỹ thuật",
+                    "reason": "cao cấp, có texture, phù hợp ngành sáng tạo",
+                    "priceNote": "+30% so với couche"
+                },
+                {
+                    "name": "giấy kraft",
+                    "reason": "phong cách eco, handmade, vintage",
+                    "priceNote": "+20% so với couche"
+                },
+                {
+                    "name": "nhựa PVC trong",
+                    "reason": "hiện đại, độc đáo, chống nước",
+                    "priceNote": "+80% so với couche"
+                }
+            ]
+        },
+        "tờ_rơi": {
+            "keywords": [
+                "tờ rơi",
+                "flyer",
+                "leaflet",
+                "tờ gấp",
+                "rơi",
+                "tờ quảng cáo",
+                "phát tờ rơi"
+            ],
+            "displayName": "Tờ rơi / Flyer",
+            "material": {
+                "name": "giấy couche 150-200gsm",
+                "type": "couche_150_200"
+            },
+            "reason": "đủ dày để cầm tay, không quá nặng — tiêu chuẩn cho tờ rơi quảng cáo",
+            "sizes": [
+                {
+                    "name": "A5 (14.8×21cm)",
+                    "context": "phổ biến nhất, dễ phát tay"
+                },
+                {
+                    "name": "A4 (21×29.7cm)",
+                    "context": "nhiều nội dung hơn"
+                },
+                {
+                    "name": "DL (9.9×21cm)",
+                    "context": "gấp 3, bỏ phong bì"
+                }
+            ],
+            "finishing": [
+                "cán bóng 1 mặt"
+            ],
+            "finishingReason": "Cán bóng 1 mặt — màu sắc nổi bật hơn, chi phí chỉ thêm ~100đ/tờ.",
+            "upsell": "In từ 500 tờ đơn giá chỉ ~800đ/tờ, từ 1000 tờ chỉ ~500đ/tờ!",
+            "printSides": [
+                "1 mặt",
+                "2 mặt"
+            ]
+        },
+        "brochure": {
+            "keywords": [
+                "brochure",
+                "tờ gấp",
+                "leaflet gấp",
+                "trifold",
+                "bifold"
+            ],
+            "displayName": "Brochure / Tờ gấp",
+            "material": {
+                "name": "giấy couche 200-250gsm",
+                "type": "couche_200_250"
+            },
+            "reason": "dày hơn flyer vì gấp nhiều lớp — cán mờ 2 mặt cho bền và đẹp",
+            "sizes": [
+                {
+                    "name": "A4 gấp 3 (DL)",
+                    "context": "phổ biến nhất"
+                },
+                {
+                    "name": "A4 gấp 2 (A5)",
+                    "context": "ít nội dung hơn"
+                },
+                {
+                    "name": "A3 gấp 3",
+                    "context": "nhiều nội dung"
+                }
+            ],
+            "finishing": [
+                "cán mờ 2 mặt",
+                "gấp"
+            ],
+            "finishingReason": "cán mờ 2 mặt cho cảm giác chuyên nghiệp, chống bám vân tay"
+        },
+        "catalogue": {
+            "keywords": [
+                "catalogue",
+                "catalog",
+                "sách",
+                "tập san",
+                "profile",
+                "company profile",
+                "hồ sơ năng lực"
+            ],
+            "displayName": "Catalogue / Hồ sơ năng lực",
+            "material": {
+                "name": "bìa couche 300gsm + ruột couche 150-200gsm",
+                "type": "couche_combo"
+            },
+            "reason": "bìa dày sang trọng, ruột mỏng hơn để dễ lật — combo tiêu chuẩn cho catalogue",
+            "sizes": [
+                {
+                    "name": "A4 (21×29.7cm)",
+                    "context": "phổ biến nhất"
+                },
+                {
+                    "name": "A5 (14.8×21cm)",
+                    "context": "gọn nhẹ, dễ mang theo"
+                }
+            ],
+            "finishing": [
+                "cán mờ bìa",
+                "đóng ghim/keo nhiệt"
+            ],
+            "finishingReason": "Cán mờ bìa — chuyên nghiệp, bền khi lật nhiều lần.",
+            "upsell": "Thêm cán mờ bìa + đóng keo nhiệt trông rất chuyên nghiệp, chỉ thêm ~5.000đ/cuốn!",
+            "extraQuestions": [
+                "Bao nhiêu trang ạ?",
+                "Đóng ghim hay keo nhiệt?"
+            ]
+        },
+        "menu": {
+            "keywords": [
+                "menu",
+                "thực đơn",
+                "menu nhà hàng",
+                "menu quán",
+                "menu cafe"
+            ],
+            "displayName": "Menu / Thực đơn",
+            "material": {
+                "name": "giấy couche 300gsm + cán mờ chống bám vân tay",
+                "type": "couche_300_matte"
+            },
+            "reason": "menu nhà hàng cần bền, chống nước nhẹ và không bám dấu tay khi khách cầm",
+            "socialProof": "Hầu hết nhà hàng/quán bên em đều chọn couche 300 cán mờ — bền đẹp, sạch sẽ.",
+            "sizes": [
+                {
+                    "name": "A4 (21×29.7cm)",
+                    "context": "phổ biến, đủ nội dung"
+                },
+                {
+                    "name": "A3 gấp 3",
+                    "context": "nhiều món, sang trọng"
+                },
+                {
+                    "name": "A5",
+                    "context": "menu gọn, quán nhỏ"
+                }
+            ],
+            "finishing": [
+                "cán mờ 2 mặt",
+                "gấp (nếu A3)"
+            ],
+            "finishingReason": "Cán mờ 2 mặt — chống bám vân tay, chống nước nhẹ, bền hơn rất nhiều.",
+            "upsell": "Nếu cần menu chống nước hoàn toàn (cho quán ngoài trời), em có dùng nhựa PP chống nước — bền gấp 10 lần!"
+        },
+        "poster": {
+            "keywords": [
+                "poster",
+                "áp phích",
+                "tranh",
+                "hình treo"
+            ],
+            "displayName": "Poster / Áp phích",
+            "material": {
+                "name": "giấy couche 200gsm cán bóng",
+                "type": "couche_200_glossy"
+            },
+            "reason": "couche 200gsm cho poster sắc nét, cán bóng cho màu rực rỡ",
+            "sizes": [
+                {
+                    "name": "A2 (42×59cm)",
+                    "context": "phổ biến, treo trong nhà"
+                },
+                {
+                    "name": "A1 (59×84cm)",
+                    "context": "poster lớn"
+                },
+                {
+                    "name": "A3 (29.7×42cm)",
+                    "context": "poster nhỏ/quảng cáo bàn"
+                }
+            ],
+            "finishing": [
+                "cán bóng",
+                "cán mờ (nghệ thuật)"
+            ],
+            "finishingReason": "cán bóng cho màu rực rỡ, cán mờ cho phong cách nghệ thuật"
+        },
+        "banner": {
+            "keywords": [
+                "banner",
+                "băng rôn",
+                "bạt",
+                "phông",
+                "backdrop",
+                "hiflex"
+            ],
+            "displayName": "Banner / Băng rôn",
+            "material": {
+                "name": "bạt hiflex",
+                "type": "hiflex"
+            },
+            "reason": "bạt hiflex chống nước, chống nắng — tiêu chuẩn cho banner ngoài trời",
+            "sizes": [
+                {
+                    "name": "tùy kích thước",
+                    "context": "tính theo m²"
+                },
+                {
+                    "name": "1×3m",
+                    "context": "băng rôn phổ biến"
+                },
+                {
+                    "name": "2×4m",
+                    "context": "banner lớn"
+                }
+            ],
+            "finishing": [
+                "gia cố viền",
+                "mắt cáo (khoen)"
+            ],
+            "finishingReason": "gia cố viền + mắt cáo để treo bền, chống gió"
+        },
+        "standee": {
+            "keywords": [
+                "standee",
+                "x-banner",
+                "roll-up",
+                "banner chân"
+            ],
+            "displayName": "Standee / X-Banner",
+            "material": {
+                "name": "bạt hiflex/PP",
+                "type": "hiflex_pp"
+            },
+            "reason": "PP cho trong nhà (nhẹ, sắc nét), hiflex cho ngoài trời (bền, chống nước)",
+            "sizes": [
+                {
+                    "name": "60×160cm",
+                    "context": "standee nhỏ, phổ biến"
+                },
+                {
+                    "name": "80×200cm",
+                    "context": "standee lớn, nổi bật"
+                }
+            ],
+            "finishing": [
+                "kèm chân sắt"
+            ],
+            "finishingReason": "standee kèm chân X hoặc chân cuộn (roll-up)"
+        },
+        "hộp": {
+            "keywords": [
+                "hộp",
+                "hộp giấy",
+                "hộp quà",
+                "hộp bánh",
+                "hộp sản phẩm",
+                "packaging",
+                "bao bì"
+            ],
+            "displayName": "Hộp giấy / Bao bì",
+            "material": {
+                "name": "giấy ivory/duplex 300-350gsm",
+                "type": "ivory_duplex"
+            },
+            "reason": "giấy cứng, giữ form hộp tốt — tiêu chuẩn cho hộp sản phẩm",
+            "sizes": [
+                {
+                    "name": "tùy sản phẩm",
+                    "context": "cần file kích thước hoặc mẫu sản phẩm"
+                }
+            ],
+            "finishing": [
+                "bế hộp",
+                "dán keo",
+                "cán mờ/bóng",
+                "ép nhũ"
+            ],
+            "finishingReason": "Bế + dán keo — thành phẩm hộp hoàn chỉnh.",
+            "extraQuestions": [
+                "Bạn có file thiết kế khai triển hộp chưa?",
+                "Sản phẩm bên trong là gì (để tính kích thước hộp)?"
+            ]
+        },
+        "túi": {
+            "keywords": [
+                "túi giấy",
+                "túi",
+                "túi xách",
+                "túi quà",
+                "shopping bag"
+            ],
+            "displayName": "Túi giấy",
+            "material": {
+                "name": "giấy kraft/ivory 250-300gsm",
+                "type": "kraft_ivory"
+            },
+            "reason": "kraft cho phong cách eco/tự nhiên, ivory cho sang trọng/trắng sáng",
+            "sizes": [
+                {
+                    "name": "nhỏ (15×20×8cm)",
+                    "context": "túi quà nhỏ"
+                },
+                {
+                    "name": "vừa (25×33×10cm)",
+                    "context": "túi quần áo/mỹ phẩm"
+                },
+                {
+                    "name": "lớn (33×40×12cm)",
+                    "context": "túi shopping lớn"
+                }
+            ],
+            "finishing": [
+                "gia cố quai",
+                "ép nhũ logo",
+                "cán mờ"
+            ],
+            "finishingReason": "gia cố quai dây — chịu lực tốt, không đứt",
+            "upsell": "Thêm ép nhũ logo chỉ +1.000đ/túi — trông cao cấp hơn rất nhiều!"
+        },
+        "phong_bì": {
+            "keywords": [
+                "phong bì",
+                "envelope",
+                "bì thư"
+            ],
+            "displayName": "Phong bì",
+            "material": {
+                "name": "giấy offset 120gsm",
+                "type": "offset_120"
+            },
+            "reason": "giấy offset mượt, in đẹp — tiêu chuẩn cho phong bì công ty",
+            "sizes": [
+                {
+                    "name": "12×22cm",
+                    "context": "phong bì DL (phổ biến nhất)"
+                },
+                {
+                    "name": "16×23cm",
+                    "context": "phong bì A5"
+                },
+                {
+                    "name": "25×35cm",
+                    "context": "phong bì A4"
+                }
+            ],
+            "finishing": [
+                "dán nắp keo"
+            ],
+            "finishingReason": "dán nắp keo để đóng gọn"
+        },
+        "lịch": {
+            "keywords": [
+                "lịch",
+                "lịch tết",
+                "lịch treo tường",
+                "lịch bàn",
+                "lịch để bàn",
+                "calendar"
+            ],
+            "displayName": "Lịch",
+            "material": {
+                "name": "couche 300gsm (bìa) + 200gsm (ruột)",
+                "type": "couche_calendar"
+            },
+            "reason": "bìa dày chắc chắn, ruột rõ nét — phù hợp cho lịch quảng cáo",
+            "sizes": [
+                {
+                    "name": "20×30cm",
+                    "context": "lịch bàn phổ biến"
+                },
+                {
+                    "name": "40×60cm",
+                    "context": "lịch treo tường"
+                }
+            ],
+            "finishing": [
+                "cán mờ bìa",
+                "đóng lò xo/gáy xoắn",
+                "chân lịch (calendar only)"
+            ],
+            "finishingReason": "lò xo tiện lật, chân lịch (bàn) hoặc móc treo (tường)"
+        },
+        "giấy_tiêu_đề": {
+            "keywords": [
+                "giấy tiêu đề",
+                "letterhead",
+                "giấy công ty",
+                "giấy văn phòng"
+            ],
+            "displayName": "Giấy tiêu đề / Letterhead",
+            "material": {
+                "name": "giấy offset 100-120gsm",
+                "type": "offset_100_120"
+            },
+            "reason": "giấy offset mượt, dễ viết tay/đóng dấu — chuẩn văn phòng",
+            "sizes": [
+                {
+                    "name": "A4 (21×29.7cm)",
+                    "context": "chuẩn văn phòng"
+                }
+            ],
+            "finishing": [],
+            "finishingReason": ""
+        },
+        "voucher": {
+            "keywords": [
+                "voucher",
+                "coupon",
+                "phiếu giảm giá",
+                "thẻ",
+                "gift card",
+                "phiếu quà tặng"
+            ],
+            "displayName": "Voucher / Phiếu quà tặng",
+            "material": {
+                "name": "giấy couche 300gsm",
+                "type": "couche_300"
+            },
+            "reason": "dày vừa, cầm chắc tay — phù hợp cho voucher/thẻ quà tặng",
+            "sizes": [
+                {
+                    "name": "9×5.5cm",
+                    "context": "cỡ namecard"
+                },
+                {
+                    "name": "20×9cm",
+                    "context": "voucher dài"
+                }
+            ],
+            "finishing": [
+                "cán mờ",
+                "ép nhũ",
+                "đánh số thứ tự"
+            ],
+            "finishingReason": "Đánh số thứ tự giúp quản lý phát hành, ép nhũ cho sang trọng"
+        },
+        "hoá_đơn": {
+            "keywords": [
+                "hoá đơn",
+                "hóa đơn",
+                "phiếu thu",
+                "phiếu chi",
+                "biểu mẫu",
+                "liên",
+                "carbonless"
+            ],
+            "displayName": "Hoá đơn / Biểu mẫu",
+            "material": {
+                "name": "giấy carbonless (NCR) 2-3 liên",
+                "type": "carbonless"
+            },
+            "reason": "giấy carbonless tự copy qua các liên — không cần giấy than",
+            "sizes": [
+                {
+                    "name": "A5 (14.8×21cm)",
+                    "context": "hoá đơn nhỏ"
+                },
+                {
+                    "name": "A4 (21×29.7cm)",
+                    "context": "hoá đơn đầy đủ"
+                }
+            ],
+            "finishing": [
+                "đánh số thứ tự",
+                "đóng cuốn"
+            ],
+            "finishingReason": "đánh số thứ tự + đóng cuốn 50-100 bộ/cuốn",
+            "extraQuestions": [
+                "Bao nhiêu liên ạ? (2 liên hay 3 liên)"
+            ]
+        }
+    },
+    "usageContextKeywords": {
+        "_description": "Từ khóa ngữ cảnh sử dụng — dùng để detect MỤC ĐÍCH khi khách không nói rõ sản phẩm",
+        "food": [
+            "thực phẩm",
+            "đồ ăn",
+            "food",
+            "ăn",
+            "uống",
+            "tủ lạnh",
+            "bảo quản lạnh"
+        ],
+        "outdoor": [
+            "ngoài trời",
+            "nắng",
+            "mưa",
+            "ngoại thất",
+            "ngoại trời",
+            "biển",
+            "sân"
+        ],
+        "indoor": [
+            "trong nhà",
+            "nội thất",
+            "văn phòng",
+            "nhà",
+            "phòng"
+        ],
+        "premium": [
+            "cao cấp",
+            "sang trọng",
+            "luxury",
+            "premium",
+            "VIP",
+            "đẳng cấp"
+        ],
+        "budget": [
+            "tiết kiệm",
+            "rẻ",
+            "giá tốt",
+            "kinh tế",
+            "cơ bản"
+        ],
+        "urgent": [
+            "gấp",
+            "nhanh",
+            "express",
+            "cần gấp",
+            "hôm nay",
+            "ngày mai",
+            "rush"
+        ]
+    },
+    "faq": [
+        {
+            "patterns": [
+                "giao hàng",
+                "ship",
+                "delivery",
+                "bao lâu",
+                "mấy ngày",
+                "khi nào xong",
+                "khi nào nhận"
+            ],
+            "answer": "Thời gian in thông thường 2-3 ngày làm việc. In gấp 1-2 ngày có phụ thu 30-50%. Giao hàng nội thành miễn phí đơn từ 500k ạ.",
+            "intent": "hỏi_giao_hàng"
+        },
+        {
+            "patterns": [
+                "thanh toán",
+                "chuyển khoản",
+                "COD",
+                "tiền mặt",
+                "banking",
+                "momo",
+                "zalopay"
+            ],
+            "answer": "Em nhận thanh toán: chuyển khoản ngân hàng, tiền mặt khi nhận, MoMo/ZaloPay. Đặt cọc 50% khi đặt hàng, 50% khi nhận ạ.",
+            "intent": "hỏi_thanh_toán"
+        },
+        {
+            "patterns": [
+                "số lượng tối thiểu",
+                "in ít",
+                "đặt ít",
+                "MOQ",
+                "minimum"
+            ],
+            "answer": "In kỹ thuật số không giới hạn số lượng tối thiểu — in từ 1 cái cũng được. Tuy nhiên giá tốt nhất thường từ 100-500 cái trở lên ạ.",
+            "intent": "hỏi_số_lượng"
+        },
+        {
+            "patterns": [
+                "file thiết kế",
+                "gửi file",
+                "format",
+                "định dạng",
+                "ai",
+                "psd",
+                "pdf",
+                "corel"
+            ],
+            "answer": "Em nhận file AI (Illustrator), PSD (Photoshop), PDF, CorelDRAW. File cần: CMYK, 300dpi, có bleed 3mm. Nếu bạn chưa có file, em có đội thiết kế hỗ trợ ạ!",
+            "intent": "hỏi_file"
+        },
+        {
+            "patterns": [
+                "thiết kế",
+                "design",
+                "vẽ",
+                "tạo mẫu"
+            ],
+            "answer": "Bên em có đội thiết kế hỗ trợ, phí thiết kế từ 200k-500k tùy độ phức tạp. Nếu bạn có ý tưởng/hình mẫu thì em sẽ báo giá chính xác ạ.",
+            "intent": "hỏi_thiết_kế"
+        },
+        {
+            "patterns": [
+                "bảo hành",
+                "in lỗi",
+                "sai màu",
+                "lỗi in"
+            ],
+            "answer": "Bên em bảo hành 100% — nếu lỗi do in (sai màu, bẩn, lệch) em in lại miễn phí. Trước khi in em sẽ gửi proof để bạn duyệt ạ.",
+            "intent": "hỏi_bảo_hành"
+        },
+        {
+            "patterns": [
+                "proof",
+                "xem trước",
+                "duyệt",
+                "sample",
+                "mẫu thử"
+            ],
+            "answer": "Em sẽ gửi proof (bản mẫu) qua Zalo/email để bạn duyệt trước khi in. Nếu cần in mẫu thử thực tế, phí ~50k-100k/mẫu ạ.",
+            "intent": "hỏi_proof"
+        },
+        {
+            "patterns": [
+                "chào",
+                "hello",
+                "hi",
+                "xin chào",
+                "alo"
+            ],
+            "answer": "Dạ chào bạn! Em là trợ lý tư vấn in ấn của KPrint. Bạn cần in gì ạ? Em tư vấn giá và chất liệu phù hợp nhất cho bạn nhé! 😊",
+            "intent": "chào_hỏi"
+        },
+        {
+            "patterns": [
+                "cảm ơn",
+                "thank",
+                "thanks",
+                "cám ơn"
+            ],
+            "answer": "Dạ không có gì ạ! Bạn cần thêm gì cứ nhắn em nhé 😊",
+            "intent": "cảm_ơn"
+        }
+    ],
+    "persuasionTemplates": {
+        "quantity_discount": "In từ {threshold} cái trở lên, đơn giá giảm đáng kể — bạn muốn em tính giá cho số lượng lớn hơn không ạ?",
+        "quality_value": "Chênh lệch chỉ ~{priceDiff}đ/cái nhưng {benefit} — rất đáng ạ!",
+        "social_proof": "Đa số khách {segment} bên em đều chọn {choice} ạ.",
+        "urgency": "Hiện em đang có giá tốt cho đơn trong tuần này ạ.",
+        "upsell": "Nếu bạn thêm {addon} thì {benefit}, chỉ thêm ~{price}đ/{unit} thôi ạ.",
+        "combo": "Em recommend gói combo: {items} — tiết kiệm {percent}% so với in lẻ!"
+    },
+    "materials": {
+        "couche": {
+            "aliases": [
+                "couche",
+                "couché",
+                "coated"
+            ],
+            "displayName": "Giấy Couche",
+            "description": "Giấy tráng phủ, bề mặt bóng/mịn, in màu đẹp sắc nét",
+            "weights": [
+                "100gsm",
+                "150gsm",
+                "200gsm",
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "namecard",
+                "tờ rơi",
+                "brochure",
+                "catalogue",
+                "poster",
+                "menu"
+            ],
+            "pros": "In màu đẹp nhất, giá hợp lý nhất, sẵn hàng mọi lúc",
+            "cons": "Không chống nước, dễ xước nếu không cán"
+        },
+        "art": {
+            "aliases": [
+                "art",
+                "art paper",
+                "giấy art"
+            ],
+            "displayName": "Giấy Art",
+            "description": "Giấy art tính chất tương tự couche, thường dùng trong in bao bì cao cấp",
+            "weights": [
+                "200gsm",
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "hộp mỹ phẩm",
+                "bao bì cao cấp",
+                "catalogue"
+            ],
+            "pros": "Bề mặt mịn, in offset đẹp, phù hợp bao bì",
+            "cons": "Giá cao hơn couche ~10-15%"
+        },
+        "bristol": {
+            "aliases": [
+                "bristol",
+                "briston",
+                "bristal",
+                "giấy bristol"
+            ],
+            "displayName": "Giấy Bristol",
+            "description": "Giấy cứng, bề mặt nhám, không tráng phủ — cho cảm giác cao cấp, mộc mạc",
+            "weights": [
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "namecard cao cấp",
+                "thiệp",
+                "bìa sổ tay",
+                "tag sản phẩm"
+            ],
+            "pros": "Texture đẹp, cảm giác cao cấp, viết tay/đóng dấu dễ",
+            "cons": "In màu không rực rỡ bằng couche (bề mặt nhám hút mực), giá cao hơn ~20-30%",
+            "comparison": "So với couche 300gsm: Bristol cho cảm giác 'premium' hơn nhưng màu in sẽ trầm hơn. Phù hợp phong cách simple/elegant."
+        },
+        "kraft": {
+            "aliases": [
+                "kraft",
+                "giấy kraft",
+                "giấy nâu"
+            ],
+            "displayName": "Giấy Kraft",
+            "description": "Giấy nâu tự nhiên, phong cách eco/handmade/vintage",
+            "weights": [
+                "100gsm",
+                "150gsm",
+                "200gsm",
+                "300gsm"
+            ],
+            "commonUse": [
+                "túi giấy",
+                "tag sản phẩm",
+                "namecard handmade",
+                "bao bì organic"
+            ],
+            "pros": "Phong cách eco thời thượng, thân thiện môi trường",
+            "cons": "Chỉ in được 1-2 màu (nền nâu), không phù hợp thiết kế nhiều màu",
+            "comparison": "So với couche: Kraft cho phong cách riêng biệt nhưng hạn chế về màu sắc."
+        },
+        "ivory": {
+            "aliases": [
+                "ivory",
+                "giấy ivory",
+                "bìa ivory"
+            ],
+            "displayName": "Giấy Ivory",
+            "description": "Giấy cứng trắng tinh, 1 mặt tráng — chuyên dùng làm hộp",
+            "weights": [
+                "230gsm",
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "hộp giấy",
+                "bao bì mỹ phẩm",
+                "hộp dược phẩm",
+                "hộp quà"
+            ],
+            "pros": "Cứng, giữ form tốt, in offset đẹp 1 mặt",
+            "cons": "1 mặt trắng 1 mặt xám — chỉ in 1 mặt"
+        },
+        "offset": {
+            "aliases": [
+                "offset",
+                "giấy offset",
+                "giấy ford"
+            ],
+            "displayName": "Giấy Offset",
+            "description": "Giấy trắng không tráng, bề mặt mượt, dễ viết tay",
+            "weights": [
+                "70gsm",
+                "80gsm",
+                "100gsm",
+                "120gsm",
+                "150gsm"
+            ],
+            "commonUse": [
+                "phong bì",
+                "giấy tiêu đề",
+                "hoá đơn",
+                "sổ tay"
+            ],
+            "pros": "Dễ viết tay, đóng dấu, giá rẻ",
+            "cons": "In màu không sắc nét bằng couche"
+        },
+        "pvc": {
+            "aliases": [
+                "pvc",
+                "nhựa pvc",
+                "decal pvc",
+                "decal nhựa"
+            ],
+            "displayName": "Decal nhựa PVC",
+            "description": "Decal nhựa chống nước, chống ẩm — bền trong mọi điều kiện",
+            "weights": [
+                "80-100 micron"
+            ],
+            "commonUse": [
+                "nhãn thực phẩm",
+                "nhãn mỹ phẩm",
+                "decal ngoài trời",
+                "nhãn chai/hũ"
+            ],
+            "pros": "Chống nước 100%, bền màu, chịu nhiệt tốt",
+            "cons": "Giá cao hơn decal giấy ~40-50%"
+        },
+        "vinyl": {
+            "aliases": [
+                "vinyl",
+                "decal vinyl",
+                "nhựa vinyl"
+            ],
+            "displayName": "Decal Vinyl",
+            "description": "Nhựa vinyl cao cấp, mỏng, co giãn tốt — chuyên cho skin thiết bị",
+            "weights": [
+                "50-80 micron"
+            ],
+            "commonUse": [
+                "skin điện thoại",
+                "skin laptop",
+                "decal xe",
+                "decal trang trí"
+            ],
+            "pros": "Mỏng, ôm sát bề mặt cong, tháo sạch không keo, chống xước",
+            "cons": "Giá cao nhất trong các loại decal"
+        },
+        "duplex": {
+            "aliases": [
+                "duplex",
+                "giấy duplex",
+                "bìa duplex"
+            ],
+            "displayName": "Giấy Duplex",
+            "description": "Giấy lưng xám, mặt trắng — thường dùng cho hộp/bao bì phổ thông",
+            "weights": [
+                "250gsm",
+                "300gsm",
+                "350gsm",
+                "400gsm"
+            ],
+            "commonUse": [
+                "hộp giấy phổ thông",
+                "bao bì sản phẩm",
+                "vỏ hộp"
+            ],
+            "pros": "Rẻ hơn ivory ~30%, cứng tốt",
+            "cons": "Lưng xám — chỉ in 1 mặt, chất lượng kém ivory"
+        },
+        "mỹ_thuật": {
+            "aliases": [
+                "mỹ thuật",
+                "giấy mỹ thuật",
+                "fancy paper",
+                "giấy nhám",
+                "texture"
+            ],
+            "displayName": "Giấy Mỹ thuật",
+            "description": "Giấy có texture bề mặt đặc biệt (vân gỗ, vân sóng, metallic...)",
+            "weights": [
+                "200gsm",
+                "250gsm",
+                "300gsm"
+            ],
+            "commonUse": [
+                "namecard cao cấp",
+                "thiệp cưới",
+                "bìa sổ luxury"
+            ],
+            "pros": "Texture sang trọng, độc đáo, cao cấp nhất",
+            "cons": "Giá rất cao (+50-100% so với couche), không phù hợp in nhiều màu"
+        },
+        "pp": {
+            "aliases": [
+                "pp",
+                "nhựa pp",
+                "giấy pp"
+            ],
+            "displayName": "Nhựa PP (Polypropylene)",
+            "description": "Nhựa PP trong/đục, chống nước hoàn toàn",
+            "weights": [
+                "varies"
+            ],
+            "commonUse": [
+                "menu chống nước",
+                "standee trong nhà",
+                "nhãn sản phẩm"
+            ],
+            "pros": "Chống nước 100%, in sắc nét, không nhăn",
+            "cons": "Giá cao, không gấp được"
+        },
+        "carbonless": {
+            "aliases": [
+                "carbonless",
+                "ncr",
+                "giấy than",
+                "giấy carbon",
+                "giấy liên"
+            ],
+            "displayName": "Giấy Carbonless (NCR)",
+            "description": "Giấy tự copy nhiều liên — viết liên 1 tự động hiện liên 2,3",
+            "weights": [
+                "varies"
+            ],
+            "commonUse": [
+                "hoá đơn",
+                "phiếu thu chi",
+                "biểu mẫu",
+                "phiếu giao hàng"
+            ],
+            "pros": "Không cần giấy than, tiện lợi",
+            "cons": "Chỉ in 1-2 màu, giấy mỏng"
+        }
+    },
+    "printingTechniques": {
+        "offset": {
+            "name": "In offset",
+            "description": "In qua bản kẽm, chất lượng cao nhất, phù hợp SL lớn (>500 tờ)",
+            "minQuantity": 500,
+            "turnaround": "3-5 ngày",
+            "pros": "Màu chuẩn CMYK, sắc nét, giá tốt nhất khi SL lớn",
+            "cons": "Chi phí làm kẽm cố định (~200-500k/kẽm), không phù hợp SL ít",
+            "suitableFor": [
+                "namecard >500",
+                "tờ rơi >1000",
+                "brochure",
+                "catalogue",
+                "hộp giấy",
+                "túi giấy"
+            ]
+        },
+        "digital": {
+            "name": "In kỹ thuật số",
+            "description": "In trực tiếp từ file, không cần kẽm, phù hợp SL ít (<500 tờ)",
+            "minQuantity": 1,
+            "turnaround": "1-2 ngày",
+            "pros": "In từ 1 cái, đổi nội dung linh hoạt, giao nhanh, in mẫu thử",
+            "cons": "Giá/cái cao hơn offset khi SL lớn, size giới hạn A3+",
+            "suitableFor": [
+                "namecard ít",
+                "poster",
+                "tờ rơi mẫu",
+                "menu ít",
+                "tài liệu cá nhân hóa"
+            ]
+        },
+        "screen": {
+            "name": "In lụa (silk screen)",
+            "description": "In qua lưới, phù hợp in trên vải/nhựa/kim loại/sản phẩm cong",
+            "minQuantity": 50,
+            "turnaround": "3-5 ngày",
+            "pros": "In trên mọi chất liệu (vải, nhựa, gỗ, kim loại), mực bền",
+            "cons": "Chi phí khung lưới, không phù hợp hình ảnh nhiều chi tiết",
+            "suitableFor": [
+                "áo thun",
+                "túi vải",
+                "ly/cốc",
+                "bao bì nhựa",
+                "biển hiệu"
+            ]
+        },
+        "uv": {
+            "name": "In UV phẳng",
+            "description": "In trực tiếp lên mọi bề mặt phẳng (nhựa, gỗ, kính, mica, acrylic)",
+            "minQuantity": 1,
+            "turnaround": "1-3 ngày",
+            "pros": "In trên mọi vật liệu phẳng, khô ngay, có thể in nổi UV spot",
+            "cons": "Giá cao, chỉ in bề mặt phẳng",
+            "suitableFor": [
+                "biển hiệu mica",
+                "bảng tên",
+                "namecard nhựa",
+                "hộp đặc biệt",
+                "quà tặng"
+            ]
+        },
+        "sublimation": {
+            "name": "In chuyển nhiệt",
+            "description": "In lên giấy chuyển nhiệt rồi ép nhiệt lên sản phẩm",
+            "minQuantity": 1,
+            "turnaround": "2-3 ngày",
+            "pros": "In full color lên vải polyester, gốm sứ, kim loại — bền giặt",
+            "cons": "Chỉ in trên polyester trắng/sáng, không in cotton 100%",
+            "suitableFor": [
+                "áo polyester",
+                "ly sứ",
+                "cốc giữ nhiệt",
+                "ốp lưng",
+                "mousepad"
+            ]
+        },
+        "largeFormat": {
+            "name": "In khổ lớn (large format)",
+            "description": "In phun kỹ thuật số khổ rộng — banner, backdrop, decal xe",
+            "minQuantity": 1,
+            "turnaround": "1-2 ngày",
+            "pros": "Khổ không giới hạn, in nhanh, phù hợp quảng cáo ngoài trời",
+            "cons": "Độ phân giải thấp hơn offset/digital khi nhìn gần",
+            "suitableFor": [
+                "banner",
+                "backdrop",
+                "standee",
+                "decal xe",
+                "biển bạt"
+            ]
+        }
+    },
+    "edgeCases": {
+        "offTopic": {
+            "patterns": [
+                "thời tiết",
+                "bóng đá",
+                "ăn gì",
+                "phim",
+                "game",
+                "bitcoin",
+                "crypto"
+            ],
+            "response": "Dạ em chuyên về in ấn thôi ạ 😊 Bạn cần in gì em tư vấn giá và chất liệu phù hợp nhé!"
+        },
+        "profanity": {
+            "patterns": [
+                "đm",
+                "vcl",
+                "đéo",
+                "cc",
+                "clm",
+                "wtf",
+                "shit"
+            ],
+            "response": "ESCALATE_TO_HUMAN",
+            "note": "Chuyển cho nhân viên xử lý, không auto-reply"
+        },
+        "multiProduct": {
+            "patterns": [
+                "và",
+                "thêm",
+                "kèm",
+                "combo",
+                "cả",
+                "gồm"
+            ],
+            "guidance": "Detect khi khách hỏi nhiều sản phẩm → tách riêng và tư vấn từng SP, rồi gợi ý combo"
+        },
+        "rushOrder": {
+            "keywords": [
+                "gấp",
+                "nhanh",
+                "express",
+                "hôm nay",
+                "ngày mai",
+                "rush",
+                "cần gấp"
+            ],
+            "response": "Dạ em có dịch vụ in gấp! Tùy sản phẩm có thể giao trong 1-2 ngày, phụ thu 30-50%. Bạn cần gấp khi nào ạ?"
+        },
+        "portfolioRequest": {
+            "patterns": [
+                "mẫu",
+                "portfolio",
+                "xem mẫu",
+                "mẫu in",
+                "hình mẫu",
+                "gallery"
+            ],
+            "response": "Dạ bạn muốn xem mẫu sản phẩm gì ạ? Em gửi hình mẫu thực tế bên em đã in cho bạn tham khảo nhé!"
+        }
+    },
+    "finishingTechniques": {
+        "cán_mờ": {
+            "name": "Cán mờ (matte lamination)",
+            "aliases": [
+                "cán mờ",
+                "cán matt",
+                "matte",
+                "mờ"
+            ],
+            "description": "Phủ lớp màng mờ lên bề mặt in — mịn, sang, chống vân tay",
+            "suitableFor": [
+                "namecard cao cấp",
+                "bìa catalogue",
+                "menu",
+                "hộp mỹ phẩm"
+            ],
+            "pros": "Sang trọng, chống xước, chống vân tay, không phản sáng",
+            "cons": "Màu trầm hơn cán bóng ~10%",
+            "recommendWhen": "Khách muốn phong cách sang trọng, tối giản, premium"
+        },
+        "cán_bóng": {
+            "name": "Cán bóng (glossy lamination)",
+            "aliases": [
+                "cán bóng",
+                "glossy",
+                "bóng"
+            ],
+            "description": "Phủ lớp màng bóng lên bề mặt in — rực rỡ, nổi bật",
+            "suitableFor": [
+                "tờ rơi",
+                "poster",
+                "brochure",
+                "bao bì thực phẩm"
+            ],
+            "pros": "Màu rực rỡ hơn, bắt mắt, chống nước nhẹ",
+            "cons": "Dễ thấy vân tay, phản sáng khi chụp ảnh",
+            "recommendWhen": "Khách muốn màu sắc nổi bật, quảng cáo bắt mắt"
+        },
+        "uv_spot": {
+            "name": "UV spot (UV cục bộ)",
+            "aliases": [
+                "uv spot",
+                "uv cục bộ",
+                "uv nổi",
+                "uv nổi logo"
+            ],
+            "description": "Phủ UV bóng/nổi chỉ ở 1 phần (logo, chữ, hình) — tạo hiệu ứng sang trọng",
+            "suitableFor": [
+                "namecard luxury",
+                "bìa catalogue",
+                "thiệp VIP",
+                "bao bì cao cấp"
+            ],
+            "pros": "Hiệu ứng contrast bóng/mờ rất đẹp, cao cấp",
+            "cons": "Cần cán mờ trước + chi phí thêm",
+            "recommendWhen": "Khách muốn namecard/bìa nổi bật logo"
+        },
+        "ép_nhũ": {
+            "name": "Ép nhũ vàng/bạc (hot foil stamping)",
+            "aliases": [
+                "ép nhũ",
+                "nhũ vàng",
+                "nhũ bạc",
+                "foil",
+                "hot foil",
+                "dập nhũ"
+            ],
+            "description": "Dập lá nhũ kim loại (vàng, bạc, hologram) lên bề mặt — sang trọng tối đa",
+            "suitableFor": [
+                "thiệp cưới",
+                "namecard luxury",
+                "bao bì rượu",
+                "quà tặng VIP"
+            ],
+            "pros": "Kim loại lấp lánh, sang trọng nhất, khó giả",
+            "cons": "Chi phí cao, cần khuôn dập riêng",
+            "recommendWhen": "Thiệp cưới, sản phẩm luxury, sự kiện VIP"
+        },
+        "dập_nổi": {
+            "name": "Dập nổi/chìm (emboss/deboss)",
+            "aliases": [
+                "dập nổi",
+                "dập chìm",
+                "emboss",
+                "deboss",
+                "nổi"
+            ],
+            "description": "Tạo hiệu ứng nổi/chìm trên giấy — cảm nhận bằng tay",
+            "suitableFor": [
+                "namecard",
+                "bìa sổ",
+                "thiệp",
+                "bao bì cao cấp"
+            ],
+            "pros": "Hiệu ứng tactile (sờ thấy), không cần mực",
+            "cons": "Chỉ hiệu quả trên giấy dày >250gsm, cần khuôn",
+            "recommendWhen": "Namecard muốn logo nổi, bìa sổ tay cao cấp"
+        },
+        "bế_die_cut": {
+            "name": "Bế theo hình (die-cut)",
+            "aliases": [
+                "bế",
+                "die cut",
+                "die-cut",
+                "cắt theo hình",
+                "bế hình"
+            ],
+            "description": "Cắt giấy/decal theo đường outline tùy ý — không giới hạn hình dáng",
+            "suitableFor": [
+                "decal",
+                "nhãn sản phẩm",
+                "sticker",
+                "namecard shape",
+                "hộp"
+            ],
+            "pros": "Tạo hình dáng độc đáo, phù hợp branding",
+            "cons": "Cần khuôn bế (chi phí khuôn ~100-300k)",
+            "recommendWhen": "Decal/nhãn, namecard hình tròn/oval, hộp giấy"
+        },
+        "đóng_ghim": {
+            "name": "Đóng ghim/booklet (saddle stitch)",
+            "aliases": [
+                "đóng ghim",
+                "ghim",
+                "saddle stitch",
+                "đóng kim"
+            ],
+            "description": "Gấp + đóng ghim giữa — cho tài liệu mỏng 8-64 trang",
+            "suitableFor": [
+                "catalogue mỏng",
+                "brochure",
+                "tạp chí"
+            ],
+            "pros": "Rẻ nhất, nhanh, mở phẳng",
+            "cons": "Tối đa ~64 trang, ghim có thể rỉ"
+        },
+        "keo_nhiệt": {
+            "name": "Đóng keo nhiệt (perfect binding)",
+            "aliases": [
+                "keo nhiệt",
+                "perfect binding",
+                "đóng keo"
+            ],
+            "description": "Dán keo gáy sách — cho tài liệu dày 40+ trang",
+            "suitableFor": [
+                "catalogue dày",
+                "sổ tay",
+                "sách",
+                "báo cáo thường niên"
+            ],
+            "pros": "Chuyên nghiệp, gáy vuông đẹp, không giới hạn trang",
+            "cons": "Không mở phẳng 180°, tốn hơn đóng ghim"
+        },
+        "cấn_gấp": {
+            "name": "Cấn/gấp (scoring/folding)",
+            "aliases": [
+                "cấn",
+                "gấp",
+                "gấp 2",
+                "gấp 3",
+                "gấp 4",
+                "scoring"
+            ],
+            "description": "Tạo nếp gấp chính xác trên giấy dày — tránh nứt/gãy",
+            "suitableFor": [
+                "tờ rơi gấp đôi/ba",
+                "brochure",
+                "menu gấp",
+                "thiệp"
+            ],
+            "pros": "Gấp sạch không nứt giấy, chuyên nghiệp",
+            "cons": "Giấy dày >200gsm bắt buộc phải cấn trước khi gấp"
+        },
+        "đục_lỗ": {
+            "name": "Đục lỗ (hole punching)",
+            "aliases": [
+                "đục lỗ",
+                "lỗ treo",
+                "punch"
+            ],
+            "description": "Đục lỗ tròn để treo hoặc xâu dây",
+            "suitableFor": [
+                "tag sản phẩm",
+                "bookmark",
+                "thẻ treo",
+                "voucher"
+            ],
+            "pros": "Tiện treo, đeo, buộc dây",
+            "cons": "Lỗ cần cách mép ít nhất 5mm"
+        },
+        "cán_soft_touch": {
+            "name": "Cán Soft Touch",
+            "aliases": [
+                "soft touch",
+                "cán nhung",
+                "cán mềm"
+            ],
+            "description": "Cán màng đặc biệt cho cảm giác mềm mịn như nhung khi chạm",
+            "suitableFor": [
+                "namecard siêu cao cấp",
+                "bìa sổ luxury",
+                "bao bì mỹ phẩm"
+            ],
+            "pros": "Cảm giác premium nhất, rất sang trọng khi cầm",
+            "cons": "Giá cao nhất (~gấp 2-3 cán mờ thường), dễ trầy móng tay"
+        }
+    },
+    "fileDesignRules": {
+        "colorMode": {
+            "rule": "CMYK",
+            "description": "File in ấn BẮT BUỘC dùng hệ màu CMYK. RGB (màn hình) sẽ bị lệch màu khi in.",
+            "commonMistake": "Khách gửi file RGB → màu in ra nhạt/dại hơn trên màn hình",
+            "fix": "Convert sang CMYK trong Photoshop/Illustrator trước khi gửi"
+        },
+        "resolution": {
+            "rule": "300 dpi trở lên",
+            "description": "Độ phân giải tối thiểu 300 dpi để in sắc nét. 72 dpi (web) sẽ bị vỡ hạt.",
+            "exceptions": "Banner/backdrop khổ lớn: 100-150 dpi OK (nhìn từ xa)",
+            "commonMistake": "Lấy ảnh từ Facebook/web (72 dpi) để in → vỡ hạt"
+        },
+        "bleed": {
+            "rule": "3mm mỗi cạnh",
+            "description": "Phần tràn viền (bleed) 3mm để khi cắt không bị viền trắng",
+            "commonMistake": "File không có bleed → thành phẩm có viền trắng mỏng ở mép"
+        },
+        "safeZone": {
+            "rule": "5mm cách mép cắt",
+            "description": "Text và logo quan trọng phải cách mép cắt ít nhất 5mm để không bị cắt mất",
+            "commonMistake": "Chữ sát mép → bị cắt khi xén giấy"
+        },
+        "fonts": {
+            "rule": "Nhúng font hoặc convert to curves/outlines",
+            "description": "Font chữ phải được nhúng (embed) hoặc chuyển thành đường cong",
+            "commonMistake": "Gửi file AI/PDF không nhúng font → máy in thay font khác → sai layout"
+        },
+        "acceptedFormats": {
+            "preferred": [
+                "AI (Adobe Illustrator)",
+                "PDF (vector)",
+                "PSD (có layer)"
+            ],
+            "acceptable": [
+                "CDR (CorelDRAW)",
+                "INDD (InDesign)"
+            ],
+            "notRecommended": [
+                "JPEG/PNG (mất chất lượng)",
+                "Word/PowerPoint (lệch layout)"
+            ],
+            "note": "File vector (AI/PDF) cho kết quả tốt nhất. File bitmap (PSD/JPEG) cần 300 dpi."
+        },
+        "proofProcess": {
+            "description": "Quy trình duyệt file trước khi in",
+            "steps": [
+                "1. Khách gửi file → em check kỹ thuật (CMYK, 300dpi, bleed)",
+                "2. Em gửi proof (bản mẫu PDF) qua Zalo/email để khách duyệt",
+                "3. Khách xác nhận OK → em tiến hành in",
+                "4. Nếu cần sửa → sửa lại → gửi proof mới"
+            ]
+        }
+    },
+    "industryCombos": {
+        "cafe_restaurant": {
+            "name": "Quán cafe / Nhà hàng",
+            "products": [
+                "menu (A3 gấp 3, cán mờ)",
+                "namecard (couche 300gsm, cán mờ)",
+                "tent card (bàn)",
+                "voucher/coupon",
+                "sticker niêm phong ly/hộp"
+            ],
+            "tip": "Menu nên cán mờ chống bám vân tay + chống nước nhẹ. Combo 5 món tiết kiệm 15-20%.",
+            "keywords": [
+                "cafe",
+                "quán cafe",
+                "nhà hàng",
+                "restaurant",
+                "quán ăn",
+                "trà sữa",
+                "quán nước"
+            ]
+        },
+        "spa_beauty": {
+            "name": "Spa / Thẩm mỹ viện / Beauty",
+            "products": [
+                "namecard (mỹ thuật/soft touch)",
+                "voucher (ép nhũ vàng)",
+                "nhãn sản phẩm (decal nhựa)",
+                "túi giấy (kraft/couche)",
+                "bảng giá dịch vụ"
+            ],
+            "tip": "Nhãn mỹ phẩm nên dùng decal nhựa chống nước. Namecard soft touch tạo ấn tượng cao cấp.",
+            "keywords": [
+                "spa",
+                "salon",
+                "beauty",
+                "thẩm mỹ",
+                "mỹ phẩm",
+                "nails",
+                "tóc"
+            ]
+        },
+        "food_beverage": {
+            "name": "Thực phẩm / Đồ uống",
+            "products": [
+                "nhãn sản phẩm (decal nhựa PVC)",
+                "hộp giấy (ivory/duplex)",
+                "túi giấy (kraft)",
+                "sticker niêm phong",
+                "menu/bảng giá"
+            ],
+            "tip": "Nhãn thực phẩm PHẢI dùng decal nhựa chống nước nếu để tủ lạnh. Hộp dùng ivory cho cao cấp, duplex cho phổ thông.",
+            "keywords": [
+                "thực phẩm",
+                "đồ ăn",
+                "nước uống",
+                "bánh",
+                "yến sào",
+                "mật ong",
+                "trà",
+                "coffee"
+            ]
+        },
+        "startup_corporate": {
+            "name": "Startup / Doanh nghiệp",
+            "products": [
+                "namecard (couche 300gsm, cán mờ)",
+                "phong bì (offset 120gsm)",
+                "giấy tiêu đề (offset 100gsm)",
+                "folder/kẹp file (couche 300gsm)",
+                "sổ tay (bìa cứng)"
+            ],
+            "tip": "Bộ nhận diện cần ĐỒNG BỘ màu sắc. Nên in offset cùng lúc để tiết kiệm.",
+            "keywords": [
+                "công ty",
+                "doanh nghiệp",
+                "startup",
+                "văn phòng",
+                "brand",
+                "thương hiệu",
+                "nhận diện"
+            ]
+        },
+        "wedding": {
+            "name": "Cưới hỏi",
+            "products": [
+                "thiệp cưới (mỹ thuật/bristol, ép nhũ)",
+                "phong bì (mỹ thuật)",
+                "menu bàn tiệc",
+                "tag cảm ơn (kraft/mỹ thuật)",
+                "sticker dán phong bì"
+            ],
+            "tip": "Giấy mỹ thuật + ép nhũ vàng là combo thiệp cưới sang nhất. Tag cảm ơn kraft cho phong cách rustic.",
+            "keywords": [
+                "cưới",
+                "wedding",
+                "thiệp cưới",
+                "đám cưới",
+                "lễ cưới",
+                "hỏi"
+            ]
+        },
+        "event": {
+            "name": "Sự kiện / Hội nghị",
+            "products": [
+                "backdrop/banner (bạt hiflex)",
+                "standee (PP + khung)",
+                "badge/thẻ tên",
+                "tờ rơi/brochure",
+                "folder tài liệu"
+            ],
+            "tip": "Backdrop nên in bạt hiflex hoặc decal dán fomex. Badge in digital cho linh hoạt tên.",
+            "keywords": [
+                "event",
+                "sự kiện",
+                "hội nghị",
+                "hội thảo",
+                "triển lãm",
+                "workshop"
+            ]
+        },
+        "medical_pharma": {
+            "name": "Y tế / Dược phẩm",
+            "products": [
+                "nhãn dược phẩm (decal nhựa)",
+                "hộp thuốc (ivory 300gsm)",
+                "tờ hướng dẫn (offset 70gsm)",
+                "túi giấy (kraft y tế)"
+            ],
+            "tip": "Nhãn dược cần in rõ thành phần, hạn sử dụng. Hộp ivory giữ form tốt cho bảo quản.",
+            "keywords": [
+                "thuốc",
+                "dược",
+                "y tế",
+                "bệnh viện",
+                "phòng khám",
+                "clinic"
+            ]
+        }
+    }
+}

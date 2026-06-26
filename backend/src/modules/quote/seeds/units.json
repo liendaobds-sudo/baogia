@@ -1,0 +1,62 @@
+[
+    {
+        "code": "sheet",
+        "name": "Tờ",
+        "symbol": "tờ",
+        "type": "count"
+    },
+    {
+        "code": "piece",
+        "name": "Cái",
+        "symbol": "cái",
+        "type": "count"
+    },
+    {
+        "code": "set",
+        "name": "Bộ",
+        "symbol": "bộ",
+        "type": "count"
+    },
+    {
+        "code": "roll",
+        "name": "Cuộn",
+        "symbol": "cuộn",
+        "type": "count"
+    },
+    {
+        "code": "ream",
+        "name": "Ram",
+        "symbol": "ram",
+        "type": "count"
+    },
+    {
+        "code": "sqm",
+        "name": "Mét vuông",
+        "symbol": "m²",
+        "type": "area"
+    },
+    {
+        "code": "meter",
+        "name": "Mét dài",
+        "symbol": "m",
+        "type": "area"
+    },
+    {
+        "code": "kg",
+        "name": "Kilogram",
+        "symbol": "kg",
+        "type": "weight"
+    },
+    {
+        "code": "liter",
+        "name": "Lít",
+        "symbol": "L",
+        "type": "volume"
+    },
+    {
+        "code": "run",
+        "name": "Lượt",
+        "symbol": "lượt",
+        "type": "count"
+    }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "code": "Gia_Khuon",
+    "ten": "Phí khuôn bế (SP thường)",
+    "giaTri": 400000,
+    "ghiChu": "Tờ rơi, bì thư, túi giấy"
+  },
+  {
+    "code": "Gia_Khuon_Hop",
+    "ten": "Phí khuôn bế (hộp giấy)",
+    "giaTri": 500000,
+    "ghiChu": "Hộp giấy"
+  },
+  {
+    "code": "Gia_ThietKe",
+    "ten": "Phí thiết kế mặc định",
+    "giaTri": 500000,
+    "ghiChu": "Túi giấy"
+  }
+]

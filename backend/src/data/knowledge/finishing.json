@@ -1,0 +1,210 @@
+{
+    "_description": "Gia công sau in - cán mờ, cán bóng, UV spot, ép nhũ, dập nổi, bế...",
+    "finishingTechniques": {
+        "cán_mờ": {
+            "name": "Cán mờ (matte lamination)",
+            "aliases": [
+                "cán mờ",
+                "cán matt",
+                "matte",
+                "mờ"
+            ],
+            "description": "Phủ lớp màng mờ lên bề mặt in — mịn, sang, chống vân tay",
+            "suitableFor": [
+                "namecard cao cấp",
+                "bìa catalogue",
+                "menu",
+                "hộp mỹ phẩm"
+            ],
+            "pros": "Sang trọng, chống xước, chống vân tay, không phản sáng",
+            "cons": "Màu trầm hơn cán bóng ~10%",
+            "recommendWhen": "Khách muốn phong cách sang trọng, tối giản, premium"
+        },
+        "cán_bóng": {
+            "name": "Cán bóng (glossy lamination)",
+            "aliases": [
+                "cán bóng",
+                "glossy",
+                "bóng"
+            ],
+            "description": "Phủ lớp màng bóng lên bề mặt in — rực rỡ, nổi bật",
+            "suitableFor": [
+                "tờ rơi",
+                "poster",
+                "brochure",
+                "bao bì thực phẩm"
+            ],
+            "pros": "Màu rực rỡ hơn, bắt mắt, chống nước nhẹ",
+            "cons": "Dễ thấy vân tay, phản sáng khi chụp ảnh",
+            "recommendWhen": "Khách muốn màu sắc nổi bật, quảng cáo bắt mắt"
+        },
+        "uv_spot": {
+            "name": "UV spot (UV cục bộ)",
+            "aliases": [
+                "uv spot",
+                "uv cục bộ",
+                "uv nổi",
+                "uv nổi logo"
+            ],
+            "description": "Phủ UV bóng/nổi chỉ ở 1 phần (logo, chữ, hình) — tạo hiệu ứng sang trọng",
+            "suitableFor": [
+                "namecard luxury",
+                "bìa catalogue",
+                "thiệp VIP",
+                "bao bì cao cấp"
+            ],
+            "pros": "Hiệu ứng contrast bóng/mờ rất đẹp, cao cấp",
+            "cons": "Cần cán mờ trước + chi phí thêm",
+            "recommendWhen": "Khách muốn namecard/bìa nổi bật logo"
+        },
+        "ép_nhũ": {
+            "name": "Ép nhũ vàng/bạc (hot foil stamping)",
+            "aliases": [
+                "ép nhũ",
+                "nhũ vàng",
+                "nhũ bạc",
+                "foil",
+                "hot foil",
+                "dập nhũ"
+            ],
+            "description": "Dập lá nhũ kim loại (vàng, bạc, hologram) lên bề mặt — sang trọng tối đa",
+            "suitableFor": [
+                "thiệp cưới",
+                "namecard luxury",
+                "bao bì rượu",
+                "quà tặng VIP"
+            ],
+            "pros": "Kim loại lấp lánh, sang trọng nhất, khó giả",
+            "cons": "Chi phí cao, cần khuôn dập riêng",
+            "recommendWhen": "Thiệp cưới, sản phẩm luxury, sự kiện VIP"
+        },
+        "dập_nổi": {
+            "name": "Dập nổi/chìm (emboss/deboss)",
+            "aliases": [
+                "dập nổi",
+                "dập chìm",
+                "emboss",
+                "deboss",
+                "nổi"
+            ],
+            "description": "Tạo hiệu ứng nổi/chìm trên giấy — cảm nhận bằng tay",
+            "suitableFor": [
+                "namecard",
+                "bìa sổ",
+                "thiệp",
+                "bao bì cao cấp"
+            ],
+            "pros": "Hiệu ứng tactile (sờ thấy), không cần mực",
+            "cons": "Chỉ hiệu quả trên giấy dày >250gsm, cần khuôn",
+            "recommendWhen": "Namecard muốn logo nổi, bìa sổ tay cao cấp"
+        },
+        "bế_die_cut": {
+            "name": "Bế theo hình (die-cut)",
+            "aliases": [
+                "bế",
+                "die cut",
+                "die-cut",
+                "cắt theo hình",
+                "bế hình"
+            ],
+            "description": "Cắt giấy/decal theo đường outline tùy ý — không giới hạn hình dáng",
+            "suitableFor": [
+                "decal",
+                "nhãn sản phẩm",
+                "sticker",
+                "namecard shape",
+                "hộp"
+            ],
+            "pros": "Tạo hình dáng độc đáo, phù hợp branding",
+            "cons": "Cần khuôn bế (chi phí khuôn ~100-300k)",
+            "recommendWhen": "Decal/nhãn, namecard hình tròn/oval, hộp giấy"
+        },
+        "đóng_ghim": {
+            "name": "Đóng ghim/booklet (saddle stitch)",
+            "aliases": [
+                "đóng ghim",
+                "ghim",
+                "saddle stitch",
+                "đóng kim"
+            ],
+            "description": "Gấp + đóng ghim giữa — cho tài liệu mỏng 8-64 trang",
+            "suitableFor": [
+                "catalogue mỏng",
+                "brochure",
+                "tạp chí"
+            ],
+            "pros": "Rẻ nhất, nhanh, mở phẳng",
+            "cons": "Tối đa ~64 trang, ghim có thể rỉ"
+        },
+        "keo_nhiệt": {
+            "name": "Đóng keo nhiệt (perfect binding)",
+            "aliases": [
+                "keo nhiệt",
+                "perfect binding",
+                "đóng keo"
+            ],
+            "description": "Dán keo gáy sách — cho tài liệu dày 40+ trang",
+            "suitableFor": [
+                "catalogue dày",
+                "sổ tay",
+                "sách",
+                "báo cáo thường niên"
+            ],
+            "pros": "Chuyên nghiệp, gáy vuông đẹp, không giới hạn trang",
+            "cons": "Không mở phẳng 180°, tốn hơn đóng ghim"
+        },
+        "cấn_gấp": {
+            "name": "Cấn/gấp (scoring/folding)",
+            "aliases": [
+                "cấn",
+                "gấp",
+                "gấp 2",
+                "gấp 3",
+                "gấp 4",
+                "scoring"
+            ],
+            "description": "Tạo nếp gấp chính xác trên giấy dày — tránh nứt/gãy",
+            "suitableFor": [
+                "tờ rơi gấp đôi/ba",
+                "brochure",
+                "menu gấp",
+                "thiệp"
+            ],
+            "pros": "Gấp sạch không nứt giấy, chuyên nghiệp",
+            "cons": "Giấy dày >200gsm bắt buộc phải cấn trước khi gấp"
+        },
+        "đục_lỗ": {
+            "name": "Đục lỗ (hole punching)",
+            "aliases": [
+                "đục lỗ",
+                "lỗ treo",
+                "punch"
+            ],
+            "description": "Đục lỗ tròn để treo hoặc xâu dây",
+            "suitableFor": [
+                "tag sản phẩm",
+                "bookmark",
+                "thẻ treo",
+                "voucher"
+            ],
+            "pros": "Tiện treo, đeo, buộc dây",
+            "cons": "Lỗ cần cách mép ít nhất 5mm"
+        },
+        "cán_soft_touch": {
+            "name": "Cán Soft Touch",
+            "aliases": [
+                "soft touch",
+                "cán nhung",
+                "cán mềm"
+            ],
+            "description": "Cán màng đặc biệt cho cảm giác mềm mịn như nhung khi chạm",
+            "suitableFor": [
+                "namecard siêu cao cấp",
+                "bìa sổ luxury",
+                "bao bì mỹ phẩm"
+            ],
+            "pros": "Cảm giác premium nhất, rất sang trọng khi cầm",
+            "cons": "Giá cao nhất (~gấp 2-3 cán mờ thường), dễ trầy móng tay"
+        }
+    }
+}

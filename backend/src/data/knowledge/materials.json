@@ -1,0 +1,276 @@
+{
+    "_description": "Chất liệu in ấn - mô tả, ưu nhược điểm, ứng dụng",
+    "materials": {
+        "couche": {
+            "aliases": [
+                "couche",
+                "couché",
+                "coated"
+            ],
+            "displayName": "Giấy Couche",
+            "description": "Giấy tráng phủ, bề mặt bóng/mịn, in màu đẹp sắc nét",
+            "weights": [
+                "100gsm",
+                "150gsm",
+                "200gsm",
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "namecard",
+                "tờ rơi",
+                "brochure",
+                "catalogue",
+                "poster",
+                "menu"
+            ],
+            "pros": "In màu đẹp nhất, giá hợp lý nhất, sẵn hàng mọi lúc",
+            "cons": "Không chống nước, dễ xước nếu không cán"
+        },
+        "art": {
+            "aliases": [
+                "art",
+                "art paper",
+                "giấy art"
+            ],
+            "displayName": "Giấy Art",
+            "description": "Giấy art tính chất tương tự couche, thường dùng trong in bao bì cao cấp",
+            "weights": [
+                "200gsm",
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "hộp mỹ phẩm",
+                "bao bì cao cấp",
+                "catalogue"
+            ],
+            "pros": "Bề mặt mịn, in offset đẹp, phù hợp bao bì",
+            "cons": "Giá cao hơn couche ~10-15%"
+        },
+        "bristol": {
+            "aliases": [
+                "bristol",
+                "briston",
+                "bristal",
+                "giấy bristol"
+            ],
+            "displayName": "Giấy Bristol",
+            "description": "Giấy cứng, bề mặt nhám, không tráng phủ — cho cảm giác cao cấp, mộc mạc",
+            "weights": [
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "namecard cao cấp",
+                "thiệp",
+                "bìa sổ tay",
+                "tag sản phẩm"
+            ],
+            "pros": "Texture đẹp, cảm giác cao cấp, viết tay/đóng dấu dễ",
+            "cons": "In màu không rực rỡ bằng couche (bề mặt nhám hút mực), giá cao hơn ~20-30%",
+            "comparison": "So với couche 300gsm: Bristol cho cảm giác 'premium' hơn nhưng màu in sẽ trầm hơn. Phù hợp phong cách simple/elegant."
+        },
+        "kraft": {
+            "aliases": [
+                "kraft",
+                "giấy kraft",
+                "giấy nâu"
+            ],
+            "displayName": "Giấy Kraft",
+            "description": "Giấy nâu tự nhiên, phong cách eco/handmade/vintage",
+            "weights": [
+                "100gsm",
+                "150gsm",
+                "200gsm",
+                "300gsm"
+            ],
+            "commonUse": [
+                "túi giấy",
+                "tag sản phẩm",
+                "namecard handmade",
+                "bao bì organic"
+            ],
+            "pros": "Phong cách eco thời thượng, thân thiện môi trường",
+            "cons": "Chỉ in được 1-2 màu (nền nâu), không phù hợp thiết kế nhiều màu",
+            "comparison": "So với couche: Kraft cho phong cách riêng biệt nhưng hạn chế về màu sắc."
+        },
+        "ivory": {
+            "aliases": [
+                "ivory",
+                "giấy ivory",
+                "bìa ivory"
+            ],
+            "displayName": "Giấy Ivory",
+            "description": "Giấy cứng trắng tinh, 1 mặt tráng — chuyên dùng làm hộp",
+            "weights": [
+                "230gsm",
+                "250gsm",
+                "300gsm",
+                "350gsm"
+            ],
+            "commonUse": [
+                "hộp giấy",
+                "bao bì mỹ phẩm",
+                "hộp dược phẩm",
+                "hộp quà"
+            ],
+            "pros": "Cứng, giữ form tốt, in offset đẹp 1 mặt",
+            "cons": "1 mặt trắng 1 mặt xám — chỉ in 1 mặt"
+        },
+        "offset": {
+            "aliases": [
+                "offset",
+                "giấy offset",
+                "giấy ford"
+            ],
+            "displayName": "Giấy Offset",
+            "description": "Giấy trắng không tráng, bề mặt mượt, dễ viết tay",
+            "weights": [
+                "70gsm",
+                "80gsm",
+                "100gsm",
+                "120gsm",
+                "150gsm"
+            ],
+            "commonUse": [
+                "phong bì",
+                "giấy tiêu đề",
+                "hoá đơn",
+                "sổ tay"
+            ],
+            "pros": "Dễ viết tay, đóng dấu, giá rẻ",
+            "cons": "In màu không sắc nét bằng couche"
+        },
+        "pvc": {
+            "aliases": [
+                "pvc",
+                "nhựa pvc",
+                "decal pvc",
+                "decal nhựa"
+            ],
+            "displayName": "Decal nhựa PVC",
+            "description": "Decal nhựa chống nước, chống ẩm — bền trong mọi điều kiện",
+            "weights": [
+                "80-100 micron"
+            ],
+            "commonUse": [
+                "nhãn thực phẩm",
+                "nhãn mỹ phẩm",
+                "decal ngoài trời",
+                "nhãn chai/hũ"
+            ],
+            "pros": "Chống nước 100%, bền màu, chịu nhiệt tốt",
+            "cons": "Giá cao hơn decal giấy ~40-50%"
+        },
+        "vinyl": {
+            "aliases": [
+                "vinyl",
+                "decal vinyl",
+                "nhựa vinyl"
+            ],
+            "displayName": "Decal Vinyl",
+            "description": "Nhựa vinyl cao cấp, mỏng, co giãn tốt — chuyên cho skin thiết bị",
+            "weights": [
+                "50-80 micron"
+            ],
+            "commonUse": [
+                "skin điện thoại",
+                "skin laptop",
+                "decal xe",
+                "decal trang trí"
+            ],
+            "pros": "Mỏng, ôm sát bề mặt cong, tháo sạch không keo, chống xước",
+            "cons": "Giá cao nhất trong các loại decal"
+        },
+        "duplex": {
+            "aliases": [
+                "duplex",
+                "giấy duplex",
+                "bìa duplex"
+            ],
+            "displayName": "Giấy Duplex",
+            "description": "Giấy lưng xám, mặt trắng — thường dùng cho hộp/bao bì phổ thông",
+            "weights": [
+                "250gsm",
+                "300gsm",
+                "350gsm",
+                "400gsm"
+            ],
+            "commonUse": [
+                "hộp giấy phổ thông",
+                "bao bì sản phẩm",
+                "vỏ hộp"
+            ],
+            "pros": "Rẻ hơn ivory ~30%, cứng tốt",
+            "cons": "Lưng xám — chỉ in 1 mặt, chất lượng kém ivory"
+        },
+        "mỹ_thuật": {
+            "aliases": [
+                "mỹ thuật",
+                "giấy mỹ thuật",
+                "fancy paper",
+                "giấy nhám",
+                "texture"
+            ],
+            "displayName": "Giấy Mỹ thuật",
+            "description": "Giấy có texture bề mặt đặc biệt (vân gỗ, vân sóng, metallic...)",
+            "weights": [
+                "200gsm",
+                "250gsm",
+                "300gsm"
+            ],
+            "commonUse": [
+                "namecard cao cấp",
+                "thiệp cưới",
+                "bìa sổ luxury"
+            ],
+            "pros": "Texture sang trọng, độc đáo, cao cấp nhất",
+            "cons": "Giá rất cao (+50-100% so với couche), không phù hợp in nhiều màu"
+        },
+        "pp": {
+            "aliases": [
+                "pp",
+                "nhựa pp",
+                "giấy pp"
+            ],
+            "displayName": "Nhựa PP (Polypropylene)",
+            "description": "Nhựa PP trong/đục, chống nước hoàn toàn",
+            "weights": [
+                "varies"
+            ],
+            "commonUse": [
+                "menu chống nước",
+                "standee trong nhà",
+                "nhãn sản phẩm"
+            ],
+            "pros": "Chống nước 100%, in sắc nét, không nhăn",
+            "cons": "Giá cao, không gấp được"
+        },
+        "carbonless": {
+            "aliases": [
+                "carbonless",
+                "ncr",
+                "giấy than",
+                "giấy carbon",
+                "giấy liên"
+            ],
+            "displayName": "Giấy Carbonless (NCR)",
+            "description": "Giấy tự copy nhiều liên — viết liên 1 tự động hiện liên 2,3",
+            "weights": [
+                "varies"
+            ],
+            "commonUse": [
+                "hoá đơn",
+                "phiếu thu chi",
+                "biểu mẫu",
+                "phiếu giao hàng"
+            ],
+            "pros": "Không cần giấy than, tiện lợi",
+            "cons": "Chỉ in 1-2 màu, giấy mỏng"
+        }
+    }
+}

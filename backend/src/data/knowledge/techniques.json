@@ -1,0 +1,96 @@
+{
+    "_description": "Kỹ thuật in - offset, digital, UV, lụa, chuyển nhiệt, khổ lớn",
+    "printingTechniques": {
+        "offset": {
+            "name": "In offset",
+            "description": "In qua bản kẽm, chất lượng cao nhất, phù hợp SL lớn (>500 tờ)",
+            "minQuantity": 500,
+            "turnaround": "3-5 ngày",
+            "pros": "Màu chuẩn CMYK, sắc nét, giá tốt nhất khi SL lớn",
+            "cons": "Chi phí làm kẽm cố định (~200-500k/kẽm), không phù hợp SL ít",
+            "suitableFor": [
+                "namecard >500",
+                "tờ rơi >1000",
+                "brochure",
+                "catalogue",
+                "hộp giấy",
+                "túi giấy"
+            ]
+        },
+        "digital": {
+            "name": "In kỹ thuật số",
+            "description": "In trực tiếp từ file, không cần kẽm, phù hợp SL ít (<500 tờ)",
+            "minQuantity": 1,
+            "turnaround": "1-2 ngày",
+            "pros": "In từ 1 cái, đổi nội dung linh hoạt, giao nhanh, in mẫu thử",
+            "cons": "Giá/cái cao hơn offset khi SL lớn, size giới hạn A3+",
+            "suitableFor": [
+                "namecard ít",
+                "poster",
+                "tờ rơi mẫu",
+                "menu ít",
+                "tài liệu cá nhân hóa"
+            ]
+        },
+        "screen": {
+            "name": "In lụa (silk screen)",
+            "description": "In qua lưới, phù hợp in trên vải/nhựa/kim loại/sản phẩm cong",
+            "minQuantity": 50,
+            "turnaround": "3-5 ngày",
+            "pros": "In trên mọi chất liệu (vải, nhựa, gỗ, kim loại), mực bền",
+            "cons": "Chi phí khung lưới, không phù hợp hình ảnh nhiều chi tiết",
+            "suitableFor": [
+                "áo thun",
+                "túi vải",
+                "ly/cốc",
+                "bao bì nhựa",
+                "biển hiệu"
+            ]
+        },
+        "uv": {
+            "name": "In UV phẳng",
+            "description": "In trực tiếp lên mọi bề mặt phẳng (nhựa, gỗ, kính, mica, acrylic)",
+            "minQuantity": 1,
+            "turnaround": "1-3 ngày",
+            "pros": "In trên mọi vật liệu phẳng, khô ngay, có thể in nổi UV spot",
+            "cons": "Giá cao, chỉ in bề mặt phẳng",
+            "suitableFor": [
+                "biển hiệu mica",
+                "bảng tên",
+                "namecard nhựa",
+                "hộp đặc biệt",
+                "quà tặng"
+            ]
+        },
+        "sublimation": {
+            "name": "In chuyển nhiệt",
+            "description": "In lên giấy chuyển nhiệt rồi ép nhiệt lên sản phẩm",
+            "minQuantity": 1,
+            "turnaround": "2-3 ngày",
+            "pros": "In full color lên vải polyester, gốm sứ, kim loại — bền giặt",
+            "cons": "Chỉ in trên polyester trắng/sáng, không in cotton 100%",
+            "suitableFor": [
+                "áo polyester",
+                "ly sứ",
+                "cốc giữ nhiệt",
+                "ốp lưng",
+                "mousepad"
+            ]
+        },
+        "largeFormat": {
+            "name": "In khổ lớn (large format)",
+            "description": "In phun kỹ thuật số khổ rộng — banner, backdrop, decal xe",
+            "minQuantity": 1,
+            "turnaround": "1-2 ngày",
+            "pros": "Khổ không giới hạn, in nhanh, phù hợp quảng cáo ngoài trời",
+            "cons": "Độ phân giải thấp hơn offset/digital khi nhìn gần",
+            "suitableFor": [
+                "banner",
+                "backdrop",
+                "standee",
+                "decal xe",
+                "biển bạt"
+            ]
+        }
+    }
+}

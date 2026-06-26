@@ -1,0 +1,494 @@
+{
+    "_description": "Quy tắc ràng buộc ngành in ấn — Dạng IF/THEN để AI suy luận chính xác",
+    "_version": "1.0",
+    "_lastUpdated": "2026-03-19",
+    "constraintRules": {
+        "lamination": {
+            "_title": "Quy tắc cán màng",
+            "rules": [
+                {
+                    "id": "LAM-001",
+                    "if": "Giấy < 200gsm",
+                    "then": "KHÔNG nên cán màng",
+                    "reason": "Giấy mỏng khi cán sẽ bị cong vênh, co rút không đều",
+                    "severity": "warning",
+                    "suggestion": "Nếu muốn bảo vệ bề mặt, chọn giấy ≥ 200gsm rồi cán, hoặc dùng phủ UV thay cán màng"
+                },
+                {
+                    "id": "LAM-002",
+                    "if": "Sản phẩm là decal/sticker",
+                    "then": "CHỈ cán 1 mặt (mặt in)",
+                    "reason": "Mặt sau là keo dán, không thể cán",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "LAM-003",
+                    "if": "Sản phẩm là banner/hiflex/standee/bạt",
+                    "then": "KHÔNG cán màng",
+                    "reason": "Vật liệu in khổ lớn (hiflex, PP, canvas) đã có lớp chống nước sẵn, cán thêm không có tác dụng và không khả thi về kỹ thuật",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "LAM-004",
+                    "if": "Khách nói 'cán 2 mặt'",
+                    "then": "Hiểu là in 2 mặt + cán cả 2 mặt. KHÔNG hỏi lại số mặt in",
+                    "reason": "Khi khách yêu cầu cán 2 mặt, ngầm hiểu là in cả 2 mặt",
+                    "severity": "logic_inference"
+                },
+                {
+                    "id": "LAM-005",
+                    "if": "Sản phẩm là poster treo tường",
+                    "then": "Thường KHÔNG cán",
+                    "reason": "Poster treo tường không cần bảo vệ bề mặt, cán sẽ phản sáng khó nhìn",
+                    "severity": "recommendation",
+                    "exception": "Trừ poster trưng bày dài hạn ở nơi đông người (triển lãm, cửa hàng) → nên cán bóng bảo vệ"
+                },
+                {
+                    "id": "LAM-006",
+                    "if": "Cán mờ + ép nhũ/UV cục bộ",
+                    "then": "TỐT — đây là combo phổ biến nhất",
+                    "reason": "Nền cán mờ tạo tương phản tuyệt đẹp với vùng UV bóng hoặc nhũ kim loại",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "LAM-007",
+                    "if": "Sản phẩm cần viết bút bi lên bề mặt",
+                    "then": "KHÔNG cán mặt cần viết",
+                    "reason": "Bề mặt cán (bóng hoặc mờ) không bám mực bút bi",
+                    "severity": "hard_rule",
+                    "example": "Phiếu bảo hành, biểu mẫu điền tay → chỉ cán 1 mặt hoặc không cán"
+                },
+                {
+                    "id": "LAM-008",
+                    "if": "Catalogue/brochure nhiều trang",
+                    "then": "CHỈ cán bìa, ruột KHÔNG cán",
+                    "reason": "Ruột cán sẽ quá dày, khó lật trang, tốn chi phí không cần thiết",
+                    "severity": "recommendation"
+                }
+            ]
+        },
+        "paper_weight": {
+            "_title": "Quy tắc định lượng giấy",
+            "rules": [
+                {
+                    "id": "GSM-001",
+                    "if": "Giấy ≥ 200gsm + cần gấp",
+                    "then": "BẮT BUỘC phải cấn (scoring) trước khi gấp",
+                    "reason": "Giấy dày không cấn sẽ bị gãy, nứt dọc đường gấp, rất xấu",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "GSM-002",
+                    "if": "Namecard",
+                    "then": "Tối thiểu 250gsm, khuyến nghị 300gsm",
+                    "reason": "Namecard mỏng hơn 250gsm sẽ mềm nhũn, thiếu chuyên nghiệp khi trao tay",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "GSM-003",
+                    "if": "Tờ rơi phát tay",
+                    "then": "100-200gsm, phổ biến nhất 150gsm",
+                    "reason": "Quá dày (>200gsm) sẽ nặng, tốn kém và khách ngại cầm. Quá mỏng (<100gsm) sẽ nhăn nhàu",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "GSM-004",
+                    "if": "Menu nhà hàng",
+                    "then": "Tối thiểu 250gsm + cán mờ 2 mặt",
+                    "reason": "Menu bị cầm, lật liên tục, dính nước/dầu — giấy mỏng sẽ hỏng rất nhanh",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "GSM-005",
+                    "if": "Ruột catalogue/sách",
+                    "then": "120-170gsm",
+                    "reason": "Ruột quá dày sẽ phồng sách, khó đóng cuốn, tốn chi phí. Quá mỏng sẽ bị nhìn thấu sang mặt sau",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "GSM-006",
+                    "if": "Bìa catalogue/sách",
+                    "then": "250-350gsm + cán mờ/bóng",
+                    "reason": "Bìa cần cứng để bảo vệ ruột và tạo ấn tượng đầu tiên",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "GSM-007",
+                    "if": "Hộp giấy/bao bì",
+                    "then": "Tối thiểu 300gsm hoặc dùng giấy duplex/ivory",
+                    "reason": "Hộp cần giữ form, chịu lực — giấy mỏng sẽ xẹp",
+                    "severity": "hard_rule"
+                }
+            ]
+        },
+        "print_sides": {
+            "_title": "Quy tắc số mặt in",
+            "rules": [
+                {
+                    "id": "SIDE-001",
+                    "if": "Decal/sticker/tem nhãn",
+                    "then": "CHỈ in 1 mặt",
+                    "reason": "Mặt sau là keo dán, không thể in",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "SIDE-002",
+                    "if": "In khổ lớn (hiflex, PP, canvas, banner)",
+                    "then": "CHỈ in 1 mặt",
+                    "reason": "Máy in khổ lớn chỉ in 1 mặt, vật liệu không hỗ trợ in 2 mặt",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "SIDE-003",
+                    "if": "Namecard/danh thiếp",
+                    "then": "Mặc định in 2 mặt",
+                    "reason": "Mặt trước: tên + chức danh, mặt sau: logo/thông tin công ty. In 1 mặt là lãng phí",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "SIDE-004",
+                    "if": "Standee/X-banner",
+                    "then": "CHỈ in 1 mặt",
+                    "reason": "Standee đặt dựa tường hoặc có chân đỡ phía sau, không ai nhìn mặt sau",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "SIDE-005",
+                    "if": "Poster",
+                    "then": "CHỈ in 1 mặt",
+                    "reason": "Poster treo tường, chỉ nhìn mặt trước",
+                    "severity": "hard_rule"
+                }
+            ]
+        },
+        "binding": {
+            "_title": "Quy tắc đóng cuốn",
+            "rules": [
+                {
+                    "id": "BIND-001",
+                    "if": "Đóng ghim (saddle stitch)",
+                    "then": "Tổng số trang BẮT BUỘC chia hết cho 4",
+                    "reason": "Đóng ghim gấp tờ giấy đôi → mỗi tờ = 4 trang. Nếu không chia hết sẽ có trang trắng thừa",
+                    "severity": "hard_rule",
+                    "example": "8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48 trang"
+                },
+                {
+                    "id": "BIND-002",
+                    "if": "Đóng ghim + số trang > 48",
+                    "then": "KHÔNG khuyến khích — nên đổi sang đóng keo",
+                    "reason": "Quá nhiều tờ giấy gấp đôi sẽ phồng bụng, ghim không giữ chắc, sách xòe ra",
+                    "severity": "warning"
+                },
+                {
+                    "id": "BIND-003",
+                    "if": "Đóng keo nhiệt (perfect binding)",
+                    "then": "Tối thiểu 40 trang (20 tờ), ruột giấy nên ≤ 170gsm",
+                    "reason": "Ít trang quá → gáy mỏng, keo không bám chắc. Giấy dày quá → keo khó thấm, dễ bung",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "BIND-004",
+                    "if": "Sổ tay / planner / menu lật",
+                    "then": "Đóng lò xo (spiral) hoặc Wire-O",
+                    "reason": "Mở phẳng 360°, tiện viết/xem. Wire-O sang trọng hơn lò xo nhựa",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "BIND-005",
+                    "if": "Sách cao cấp / annual report",
+                    "then": "Đóng keo gáy vuông (case binding) + bìa cứng",
+                    "reason": "Trông chuyên nghiệp nhất, bền nhất, đứng đẹp trên kệ",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "BIND-006",
+                    "if": "Số trang lẻ (VD: 10, 15, 25 trang)",
+                    "then": "Phải thêm trang trắng hoặc sắp xếp lại nội dung",
+                    "reason": "In offset và đóng cuốn luôn in trên tờ giấy (2 mặt), nên trang phải chẵn. Đóng ghim phải chia 4",
+                    "severity": "hard_rule"
+                }
+            ]
+        },
+        "finishing_foil": {
+            "_title": "Quy tắc ép nhũ / UV cục bộ",
+            "rules": [
+                {
+                    "id": "FOIL-001",
+                    "if": "Ép nhũ (hot foil)",
+                    "then": "Chữ/logo tối thiểu 5pt, đường nét tối thiểu 0.5mm",
+                    "reason": "Nhũ ép bằng khuôn kim loại nóng — chi tiết quá nhỏ sẽ bị mờ/dính vào nhau",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "FOIL-002",
+                    "if": "Ép nhũ",
+                    "then": "Cần làm khuôn (die) riêng — tính 1 lần, giá tùy kích thước",
+                    "reason": "Mỗi design nhũ cần 1 khuôn kim loại riêng",
+                    "severity": "cost_info"
+                },
+                {
+                    "id": "FOIL-003",
+                    "if": "UV cục bộ (spot UV)",
+                    "then": "NÊN kết hợp trên nền cán MỜ để tạo tương phản",
+                    "reason": "UV bóng trên nền cán bóng → không thấy hiệu ứng gì. Cán mờ → UV nổi bật rõ rệt",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "FOIL-004",
+                    "if": "UV cục bộ",
+                    "then": "Cần file riêng đánh dấu vùng UV (thường là file vector đen trắng)",
+                    "reason": "Máy UV cần biết chính xác vùng nào phủ UV",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "FOIL-005",
+                    "if": "Dập nổi (emboss) hoặc dập chìm (deboss)",
+                    "then": "Giấy tối thiểu 250gsm",
+                    "reason": "Giấy mỏng không đủ độ dày để tạo hiệu ứng nổi/chìm rõ nét",
+                    "severity": "hard_rule"
+                }
+            ]
+        },
+        "die_cutting": {
+            "_title": "Quy tắc bế (die-cut)",
+            "rules": [
+                {
+                    "id": "DIE-001",
+                    "if": "Bế die-cut (cắt rời hoàn toàn)",
+                    "then": "Cần file vector đường bế riêng (contour line)",
+                    "reason": "Máy bế cần đường cắt chính xác, không thể dùng ảnh bitmap",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "DIE-002",
+                    "if": "Sticker dán — khách muốn lột từng cái",
+                    "then": "Bế kiss-cut (cắt lớp decal, KHÔNG cắt backing)",
+                    "reason": "Kiss-cut để khách dễ lột từng sticker ra khỏi tờ. Die-cut cắt cả backing → sticker rời từng cái",
+                    "severity": "logic_inference"
+                },
+                {
+                    "id": "DIE-003",
+                    "if": "Sticker in tờ A4 nhiều hình",
+                    "then": "Kiss-cut từng hình + die-cut viền tờ A4",
+                    "reason": "Giúp khách lột từng sticker mà vẫn gọn gàng trên 1 tờ",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "DIE-004",
+                    "if": "Namecard bo góc",
+                    "then": "Bo góc R3mm là phổ biến nhất",
+                    "reason": "R3mm vừa đẹp, vừa không quá tròn. Bo quá nhỏ (R1mm) gần như vuông, quá lớn (R5mm+) thì mất góc nhiều",
+                    "severity": "recommendation"
+                }
+            ]
+        },
+        "material_compatibility": {
+            "_title": "Quy tắc tương thích chất liệu",
+            "rules": [
+                {
+                    "id": "MAT-001",
+                    "if": "Giấy kraft (giấy nâu tự nhiên)",
+                    "then": "Màu in sẽ TỐI HƠN so với thiết kế trên màn hình",
+                    "reason": "Nền giấy nâu làm mực in bị chìm. Đặc biệt màu sáng/pastel sẽ gần như biến mất",
+                    "severity": "warning",
+                    "suggestion": "Dùng thiết kế tông tối, đơn giản. Hoặc in nền trắng trước (white ink) rồi in màu lên"
+                },
+                {
+                    "id": "MAT-002",
+                    "if": "Giấy offset (không tráng)",
+                    "then": "Không in ảnh full-color chất lượng cao được",
+                    "reason": "Giấy offset thấm mực, ảnh in ra sẽ xỉn, mờ, không sắc nét. Chỉ phù hợp in chữ, biểu mẫu, logo đơn giản",
+                    "severity": "warning",
+                    "suggestion": "Dùng giấy couche hoặc art paper nếu cần in ảnh đẹp"
+                },
+                {
+                    "id": "MAT-003",
+                    "if": "Decal dán chai/hũ thực phẩm",
+                    "then": "BẮT BUỘC dùng decal nhựa PVC chống nước",
+                    "reason": "Decal giấy tiếp xúc nước/ngưng tụ (tủ lạnh) sẽ bong trong vài ngày",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "MAT-004",
+                    "if": "Sản phẩm dùng ngoài trời > 3 tháng",
+                    "then": "Dùng PVC + mực eco-solvent hoặc UV + cán UV chống phai",
+                    "reason": "Mực nước/pigment sẽ phai sau 1-2 tháng ngoài nắng. Mực eco-solvent + cán UV bền 2-3 năm",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "MAT-005",
+                    "if": "Túi giấy cần chịu lực (đựng quần áo, sách, đồ nặng)",
+                    "then": "Dùng kraft ≥ 250gsm hoặc ivory + gia cố quai",
+                    "reason": "Giấy mỏng hoặc couche sẽ rách quai khi đựng đồ nặng. Kraft dai hơn couche cùng định lượng",
+                    "severity": "warning"
+                },
+                {
+                    "id": "MAT-006",
+                    "if": "Decal trong suốt (transparent)",
+                    "then": "Chỉ đẹp trên bề mặt sáng màu (trắng, pastel)",
+                    "reason": "Trên nền tối, decal trong sẽ lẫn vào nền, không thấy nội dung in",
+                    "severity": "recommendation",
+                    "suggestion": "Nếu dán trên nền tối → dùng decal trắng hoặc decal nhũ bạc"
+                },
+                {
+                    "id": "MAT-007",
+                    "if": "In trên nhựa PP (polypropylene)",
+                    "then": "KHÔNG dùng mực thường — cần mực UV hoặc eco-solvent",
+                    "reason": "Bề mặt nhựa PP trơn, mực thường không bám, sẽ bị tróc/bong",
+                    "severity": "hard_rule"
+                }
+            ]
+        },
+        "quantity_pricing": {
+            "_title": "Quy tắc số lượng & giá",
+            "rules": [
+                {
+                    "id": "QTY-001",
+                    "if": "Số lượng < 200 (tờ rơi, namecard, sticker)",
+                    "then": "In digital (KTS) — không nên in offset",
+                    "reason": "In offset cần chi phí setup (kẽm, bù máy) ~500k-1tr, chia cho ít tờ → đơn giá rất cao",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "QTY-002",
+                    "if": "Số lượng ≥ 500",
+                    "then": "Nên in offset — đơn giá giảm đáng kể",
+                    "reason": "Chi phí setup chia đều cho nhiều tờ → đơn giá giảm 30-60% so với in digital",
+                    "severity": "recommendation"
+                },
+                {
+                    "id": "QTY-003",
+                    "if": "Khách cần mỗi tờ khác nhau (tên riêng, mã riêng, số serial)",
+                    "then": "BẮT BUỘC in digital, KHÔNG in offset được",
+                    "reason": "In offset dùng 1 kẽm cho tất cả tờ — không thể thay đổi nội dung từng tờ. In digital in trực tiếp từ file → mỗi tờ khác nhau được (variable data printing)",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "QTY-004",
+                    "if": "In gấp (cần trong 24h)",
+                    "then": "In digital, có thể tăng 30-50% chi phí (phụ thu gấp)",
+                    "reason": "In offset cần tối thiểu 3-5 ngày (chế bản, bù máy). In digital 1-2 giờ cho số lượng ít",
+                    "severity": "cost_info"
+                }
+            ]
+        },
+        "color_design": {
+            "_title": "Quy tắc màu sắc & thiết kế",
+            "rules": [
+                {
+                    "id": "CLR-001",
+                    "if": "File thiết kế ở chế độ RGB",
+                    "then": "PHẢI convert sang CMYK trước khi in",
+                    "reason": "RGB là màu màn hình (ánh sáng), CMYK là màu in (mực). Không convert → màu in ra sẽ tối hơn, xỉn hơn, sai lệch rõ rệt",
+                    "severity": "hard_rule"
+                },
+                {
+                    "id": "CLR-002",
+                    "if": "Cần màu chính xác (logo brand, CI)",
+                    "then": "Dùng mã Pantone, KHÔNG dùng CMYK",
+                    "reason": "CMYK pha từ 4 màu → sai lệch nhẹ. Pantone là mực pha sẵn → chính xác 100%",
+                    "severity": "recommendation",
+                    "note": "Pantone tốn thêm chi phí, chỉ cần cho brand lớn hoặc yêu cầu khắt khe"
+                },
+                {
+                    "id": "CLR-003",
+                    "if": "Thiết kế có text/logo sát mép cắt (< 3mm)",
+                    "then": "CẢNH BÁO: có thể bị cắt mất khi xén giấy",
+                    "reason": "Dao cắt có sai số ±1-2mm. Nội dung quan trọng cách mép ≥ 5mm mới an toàn",
+                    "severity": "warning"
+                },
+                {
+                    "id": "CLR-004",
+                    "if": "In chữ đen trên giấy trắng",
+                    "then": "Dùng K100% (100% Black), KHÔNG dùng CMYK rich black",
+                    "reason": "Rich black (C60 M40 Y40 K100) cho chữ nhỏ sẽ bị lệch chồng, nhòe. K100% cho chữ sắc nét",
+                    "severity": "recommendation",
+                    "exception": "Rich black OK cho vùng nền lớn (poster, backdrop) vì đen sâu hơn"
+                },
+                {
+                    "id": "CLR-005",
+                    "if": "File từ ảnh web/Facebook/screenshot",
+                    "then": "KHÔNG in được chất lượng — chỉ 72 dpi",
+                    "reason": "Ảnh web tối đa 72dpi, in cần 300dpi. In ra sẽ vỡ hạt, mờ nhòe",
+                    "severity": "hard_rule",
+                    "suggestion": "Yêu cầu khách gửi ảnh gốc hoặc file thiết kế vector"
+                }
+            ]
+        },
+        "delivery_production": {
+            "_title": "Quy tắc thời gian sản xuất",
+            "rules": [
+                {
+                    "id": "TIME-001",
+                    "if": "In offset",
+                    "then": "3-5 ngày làm việc (không tính thứ 7, CN, lễ)",
+                    "reason": "Gồm: chế bản (1 ngày) → in (1-2 ngày) → gia công sau in (1-2 ngày)",
+                    "severity": "info"
+                },
+                {
+                    "id": "TIME-002",
+                    "if": "In digital số lượng ít (< 100)",
+                    "then": "1-2 ngày, có thể trong ngày nếu file OK + không gia công phức tạp",
+                    "reason": "In digital không cần chế bản, setup nhanh",
+                    "severity": "info"
+                },
+                {
+                    "id": "TIME-003",
+                    "if": "Có ép nhũ / dập nổi / bế khuôn đặc biệt",
+                    "then": "THÊM 2-3 ngày so với in thường",
+                    "reason": "Cần làm khuôn trước → chờ khuôn xong → gia công",
+                    "severity": "info"
+                },
+                {
+                    "id": "TIME-004",
+                    "if": "In sách/catalogue nhiều trang",
+                    "then": "5-10 ngày tùy số lượng và trang",
+                    "reason": "Nhiều tờ in + đóng cuốn + kiểm tra chất lượng",
+                    "severity": "info"
+                },
+                {
+                    "id": "TIME-005",
+                    "if": "In khổ lớn (banner, standee, hiflex)",
+                    "then": "1-3 ngày",
+                    "reason": "In phun nhanh, nhưng cần gia cố viền/mắt cáo + khô mực",
+                    "severity": "info"
+                }
+            ]
+        },
+        "common_mistakes": {
+            "_title": "Lỗi phổ biến của khách hàng",
+            "rules": [
+                {
+                    "id": "ERR-001",
+                    "if": "Khách gửi file Word/PowerPoint để in",
+                    "then": "CẢNH BÁO: file Office sẽ bị lệch font, layout khi mở trên máy khác",
+                    "reason": "Word/PPT phụ thuộc font + driver máy in. Dùng PDF hoặc file vector cho kết quả chính xác",
+                    "severity": "warning",
+                    "response": "Dạ file Word/PowerPoint có thể bị lệch khi in ạ. Bạn có thể export ra PDF giúp em được không? Hoặc bạn gửi em file gốc AI/PSD nếu có ạ."
+                },
+                {
+                    "id": "ERR-002",
+                    "if": "Khách hỏi in ảnh selfie/chụp tay lên in đẹp",
+                    "then": "Tùy độ phân giải — ảnh phone thường OK nếu ≥ 4MP",
+                    "reason": "Phone từ 2020+ chụp ≥ 12MP → in đến A3 vẫn đẹp. Nhưng ảnh zoom/crop nhiều hoặc chụp ban đêm → có thể vỡ hạt",
+                    "severity": "info"
+                },
+                {
+                    "id": "ERR-003",
+                    "if": "Khách yêu cầu in số lượng rất ít từ 1-5 tờ thôi",
+                    "then": "Vẫn in được (digital) nhưng đơn giá sẽ cao",
+                    "reason": "Mỗi lần in có chi phí setup cố định, chia cho ít tờ → đơn giá cao. Nên in từ 50-100 trở lên mới hiệu quả",
+                    "severity": "cost_info"
+                },
+                {
+                    "id": "ERR-004",
+                    "if": "Khách muốn in 'giống y hệt trên màn hình'",
+                    "then": "Giải thích: màu in LUÔN khác màu màn hình",
+                    "reason": "Màn hình phát sáng (RGB), giấy phản chiếu sáng (CMYK) — 2 hệ màu khác nhau hoàn toàn. Sai lệch 5-15% là bình thường",
+                    "severity": "info",
+                    "response": "Dạ màu in thường sẽ hơi khác màn hình một chút ạ, đó là do 2 hệ màu khác nhau. Nếu bạn cần màu chính xác, em có thể in proof (mẫu thử) để bạn duyệt trước khi in số lượng lớn ạ."
+                }
+            ]
+        }
+    }
+}

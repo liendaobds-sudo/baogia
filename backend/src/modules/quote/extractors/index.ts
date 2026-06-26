@@ -1,0 +1,10 @@
+export { detectProduct, loadProductTemplates, getProductTemplates, isPricingLoaded, findProductTemplate, findProductTemplateById } from './product-detector';
+export type { ProductMatch, ProductTemplate, ProductField } from './product-detector';
+export { extractQuantity } from './quantity-extractor';
+export { extractSize, getStandardSize } from './size-extractor';
+export { extractMaterial, extractBoundMaterials } from './material-extractor';
+export { extractFinishing, getFinishingNames } from './finishing-extractor';
+export { extractBinding, getBindingTypeName, getPricingBindingCode, isSaddleStitch } from './binding-extractor';
+export { extractPrintSides } from './print-sides-extractor';
+export { extractLamination, extractCoverLamination, extractLaminationSides } from './lamination-extractor';
+export { extractFieldsFromChat } from './chat-field-extractor';

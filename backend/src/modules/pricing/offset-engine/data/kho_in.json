@@ -1,0 +1,101 @@
+[
+  {
+    "khoIn": "28cm x 60cm",
+    "chiaTo": "Chia 3",
+    "soConBaiIn": 2,
+    "soConToLon": 12,
+    "khoGiayLon": "84cm x 120cm",
+    "dienTichM2": 0.168,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "42cm x 60cm",
+    "chiaTo": "Chia 2",
+    "soConBaiIn": 2,
+    "soConToLon": 8,
+    "khoGiayLon": "84cm x 120cm",
+    "dienTichM2": 0.252,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "28.6cm x 65cm",
+    "chiaTo": "Chia 3",
+    "soConBaiIn": 2,
+    "soConToLon": 6,
+    "khoGiayLon": "65cm x 86cm",
+    "dienTichM2": 0.1859,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "43cm x 65cm",
+    "chiaTo": "Chia 2",
+    "soConBaiIn": 2,
+    "soConToLon": 4,
+    "khoGiayLon": "65cm x 86cm",
+    "dienTichM2": 0.2795,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "32cm x 47cm",
+    "chiaTo": "Chia 5",
+    "soConBaiIn": 2,
+    "soConToLon": 10,
+    "khoGiayLon": "79cm x 109cm",
+    "dienTichM2": 0.1504,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "39.5cm x 54cm",
+    "chiaTo": "Chia 4",
+    "soConBaiIn": 2,
+    "soConToLon": 8,
+    "khoGiayLon": "79cm x 109cm",
+    "dienTichM2": 0.2133,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "36cm x 72cm",
+    "chiaTo": "Chia 3",
+    "soConBaiIn": 3,
+    "soConToLon": 9,
+    "khoGiayLon": "79cm x 109cm",
+    "dienTichM2": 0.2592,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "36cm x 79cm",
+    "chiaTo": "Chia 3",
+    "soConBaiIn": 3,
+    "soConToLon": 9,
+    "khoGiayLon": "79cm x 109cm",
+    "dienTichM2": 0.2844,
+    "loaiKem": "Kẽm lớn"
+  },
+  {
+    "khoIn": "52cm x 72cm",
+    "chiaTo": "Chia 2",
+    "soConBaiIn": 6,
+    "soConToLon": 12,
+    "khoGiayLon": "79cm x 109cm",
+    "dienTichM2": 0.3744,
+    "loaiKem": "Kẽm nhỏ"
+  },
+  {
+    "khoIn": "54cm x 79cm",
+    "chiaTo": "Chia 2",
+    "soConBaiIn": 6,
+    "soConToLon": 12,
+    "khoGiayLon": "79cm x 109cm",
+    "dienTichM2": 0.4266,
+    "loaiKem": "Kẽm lớn"
+  },
+  {
+    "khoIn": "50cm x 70cm",
+    "chiaTo": "Chia 2",
+    "soConBaiIn": 2,
+    "soConToLon": 4,
+    "khoGiayLon": "65cm x 86cm",
+    "dienTichM2": 0.35,
+    "loaiKem": "Kẽm nhỏ"
+  }
+]

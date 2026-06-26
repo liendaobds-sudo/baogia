@@ -1,0 +1,431 @@
+{
+  "baseline": [
+    { "app": "cskh", "mainMenuCount": 7 },
+    { "app": "baogia", "mainMenuCount": 8 }
+  ],
+  "entries": [
+    {
+      "id": "inbox",
+      "title": "Inbox (Zalo cá nhân + OA)",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Bề mặt tiếp xúc khách hàng trực tiếp của NV_CSKH; phục vụ trục CSKH nên thuộc Tính_Năng_Lõi (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/inbox/",
+      "navItem": "inbox",
+      "backendRoutes": ["/conversations", "/messages"]
+    },
+    {
+      "id": "customers",
+      "title": "Khách hàng (CRM khách hàng — dùng chung nguồn customers)",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Zeplao là nơi quản lý khách hàng: đọc danh sách khách từ CÙNG nguồn `customers` mà App_BaoGia dùng (GET /erp/customers), không tạo bảng/endpoint mới. Phục vụ trực tiếp NV_CSKH/Chủ_Shop trong trục CSKH (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/customers/",
+      "navItem": "customers",
+      "backendRoutes": ["/erp/customers"]
+    },
+    {
+      "id": "contacts-crm",
+      "title": "Danh bạ liên hệ / CRM (Contacts) — ẩn khỏi menu",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Danh bạ liên hệ là danh bạ chat trùng với Inbox (giống Zalo, không cần tab danh bạ riêng) nên được ẩn khỏi menu chính (bỏ navItem). Việc quản lý khách hàng chuyển sang mục 'Khách hàng' đọc cùng nguồn customers. Bản ghi vẫn là Tính_Năng_Lõi của trục CSKH; route /contacts giữ nguyên, không đóng băng (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/contacts/",
+      "backendRoutes": ["/contacts"]
+    },
+    {
+      "id": "knowledge-base",
+      "title": "Knowledge Base / RAG (AI & Kiến thức)",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Cơ sở tri thức RAG hỗ trợ trả lời khách; phục vụ trực tiếp trục CSKH (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/ai/",
+      "navItem": "ai",
+      "backendRoutes": ["/kb", "/knowledge"]
+    },
+    {
+      "id": "dashboard",
+      "title": "Dashboard (Tổng quan CSKH)",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Trang tổng quan hiển thị số liệu và điều hướng nhanh, là bề mặt CSKH trực tiếp cho NV_CSKH và Chủ_Shop trong trục CSKH (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/dashboard/",
+      "navItem": "dashboard"
+    },
+    {
+      "id": "reports",
+      "title": "Báo cáo (Reports)",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Báo cáo vận hành chăm sóc khách hàng phục vụ trực tiếp Chủ_Shop và NV_CSKH theo dõi hiệu quả trong trục CSKH (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/reports/",
+      "navItem": "reports"
+    },
+    {
+      "id": "settings",
+      "title": "Cài đặt (trang landing)",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Trang Cài đặt landing là bề mặt CSKH trực tiếp cho NV_CSKH và Chủ_Shop truy cập cấu hình cơ bản (Req 2.2). Các trang con nâng cao vẫn là entry đóng băng riêng, không đổi.",
+      "featureRef": "frontend/src/app/(app)/settings/",
+      "navItem": "settings"
+    },
+    {
+      "id": "test-chat",
+      "title": "Test Chat",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Màn hình thử nghiệm hội thoại AI giúp NV_CSKH và Chủ_Shop kiểm tra phản hồi trước khi gửi khách; là bề mặt CSKH trực tiếp (Req 2.2).",
+      "featureRef": "frontend/src/app/(app)/test-chat/",
+      "navItem": "test-chat"
+    },
+    {
+      "id": "ai-suggestions",
+      "title": "AI suggestions trong hội thoại",
+      "scope": "core",
+      "axis": "cskh",
+      "rule": "2.2",
+      "reason": "Gợi ý phản hồi của AI cho NV_CSKH ngay trong hội thoại; phục vụ trực tiếp trục CSKH (Req 2.2). Là tính năng trong-hội-thoại, không có mục menu chính riêng.",
+      "featureRef": "frontend/src/app/(app)/inbox/ (panel AI suggestions)",
+      "backendRoutes": ["/ai/suggest"]
+    },
+    {
+      "id": "mini-quote",
+      "title": "Mini báo giá trong hội thoại",
+      "scope": "core",
+      "axis": "shared",
+      "rule": "2.2",
+      "reason": "Báo giá nhanh ngay trong hội thoại CSKH, ghi vào cùng nguồn quotes; phục vụ trực tiếp trục CSKH và Báo giá (Req 2.2). Là tính năng trong-hội-thoại, không có mục menu chính riêng.",
+      "featureRef": "frontend/src/app/(app)/inbox/ (mini quote widget)",
+      "backendRoutes": ["/erp/orders"]
+    },
+    {
+      "id": "pricing-engine",
+      "title": "Engine tính giá (digital/offset/large-format/bound)",
+      "scope": "core",
+      "axis": "baogia",
+      "rule": "2.2",
+      "reason": "Engine tính giá lõi của App_BaoGia, được cả App_CSKH gọi dùng chung; phục vụ trực tiếp trục Báo giá (Req 2.2).",
+      "featureRef": "backend/src/modules/pricing/ ; frontend/src/app/pricing/quotes/new, /pricing/quotes/offset",
+      "navItem": "pricing-create",
+      "backendRoutes": ["/erp/orders", "/pricing/calculate"]
+    },
+    {
+      "id": "quotes",
+      "title": "Danh sách Báo giá",
+      "scope": "core",
+      "axis": "baogia",
+      "rule": "2.2",
+      "reason": "Khung nhìn danh sách Báo giá (đầu vòng đời) của thực thể Báo_Giá_Đơn_Hàng trên bảng quotes, phục vụ qua controller /erp/orders; là bề mặt Lõi trực tiếp của trục Báo giá tại route /pricing/quotes (Req 2.2). Tách từ entry vòng đời cũ để mỗi khung nhìn có route + mục điều hướng riêng.",
+      "featureRef": "frontend/src/app/pricing/quotes/page.tsx",
+      "navItem": "quotes",
+      "backendRoutes": ["/erp/orders"]
+    },
+    {
+      "id": "orders",
+      "title": "Danh sách Đơn hàng",
+      "scope": "core",
+      "axis": "baogia",
+      "rule": "2.2",
+      "reason": "Khung nhìn danh sách Đơn hàng (đã chốt) của CÙNG thực thể Báo_Giá_Đơn_Hàng trên bảng quotes, phục vụ qua chung controller /erp/orders; trình bày tại route riêng /pricing/orders để tách điều hướng và tạo seam phân tách RBAC về sau; là bề mặt Lõi trực tiếp của trục Báo giá (Req 2.2).",
+      "featureRef": "frontend/src/app/pricing/orders/page.tsx",
+      "navItem": "orders",
+      "backendRoutes": ["/erp/orders"]
+    },
+    {
+      "id": "inventory",
+      "title": "Quản lý kho và phiếu nhập-xuất",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "ERP nâng cao (createInventorySlip, POST /erp/inventory, modal StockActionModal); không phục vụ trực tiếp Chủ_Shop/NV_CSKH trong trục CSKH/Báo giá → đóng băng (Req 2.3).",
+      "featureRef": "backend materials.service.createInventorySlip, POST /erp/inventory ; frontend StockActionModal",
+      "backendRoutes": ["/erp/inventory"],
+      "reenable": {
+        "trigger": "Người_Quy_Hoạch quyết định mở lại nghiệp vụ kho nhập-xuất",
+        "steps": [
+          "Đặt scope của entry 'inventory' về 'core' trong scope-registry.json",
+          "Khôi phục mục điều hướng kho và mở khoá modal StockActionModal",
+          "Bỏ cờ vô hiệu hoá / nới RBAC cho route POST /erp/inventory"
+        ],
+        "expected": "Mục kho hiển thị lại trên menu và phiếu nhập-xuất tạo/đọc được bình thường mà không cần khôi phục dữ liệu từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "rfm-scoring",
+      "title": "RFM scoring",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Phân tích RFM nâng cao thuộc phần thịt ERP; không phục vụ trực tiếp trục CSKH/Báo giá → đóng băng (Req 2.3).",
+      "featureRef": "backend module rfm-scoring",
+      "reenable": {
+        "trigger": "Cần phân tích RFM cho chiến dịch chăm sóc nâng cao",
+        "steps": [
+          "Đặt scope của entry 'rfm-scoring' về 'core' trong scope-registry.json",
+          "Hiện lại điểm RFM trên màn hình khách hàng",
+          "Nới RBAC cho route tính điểm RFM"
+        ],
+        "expected": "Điểm RFM tính và hiển thị lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "production-cost",
+      "title": "Production cost (giá thành sản xuất)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Tính giá thành sản xuất chi tiết là ERP nâng cao, vượt ngoài báo giá lõi → đóng băng (Req 2.3).",
+      "featureRef": "backend module production-cost",
+      "reenable": {
+        "trigger": "Cần theo dõi giá thành sản xuất chi tiết",
+        "steps": [
+          "Đặt scope của entry 'production-cost' về 'core' trong scope-registry.json",
+          "Hiện lại các trường giá thành trên màn hình báo giá/đơn hàng",
+          "Nới RBAC cho route production-cost"
+        ],
+        "expected": "Các trường giá thành sản xuất hiển thị và tính lại từ dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "setup-fee",
+      "title": "Setup fee (phí cài đặt/chuẩn bị)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Cấu hình phí setup chi tiết thuộc ERP nâng cao, không thuộc báo giá lõi phổ thông → đóng băng (Req 2.3).",
+      "featureRef": "backend module setup-fee",
+      "reenable": {
+        "trigger": "Cần áp dụng phí setup chi tiết trong báo giá",
+        "steps": [
+          "Đặt scope của entry 'setup-fee' về 'core' trong scope-registry.json",
+          "Hiện lại cấu hình phí setup trong màn hình báo giá",
+          "Nới RBAC cho route setup-fee"
+        ],
+        "expected": "Phí setup áp dụng lại đúng cấu hình hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "plate-pricing",
+      "title": "Plate pricing (giá kẽm/bản in offset)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Tính giá kẽm/bản in offset chi tiết là cấu hình ERP nâng cao → đóng băng (Req 2.3).",
+      "featureRef": "backend module plate-pricing (offset)",
+      "reenable": {
+        "trigger": "Cần tính chi tiết giá kẽm/bản in cho báo giá offset",
+        "steps": [
+          "Đặt scope của entry 'plate-pricing' về 'core' trong scope-registry.json",
+          "Hiện lại cấu hình giá kẽm trong luồng báo giá offset",
+          "Nới RBAC cho route plate-pricing"
+        ],
+        "expected": "Giá kẽm/bản in tính lại đúng cấu hình hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "offset-machine-advanced",
+      "title": "Cấu hình máy offset nâng cao",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Cấu hình máy offset nâng cao (thông số máy, định mức chi tiết) thuộc ERP nâng cao → đóng băng (Req 2.3).",
+      "featureRef": "backend/frontend cấu hình máy offset nâng cao",
+      "reenable": {
+        "trigger": "Cần cấu hình thông số máy offset nâng cao",
+        "steps": [
+          "Đặt scope của entry 'offset-machine-advanced' về 'core' trong scope-registry.json",
+          "Hiện lại trang cấu hình máy offset nâng cao",
+          "Nới RBAC cho route cấu hình máy offset"
+        ],
+        "expected": "Trang cấu hình máy offset nâng cao hiển thị và lưu lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "multi-tenant",
+      "title": "Multi-tenant (đa khách thuê)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Năng lực SaaS đa tenant; hiện đã hợp nhất về single-schema public, middleware tenant đã tắt → đóng băng và cần điều kiện bật lại (Req 2.4, 6.9).",
+      "featureRef": "backend TenantSchemaMiddleware, provisionTenantSchema, schema_name",
+      "reenable": {
+        "trigger": "Quyết định phục vụ nhiều khách thuê trên schema riêng",
+        "steps": [
+          "Đặt scope của entry 'multi-tenant' về 'core' trong scope-registry.json",
+          "Bật TenantSchemaMiddleware",
+          "Chuyển TypeORM schema sang động (per-request)",
+          "Giữ synchronize=false"
+        ],
+        "expected": "Mỗi tenant truy cập đúng schema riêng; các luồng Lõi (CSKH, Báo giá) chạy bình thường theo từng tenant.",
+        "perTenant": [
+          "Gán schema_name cho tenant",
+          "Gọi provisionTenantSchema để tạo/khởi tạo schema cho tenant",
+          "Xác minh tenant đọc/ghi đúng dữ liệu trong schema của mình"
+        ]
+      }
+    },
+    {
+      "id": "super-admin",
+      "title": "Super Admin",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Bảng điều khiển quản trị cấp nền tảng thuộc nhóm SaaS; không phục vụ trực tiếp Chủ_Shop/NV_CSKH → đóng băng (Req 2.4).",
+      "featureRef": "frontend/src/app/(app)/super-admin/",
+      "navItem": "super-admin",
+      "reenable": {
+        "trigger": "Cần quản trị cấp nền tảng (vận hành nhiều khách thuê/cấu hình hệ thống)",
+        "steps": [
+          "Đặt scope của entry 'super-admin' về 'core' trong scope-registry.json",
+          "Hiện lại mục Super Admin trên menu cho vai trò phù hợp",
+          "Đảm bảo RBAC chỉ cho phép super_admin/admin truy cập"
+        ],
+        "expected": "Trang Super Admin hiển thị lại cho đúng vai trò và thao tác quản trị hoạt động bình thường, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "subscription-plans",
+      "title": "Subscription plans (gói thuê bao)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Quản lý gói thuê bao thuộc nhóm SaaS → đóng băng (Req 2.4).",
+      "featureRef": "backend/frontend subscription-plans",
+      "reenable": {
+        "trigger": "Quyết định thương mại hoá theo mô hình thuê bao",
+        "steps": [
+          "Đặt scope của entry 'subscription-plans' về 'core' trong scope-registry.json",
+          "Hiện lại màn hình quản lý gói thuê bao",
+          "Nới RBAC cho route subscription-plans"
+        ],
+        "expected": "Màn hình gói thuê bao hiển thị và quản lý lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "payments",
+      "title": "Payments (thanh toán)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Tích hợp thanh toán thuộc nhóm SaaS → đóng băng (Req 2.4).",
+      "featureRef": "backend/frontend payments",
+      "reenable": {
+        "trigger": "Quyết định tích hợp cổng thanh toán",
+        "steps": [
+          "Đặt scope của entry 'payments' về 'core' trong scope-registry.json",
+          "Hiện lại màn hình/luồng thanh toán",
+          "Nới RBAC cho route payments và cấu hình cổng thanh toán"
+        ],
+        "expected": "Luồng thanh toán hoạt động lại đúng cấu hình hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "settings-ai-quote",
+      "title": "Cài đặt: AI auto-quote (ai-quote)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Trang Cài đặt đang ẩn khỏi menu; cấu hình báo giá tự động bằng AI là tính năng nâng cao vượt ngoài mini báo giá lõi → đóng băng, đúng một nhóm (Req 2.7, 2.3).",
+      "featureRef": "frontend/src/app/(app)/settings/ai-quote/",
+      "reenable": {
+        "trigger": "Cần bật cấu hình báo giá tự động bằng AI",
+        "steps": [
+          "Đặt scope của entry 'settings-ai-quote' về 'core' trong scope-registry.json",
+          "Hiện lại trang Cài đặt ai-quote trong menu Cài đặt"
+        ],
+        "expected": "Trang cấu hình AI auto-quote hiển thị và lưu lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "settings-api-keys",
+      "title": "Cài đặt: API keys (api-keys)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Trang Cài đặt đang ẩn khỏi menu; quản lý API key phục vụ tích hợp SaaS/ngoài → đóng băng, đúng một nhóm (Req 2.7, 2.4).",
+      "featureRef": "frontend/src/app/(app)/settings/api-keys/",
+      "reenable": {
+        "trigger": "Cần phát hành/quản lý API key cho tích hợp ngoài",
+        "steps": [
+          "Đặt scope của entry 'settings-api-keys' về 'core' trong scope-registry.json",
+          "Hiện lại trang Cài đặt api-keys trong menu Cài đặt"
+        ],
+        "expected": "Trang quản lý API key hiển thị và thao tác lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "settings-api-docs",
+      "title": "Cài đặt: API docs (api-docs)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Trang Cài đặt đang ẩn khỏi menu; tài liệu API phục vụ tích hợp SaaS/ngoài → đóng băng, đúng một nhóm (Req 2.7, 2.4).",
+      "featureRef": "frontend/src/app/(app)/settings/api-docs/",
+      "reenable": {
+        "trigger": "Cần công bố tài liệu API cho tích hợp ngoài",
+        "steps": [
+          "Đặt scope của entry 'settings-api-docs' về 'core' trong scope-registry.json",
+          "Hiện lại trang Cài đặt api-docs trong menu Cài đặt"
+        ],
+        "expected": "Trang tài liệu API hiển thị lại bình thường, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "settings-webhooks",
+      "title": "Cài đặt: Webhooks (webhooks)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.4",
+      "reason": "Trang Cài đặt đang ẩn khỏi menu; webhook phục vụ tích hợp SaaS/ngoài → đóng băng, đúng một nhóm (Req 2.7, 2.4).",
+      "featureRef": "frontend/src/app/(app)/settings/webhooks/",
+      "reenable": {
+        "trigger": "Cần cấu hình webhook tích hợp ngoài",
+        "steps": [
+          "Đặt scope của entry 'settings-webhooks' về 'core' trong scope-registry.json",
+          "Hiện lại trang Cài đặt webhooks trong menu Cài đặt"
+        ],
+        "expected": "Trang webhook hiển thị và cấu hình lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "settings-product-configs",
+      "title": "Cài đặt: Product configs (product-configs)",
+      "scope": "frozen",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Trang Cài đặt đang ẩn khỏi menu; cấu hình sản phẩm nâng cao thuộc ERP nâng cao → đóng băng, đúng một nhóm (Req 2.7, 2.3).",
+      "featureRef": "frontend/src/app/(app)/settings/product-configs/",
+      "reenable": {
+        "trigger": "Cần cấu hình sản phẩm nâng cao",
+        "steps": [
+          "Đặt scope của entry 'settings-product-configs' về 'core' trong scope-registry.json",
+          "Hiện lại trang Cài đặt product-configs trong menu Cài đặt"
+        ],
+        "expected": "Trang cấu hình sản phẩm nâng cao hiển thị và lưu lại đúng dữ liệu hiện có, không cần khôi phục từ sao lưu ngoài."
+      }
+    },
+    {
+      "id": "titlemap-pricing-orders",
+      "title": "Title-map mồ côi /pricing/orders",
+      "scope": "removed",
+      "axis": "none",
+      "rule": "2.3",
+      "reason": "Rác điều hướng theo Req 2.8: title-map /pricing/orders trong layout.tsx không có trang thật tương ứng. Xếp vào Trạng_Thái_Gỡ_Bỏ; việc gỡ KHÔNG ảnh hưởng tới API /erp/orders thuộc Tính_Năng_Lõi của trục Báo giá. (Lưu ý: tiêu chí áp dụng là Req 2.8 về rác điều hướng; trường rule chỉ mô hình hoá 2.2/2.3/2.4 nên ghi 2.3 như nhóm dọn dẹp residual, chi tiết nêu trong reason.)",
+      "featureRef": "frontend/src/app/pricing/layout.tsx (title-map '/pricing/orders')",
+      "backup": {
+        "codeBackupRef": "git history: frontend/src/app/pricing/layout.tsx (title-map '/pricing/orders')",
+        "dataBackupRef": "Không có dữ liệu liên quan — title-map chỉ là chuỗi điều hướng tĩnh trong layout.tsx",
+        "restoreVerified": true
+      }
+    }
+  ]
+}

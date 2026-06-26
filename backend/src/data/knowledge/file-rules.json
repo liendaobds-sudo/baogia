@@ -1,0 +1,57 @@
+{
+    "_description": "Quy tắc file thiết kế - CMYK, 300dpi, bleed, font, format",
+    "fileDesignRules": {
+        "colorMode": {
+            "rule": "CMYK",
+            "description": "File in ấn BẮT BUỘC dùng hệ màu CMYK. RGB (màn hình) sẽ bị lệch màu khi in.",
+            "commonMistake": "Khách gửi file RGB → màu in ra nhạt/dại hơn trên màn hình",
+            "fix": "Convert sang CMYK trong Photoshop/Illustrator trước khi gửi"
+        },
+        "resolution": {
+            "rule": "300 dpi trở lên",
+            "description": "Độ phân giải tối thiểu 300 dpi để in sắc nét. 72 dpi (web) sẽ bị vỡ hạt.",
+            "exceptions": "Banner/backdrop khổ lớn: 100-150 dpi OK (nhìn từ xa)",
+            "commonMistake": "Lấy ảnh từ Facebook/web (72 dpi) để in → vỡ hạt"
+        },
+        "bleed": {
+            "rule": "3mm mỗi cạnh",
+            "description": "Phần tràn viền (bleed) 3mm để khi cắt không bị viền trắng",
+            "commonMistake": "File không có bleed → thành phẩm có viền trắng mỏng ở mép"
+        },
+        "safeZone": {
+            "rule": "5mm cách mép cắt",
+            "description": "Text và logo quan trọng phải cách mép cắt ít nhất 5mm để không bị cắt mất",
+            "commonMistake": "Chữ sát mép → bị cắt khi xén giấy"
+        },
+        "fonts": {
+            "rule": "Nhúng font hoặc convert to curves/outlines",
+            "description": "Font chữ phải được nhúng (embed) hoặc chuyển thành đường cong",
+            "commonMistake": "Gửi file AI/PDF không nhúng font → máy in thay font khác → sai layout"
+        },
+        "acceptedFormats": {
+            "preferred": [
+                "AI (Adobe Illustrator)",
+                "PDF (vector)",
+                "PSD (có layer)"
+            ],
+            "acceptable": [
+                "CDR (CorelDRAW)",
+                "INDD (InDesign)"
+            ],
+            "notRecommended": [
+                "JPEG/PNG (mất chất lượng)",
+                "Word/PowerPoint (lệch layout)"
+            ],
+            "note": "File vector (AI/PDF) cho kết quả tốt nhất. File bitmap (PSD/JPEG) cần 300 dpi."
+        },
+        "proofProcess": {
+            "description": "Quy trình duyệt file trước khi in",
+            "steps": [
+                "1. Khách gửi file → em check kỹ thuật (CMYK, 300dpi, bleed)",
+                "2. Em gửi proof (bản mẫu PDF) qua Zalo/email để khách duyệt",
+                "3. Khách xác nhận OK → em tiến hành in",
+                "4. Nếu cần sửa → sửa lại → gửi proof mới"
+            ]
+        }
+    }
+}

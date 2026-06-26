@@ -1,0 +1,1262 @@
+[
+  {
+    "code": "XLBM",
+    "congDoan": "Xử lý bề mặt \n( Cán bóng , cán mờ , phủ UV, phủ water base )",
+    "ghiChu": "Đơn giá áp dụng đối với 1 mặt",
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 250000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 250000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 250000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 250000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 350
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 300
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 250
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 200
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 160
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 130
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 100
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 80
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 70
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 60
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 55
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 50
+      }
+    ],
+    "billingMode": "minCharge",
+    "minChargeParam": "GiaMin_XLBM",
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "BOI",
+    "congDoan": "BỒI dạng tờ ra thành phẩm",
+    "ghiChu": "lưu ý lại giá + 100% xlbm",
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 500000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 500000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 500000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 500000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 950
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 900
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 880
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 800
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 770
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 700
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 660
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 600
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 550
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 500
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 450
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 400
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "EPKIM",
+    "congDoan": "ÉP KIM",
+    "ghiChu": "xem lại ",
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 250000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 250000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 250000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 250000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 350
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 300
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 250
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 200
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 160
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 130
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 100
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 80
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 70
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 60
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 55
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 50
+      }
+    ],
+    "billingMode": "external",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "BE",
+    "congDoan": "BẾ",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 250000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 250000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 250000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 250000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 350
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 300
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 250
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 200
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 160
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 130
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 100
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 80
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 70
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 60
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 55
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 50
+      }
+    ],
+    "billingMode": "minCharge",
+    "minChargeParam": "GiaMin_Be",
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "DANTD",
+    "congDoan": "DÁN HỘP TỰ ĐỘNG",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 250000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 250000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 250000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 250000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 350
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 300
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 250
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 200
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 160
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 130
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 100
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 80
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 70
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 60
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 55
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 50
+      }
+    ],
+    "billingMode": "minCharge",
+    "minChargeParam": "GiaMin_DanHop",
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "QC",
+    "congDoan": "KIỂM HÀNG ( QC )",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": null
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": null
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": null
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": null
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 200
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 150
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 120
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 100
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 90
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 80
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 70
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 60
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 50
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 45
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 40
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 30
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "DONGGOI",
+    "congDoan": "ĐÓNG GÓI",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 100000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 100000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 100000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 100000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 70
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 65
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 60
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 55
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 50
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 45
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 40
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 35
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 30
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 25
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 20
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 15
+      }
+    ],
+    "billingMode": "minCharge",
+    "minChargeParam": "GiaMin_DongGoi",
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "CATXEN",
+    "congDoan": "Cắt/ xén",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 0
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 0
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 0
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 0
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 70
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 65
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 60
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 55
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 50
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 45
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 40
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 35
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 30
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 25
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 20
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 15
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "TP_TC",
+    "congDoan": "TP Thủ công",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 300
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 300
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 300
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 300
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 300
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 300
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 250
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 250
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 250
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 220
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 220
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 200
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 200
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 200
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 200
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 200
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "TP_TUI",
+    "congDoan": "TP túi giấy",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 2500
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 2500
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 2500
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 2500
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 2150
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 2100
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 2050
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 2000
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 1950
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 1920
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 1900
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 1870
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 1850
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 1820
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 1800
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 1700
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "TP_MAY",
+    "congDoan": "TP Máy",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 150000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 150000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 150000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 150000
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 150
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 120
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 100
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 90
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 80
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 70
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 65
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 60
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 55
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 50
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 45
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 40
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "TP_CUON",
+    "congDoan": "TP đóng cuốn",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 700
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 600
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 500
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 400
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 250
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 250
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 250
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 250
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 250
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 250
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 250
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 250
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 250
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 250
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 250
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 250
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "TP_LOXO",
+    "congDoan": "TP lò xo",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 1000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 900
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 800
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 700
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 500
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 500
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 500
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 500
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 500
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 500
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 500
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 500
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 500
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 500
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 500
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 500
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  },
+  {
+    "code": "TP_DUCKEO",
+    "congDoan": "TP đúc keo",
+    "ghiChu": null,
+    "tiers": [
+      {
+        "min": 0,
+        "max": 300,
+        "price": 5000
+      },
+      {
+        "min": 300,
+        "max": 500,
+        "price": 4000
+      },
+      {
+        "min": 500,
+        "max": 700,
+        "price": 3000
+      },
+      {
+        "min": 700,
+        "max": 1000,
+        "price": 2500
+      },
+      {
+        "min": 1000,
+        "max": 2000,
+        "price": 2000
+      },
+      {
+        "min": 2000,
+        "max": 3000,
+        "price": 2000
+      },
+      {
+        "min": 3000,
+        "max": 5000,
+        "price": 2000
+      },
+      {
+        "min": 5000,
+        "max": 7000,
+        "price": 2000
+      },
+      {
+        "min": 7000,
+        "max": 10000,
+        "price": 2000
+      },
+      {
+        "min": 10000,
+        "max": 20000,
+        "price": 2000
+      },
+      {
+        "min": 20000,
+        "max": 30000,
+        "price": 2000
+      },
+      {
+        "min": 30000,
+        "max": 40000,
+        "price": 2000
+      },
+      {
+        "min": 40000,
+        "max": 50000,
+        "price": 2000
+      },
+      {
+        "min": 50000,
+        "max": 70000,
+        "price": 2000
+      },
+      {
+        "min": 70000,
+        "max": 100000,
+        "price": 2000
+      },
+      {
+        "min": 100000,
+        "max": null,
+        "price": 2000
+      }
+    ],
+    "billingMode": "perUnit",
+    "minChargeParam": null,
+    "moqParam": "MOQ_GiaCong"
+  }
+]

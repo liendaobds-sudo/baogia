@@ -1,0 +1,65 @@
+{
+    "_comment": "From Kprint 07_pricing_tiers.php — formula-based tier generation",
+    "quantityTiers": [
+        {
+            "from": 1,
+            "to": 100,
+            "discount": 0.00
+        },
+        {
+            "from": 101,
+            "to": 200,
+            "discount": 0.10
+        },
+        {
+            "from": 201,
+            "to": 300,
+            "discount": 0.15
+        },
+        {
+            "from": 301,
+            "to": 500,
+            "discount": 0.20
+        },
+        {
+            "from": 501,
+            "to": 1000,
+            "discount": 0.25
+        },
+        {
+            "from": 1001,
+            "to": 999999,
+            "discount": 0.30
+        }
+    ],
+    "sideColorCombos": [
+        {
+            "printSide": "single",
+            "colorType": "4c",
+            "sideModifier": 1.0,
+            "colorModifier": 1.0
+        },
+        {
+            "printSide": "single",
+            "colorType": "1c",
+            "sideModifier": 1.0,
+            "colorModifier": 0.6
+        },
+        {
+            "printSide": "double",
+            "colorType": "4c",
+            "sideModifier": 1.7,
+            "colorModifier": 1.0
+        },
+        {
+            "printSide": "double",
+            "colorType": "1c",
+            "sideModifier": 1.7,
+            "colorModifier": 0.6
+        }
+    ],
+    "materialTypes": [
+        "paper",
+        "decal"
+    ]
+}

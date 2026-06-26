@@ -1,0 +1,72 @@
+[
+    {
+        "code": "IN-CO-BAN",
+        "nameVi": "In Cơ Bản",
+        "nameEn": "Basic Printing",
+        "icon": "fa-print",
+        "sortOrder": 1
+    },
+    {
+        "code": "BROCHURE",
+        "nameVi": "Brochure / Catalogue",
+        "nameEn": "Brochure / Catalogue",
+        "icon": "fa-book-open",
+        "sortOrder": 2
+    },
+    {
+        "code": "TEM-NHAN",
+        "nameVi": "Tem Nhãn / Decal",
+        "nameEn": "Labels / Stickers",
+        "icon": "fa-sticky-note",
+        "sortOrder": 3
+    },
+    {
+        "code": "VAN-PHONG",
+        "nameVi": "Văn Phòng Phẩm",
+        "nameEn": "Office Supplies",
+        "icon": "fa-envelope",
+        "sortOrder": 4
+    },
+    {
+        "code": "BAO-BI",
+        "nameVi": "Bao Bì",
+        "nameEn": "Packaging",
+        "icon": "fa-box",
+        "sortOrder": 5
+    },
+    {
+        "code": "SACH",
+        "nameVi": "Sách / Tạp Chí",
+        "nameEn": "Books / Magazines",
+        "icon": "fa-book",
+        "sortOrder": 6
+    },
+    {
+        "code": "KHO-LON",
+        "nameVi": "In Khổ Lớn",
+        "nameEn": "Large Format",
+        "icon": "fa-flag",
+        "sortOrder": 7
+    },
+    {
+        "code": "MENU",
+        "nameVi": "Menu",
+        "nameEn": "Menu",
+        "icon": "fa-utensils",
+        "sortOrder": 8
+    },
+    {
+        "code": "LICH",
+        "nameVi": "Lịch",
+        "nameEn": "Calendars",
+        "icon": "fa-calendar-alt",
+        "sortOrder": 9
+    },
+    {
+        "code": "SU-KIEN",
+        "nameVi": "Sự Kiện",
+        "nameEn": "Events",
+        "icon": "fa-ticket-alt",
+        "sortOrder": 10
+    }
+]

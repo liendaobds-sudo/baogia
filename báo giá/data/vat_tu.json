@@ -1,0 +1,1129 @@
+[
+  {
+    "name": "Không",
+    "width": null,
+    "height": null,
+    "priceVAT": null,
+    "priceNoVAT": null
+  },
+  {
+    "name": "Britol 300gsm (65x86)",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 4528,
+    "priceNoVAT": 4192.59259259259
+  },
+  {
+    "name": "Britol 300gsm APP (79x109)",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 6587,
+    "priceNoVAT": 6099.07407407407
+  },
+  {
+    "name": "Carbonles 50gsm (61x86) hồng giữa",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1501,
+    "priceNoVAT": 1389.81481481481
+  },
+  {
+    "name": "Carbonles 50gsm (61x86) vàng giữa--HÀNG TỒN LÂU-ĐẶT THEO ĐH",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1326,
+    "priceNoVAT": 1227.77777777778
+  },
+  {
+    "name": "Carbonles 50gsm (61x86) xanh dương giữa-HÀNG TỒN LÂU",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1378,
+    "priceNoVAT": 1275.92592592593
+  },
+  {
+    "name": "Carbonles 50gsm (61x86) xanh lá giữa--HÀNG TỒN LÂU",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1541,
+    "priceNoVAT": 1426.85185185185
+  },
+  {
+    "name": "Carbonles 56gsm (61x86) hồng cuối",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1415,
+    "priceNoVAT": 1310.18518518518
+  },
+  {
+    "name": "Carbonles 56gsm (61x86) trắng đầu",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1432,
+    "priceNoVAT": 1325.92592592593
+  },
+  {
+    "name": "Carbonles 56gsm (61x86) vàng cuối - HÀNG TỒN LÂU",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1266,
+    "priceNoVAT": 1172.22222222222
+  },
+  {
+    "name": "Carbonles 56gsm (61x86) xanh dương cuối",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1415,
+    "priceNoVAT": 1310.18518518518
+  },
+  {
+    "name": "Carbonless 50gsm trắng giữa (61x86)-HÀNG TỒN LÂU",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1415,
+    "priceNoVAT": 1310.18518518518
+  },
+  {
+    "name": "Carbonless 51gsm (61x86) trắng cuối-ĐẶT THEO ĐƠN HÀNG",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 1266,
+    "priceNoVAT": 1172.22222222222
+  },
+  {
+    "name": "Carbonless xanh lá cuối 56gsm (61x86)-HÀNG TỒN LÂU",
+    "width": 61,
+    "height": 86,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Coucher 100gsm (65x86) Hikote",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 1342,
+    "priceNoVAT": 1242.59259259259
+  },
+  {
+    "name": "Coucher 100gsm (79x109) Hikote",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 2110,
+    "priceNoVAT": 1953.7037037037
+  },
+  {
+    "name": "Coucher 120gsm (65x86) Hikote",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 1643,
+    "priceNoVAT": 1521.2962962963
+  },
+  {
+    "name": "Coucher 120gsm (79x109) Hikote",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 2532,
+    "priceNoVAT": 2344.44444444444
+  },
+  {
+    "name": "Coucher 150gsm (65x86) Hikote",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2029,
+    "priceNoVAT": 1878.7037037037
+  },
+  {
+    "name": "Coucher 150gsm (79x109) Hikote",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3165,
+    "priceNoVAT": 2930.55555555556
+  },
+  {
+    "name": "Coucher 200gsm (65x86) Hikote",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2706,
+    "priceNoVAT": 2505.55555555556
+  },
+  {
+    "name": "Coucher 200gsm (65x86) Morim-HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 3051,
+    "priceNoVAT": 2825
+  },
+  {
+    "name": "Coucher 200gsm (79x109) Hikote",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4219,
+    "priceNoVAT": 3906.48148148148
+  },
+  {
+    "name": "Coucher 200gsm (79x109) Morim-XUẤT CHẬM",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4481,
+    "priceNoVAT": 4149.07407407407
+  },
+  {
+    "name": "Coucher 250gsm (65x86) Hikote",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 3390,
+    "priceNoVAT": 3138.88888888889
+  },
+  {
+    "name": "Coucher 250gsm (65x86) MATTE--HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2881,
+    "priceNoVAT": 2667.59259259259
+  },
+  {
+    "name": "Coucher 250gsm (65x97) Hikote-THEO ĐƠN HÀNG",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 3780,
+    "priceNoVAT": 3500
+  },
+  {
+    "name": "Coucher 250gsm (79x109) Hikote",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5210,
+    "priceNoVAT": 4824.07407407407
+  },
+  {
+    "name": "Coucher 300gsm (65x86) Hikote",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 4058,
+    "priceNoVAT": 3757.40740740741
+  },
+  {
+    "name": "Coucher 300gsm (79x109) Hikote",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 6252,
+    "priceNoVAT": 5788.88888888889
+  },
+  {
+    "name": "Decal coucher CDP070-WC080-PH0 144gsm (43x64) LH label sóng, keo nóng",
+    "width": 43,
+    "height": 64,
+    "priceVAT": 3210,
+    "priceNoVAT": 2972.22222222222
+  },
+  {
+    "name": "Decal đế vàng Coucher 160gsm (43x53) Amazon",
+    "width": 43,
+    "height": 53,
+    "priceVAT": 2268,
+    "priceNoVAT": 2100
+  },
+  {
+    "name": "Decal đế vàng Coucher 160gsm (43x64)- CPYK - F1804 Amazon chấm xanh",
+    "width": 43,
+    "height": 64,
+    "priceVAT": 2.714,
+    "priceNoVAT": 2.51296296296296
+  },
+  {
+    "name": "Decal đế xanh Coucher 160gsm (43x53) Ojilabel-CHUYỂN QUA KHO LỖI",
+    "width": 43,
+    "height": 53,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Decal đế xanh Coucher 160gsm (43x64) Ojilabel",
+    "width": 43,
+    "height": 64,
+    "priceVAT": 3037,
+    "priceNoVAT": 2812.03703703704
+  },
+  {
+    "name": "Decal ford đế xanh 160gsm (43x63) Ojilabel",
+    "width": 43,
+    "height": 63,
+    "priceVAT": 3142,
+    "priceNoVAT": 2909.25925925926
+  },
+  {
+    "name": "Decal nhựa sữa bóng PVC, amazon chấm xanh 260gsm (43X60)\nPVWWK-F1804N (SVLW#80-F)",
+    "width": 43,
+    "height": 60,
+    "priceVAT": 4709,
+    "priceNoVAT": 4360.18518518519
+  },
+  {
+    "name": "Decal PP (43x64) SYNWK-F1840 Amazon",
+    "width": 43,
+    "height": 64,
+    "priceVAT": 3876,
+    "priceNoVAT": 3588.88888888889
+  },
+  {
+    "name": "Decal trong kraft đế vàng PTCYK-E0025 ( 43x53 )-ĐẶT THEO ĐƠN HÀNG",
+    "width": 43,
+    "height": 53,
+    "priceVAT": 2733,
+    "priceNoVAT": 2530.55555555556
+  },
+  {
+    "name": "Duplex 200gsm (60x84) Việt Trì-HÀNG TỒN LÂU",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 2425,
+    "priceNoVAT": 2245.37037037037
+  },
+  {
+    "name": "Duplex 200gsm (65x65) Việt Trì--HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 65,
+    "priceVAT": 2096,
+    "priceNoVAT": 1940.74074074074
+  },
+  {
+    "name": "Duplex 200gsm (65x86) Hansol",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2024,
+    "priceNoVAT": 1874.07407407407
+  },
+  {
+    "name": "Duplex 200gsm (65x90) Việt Trì-HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 90,
+    "priceVAT": 2902,
+    "priceNoVAT": 2687.03703703704
+  },
+  {
+    "name": "Duplex 200gsm (65x92) Hansol",
+    "width": 65,
+    "height": 92,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 200gsm (79x109) Hansol",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3190,
+    "priceNoVAT": 2953.7037037037
+  },
+  {
+    "name": "Duplex 200gsm (79x109) Mehali-HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3636,
+    "priceNoVAT": 3366.66666666667
+  },
+  {
+    "name": "Duplex 200gsm (79x109) Việt Trì",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4168,
+    "priceNoVAT": 3859.25925925926
+  },
+  {
+    "name": "Duplex 200gsm (79x79) Việt Trì",
+    "width": 79,
+    "height": 79,
+    "priceVAT": 3095,
+    "priceNoVAT": 2865.74074074074
+  },
+  {
+    "name": "Duplex 250gsm (65x86) Hansol",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2390,
+    "priceNoVAT": 2212.96296296296
+  },
+  {
+    "name": "Duplex 250gsm (79x109) Hansol",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3682,
+    "priceNoVAT": 3409.25925925926
+  },
+  {
+    "name": "Duplex 250gsm (79x90) Hansol",
+    "width": 79,
+    "height": 90,
+    "priceVAT": 3200,
+    "priceNoVAT": 2962.96296296296
+  },
+  {
+    "name": "Duplex 270gsm (60x80) Oji",
+    "width": 60,
+    "height": 80,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 270gsm (60x79) Oji",
+    "width": 60,
+    "height": 79,
+    "priceVAT": 3045,
+    "priceNoVAT": 2819.44444444444
+  },
+  {
+    "name": "Duplex 270gsm (60x89) Oji",
+    "width": 60,
+    "height": 89,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 270gsm (79x109) Oji",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5494,
+    "priceNoVAT": 5087.03703703704
+  },
+  {
+    "name": "Duplex 270gsm (89x109) Oji",
+    "width": 89,
+    "height": 109,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 300gsm (46x109) Viet Tri--HÀNG TỒN LÂU",
+    "width": 46,
+    "height": 109,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 300gsm (65x86) HanchangH5",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 300gsm (79x107) Dehan--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 107,
+    "priceVAT": 6341,
+    "priceNoVAT": 5871.2962962963
+  },
+  {
+    "name": "Duplex 300gsm (79x109) HanchangH5--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3805,
+    "priceNoVAT": 3523.14814814815
+  },
+  {
+    "name": "Duplex 300gsm (79x109) Hansol--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 6070,
+    "priceNoVAT": 5620.37037037037
+  },
+  {
+    "name": "Duplex 300gsm (79x90) Lá Phông Vàng - Mã Lai",
+    "width": 79,
+    "height": 90,
+    "priceVAT": 3735,
+    "priceNoVAT": 3458.33333333333
+  },
+  {
+    "name": "Duplex 350gms (79x109) HanchangH5",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 350gms (89x120) Dehan-HÀNG TỒN LÂU",
+    "width": 89,
+    "height": 120,
+    "priceVAT": 7560,
+    "priceNoVAT": 7000
+  },
+  {
+    "name": "Duplex 350gsm (53x65) Hansol",
+    "width": 53,
+    "height": 65,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 350gsm (53x65) Hansol",
+    "width": 53,
+    "height": 65,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 350gsm (65x114) Hansol",
+    "width": 65,
+    "height": 114,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 350gsm (65x86) HanchangH5",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2805,
+    "priceNoVAT": 2597.22222222222
+  },
+  {
+    "name": "Duplex 350gsm (65x86) Hansol",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 3529,
+    "priceNoVAT": 3267.59259259259
+  },
+  {
+    "name": "Duplex 350gsm (70x120) Emami -Ấn Độ-HÀNG TỒN LÂU",
+    "width": 70,
+    "height": 120,
+    "priceVAT": 4907,
+    "priceNoVAT": 4543.51851851852
+  },
+  {
+    "name": "Duplex 350gsm (79x109) Emami -Ấn Độ-HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4882,
+    "priceNoVAT": 4520.37037037037
+  },
+  {
+    "name": "Duplex 350gsm (79x109) Hansol",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5492,
+    "priceNoVAT": 5085.18518518519
+  },
+  {
+    "name": "Duplex 350gsm (79x109) Lá Phông Vàng - Mã Lai---HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5208,
+    "priceNoVAT": 4822.22222222222
+  },
+  {
+    "name": "Duplex 350gsm (79x90) Hansol",
+    "width": 79,
+    "height": 90,
+    "priceVAT": 3698,
+    "priceNoVAT": 3424.07407407407
+  },
+  {
+    "name": "Duplex 350gsm (90x109) Hansol",
+    "width": 90,
+    "height": 109,
+    "priceVAT": 6318,
+    "priceNoVAT": 5850
+  },
+  {
+    "name": "Duplex 400gms (65x97) Dehan",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 6191,
+    "priceNoVAT": 5732.40740740741
+  },
+  {
+    "name": "Duplex 400gms (65x97) HanchangH5-HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 3615,
+    "priceNoVAT": 3347.22222222222
+  },
+  {
+    "name": "Duplex 400gms (79x109) Dehan-HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 6188,
+    "priceNoVAT": 5729.62962962963
+  },
+  {
+    "name": "Duplex 400gms (79X109) HanchangH5",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4938,
+    "priceNoVAT": 4572.22222222222
+  },
+  {
+    "name": "Duplex 400gsm (65x86) Hansol",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 4000,
+    "priceNoVAT": 3703.7037037037
+  },
+  {
+    "name": "Duplex 400gsm (65x86) Lá Phông Vàng - Mã Lai-HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 3864,
+    "priceNoVAT": 3577.77777777778
+  },
+  {
+    "name": "Duplex 400gsm (65x97) Hansol",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 4511,
+    "priceNoVAT": 4176.85185185185
+  },
+  {
+    "name": "Duplex 400gsm (65x97) Hansol (2S) 2 mặt trắng-HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 6934,
+    "priceNoVAT": 6420.37037037037
+  },
+  {
+    "name": "Duplex 400gsm (65x97) Lá Phông Vàng - Mã Lai-HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 4358,
+    "priceNoVAT": 4035.18518518518
+  },
+  {
+    "name": "Duplex 400gsm (79x109) Hansol",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5119,
+    "priceNoVAT": 4739.81481481481
+  },
+  {
+    "name": "Duplex 400gsm (79x109) Hansol 2 mặt trắng-HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 8436,
+    "priceNoVAT": 7811.11111111111
+  },
+  {
+    "name": "Duplex 400gsm (79x61) Hansol",
+    "width": 79,
+    "height": 61,
+    "priceVAT": 3412,
+    "priceNoVAT": 3159.25925925926
+  },
+  {
+    "name": "Duplex 400gsm (79x90) Hansol",
+    "width": 79,
+    "height": 90,
+    "priceVAT": 5090,
+    "priceNoVAT": 4712.96296296296
+  },
+  {
+    "name": "Duplex 400gsm (84x72) Hansol (2S) 2 mặt trắng-HÀNG TỒN LÂU",
+    "width": 84,
+    "height": 72,
+    "priceVAT": 6793,
+    "priceNoVAT": 6289.81481481481
+  },
+  {
+    "name": "Duplex 450gsm (79x109) Lá Phông Vàng - Mã Lai-HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 7006,
+    "priceNoVAT": 6487.03703703704
+  },
+  {
+    "name": "Ford 100gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Duplex 400gsm (84x52) Hansol",
+    "width": 84,
+    "height": 52,
+    "priceVAT": 3134,
+    "priceNoVAT": 2901.85185185185
+  },
+  {
+    "name": "Ford 100gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 2170,
+    "priceNoVAT": 2009.25925925926
+  },
+  {
+    "name": "Ford 100gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 2440,
+    "priceNoVAT": 2259.25925925926
+  },
+  {
+    "name": "Ford 120gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 2604,
+    "priceNoVAT": 2411.11111111111
+  },
+  {
+    "name": "Ford 120gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 3048,
+    "priceNoVAT": 2822.22222222222
+  },
+  {
+    "name": "Ford 140gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3038,
+    "priceNoVAT": 2812.96296296296
+  },
+  {
+    "name": "Ford 140gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 3740,
+    "priceNoVAT": 3462.96296296296
+  },
+  {
+    "name": "Ford 180gms (60x84) INDO",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 2540,
+    "priceNoVAT": 2351.85185185185
+  },
+  {
+    "name": "Ford 180gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4526,
+    "priceNoVAT": 4190.74074074074
+  },
+  {
+    "name": "Ford 180gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 5080,
+    "priceNoVAT": 4703.7037037037
+  },
+  {
+    "name": "Ford 230gms (60x84) Indo",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 3385,
+    "priceNoVAT": 3134.25925925926
+  },
+  {
+    "name": "Ford 230gms (79X109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5783,
+    "priceNoVAT": 5354.62962962963
+  },
+  {
+    "name": "Ford 250gms (60x84) INDO",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 3465,
+    "priceNoVAT": 3208.33333333333
+  },
+  {
+    "name": "Ford 300gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 7440,
+    "priceNoVAT": 6888.88888888889
+  },
+  {
+    "name": "Ford 60gms (60x84) Indo",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 726,
+    "priceNoVAT": 672.222222222222
+  },
+  {
+    "name": "Ford 70gms (65x86) INDO",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 920,
+    "priceNoVAT": 851.851851851852
+  },
+  {
+    "name": "Ford 70gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 1477,
+    "priceNoVAT": 1367.59259259259
+  },
+  {
+    "name": "Ford 70gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 1729,
+    "priceNoVAT": 1600.92592592593
+  },
+  {
+    "name": "Ford 80gms (65x86) INDO",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 1118,
+    "priceNoVAT": 1035.18518518519
+  },
+  {
+    "name": "Ford 80gms (79x109) INDO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 1655,
+    "priceNoVAT": 1532.40740740741
+  },
+  {
+    "name": "Ford kem 70gms (60x84)",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 1048,
+    "priceNoVAT": 970.37037037037
+  },
+  {
+    "name": "Ford 80gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Ford 80gms (84x120) INDO",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Ford 80gsm (65x84) INDO",
+    "width": 65,
+    "height": 84,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Ford màu 160gsm xanh dương (60x84)",
+    "width": 60,
+    "height": 84,
+    "priceVAT": 2355,
+    "priceNoVAT": 2180.55555555556
+  },
+  {
+    "name": "Ivory 210gsm (65x86) NIGHBO",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2640,
+    "priceNoVAT": 2444.44444444444
+  },
+  {
+    "name": "Ivory 210gsm (79x109) NIGHBO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4200,
+    "priceNoVAT": 3888.88888888889
+  },
+  {
+    "name": "Ivory 230gsm (79x109) NIGHBO-HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5360,
+    "priceNoVAT": 4962.96296296296
+  },
+  {
+    "name": "Ivory 250gsm (65x86) NIGHBO",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2923,
+    "priceNoVAT": 2706.48148148148
+  },
+  {
+    "name": "Ivory 250gsm (79x109) NIGHBO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4736,
+    "priceNoVAT": 4385.18518518519
+  },
+  {
+    "name": "Ivory 300gsm (43x65) Metalized Hologram-HÀNG TỒN LÂU",
+    "width": 43,
+    "height": 65,
+    "priceVAT": 4224,
+    "priceNoVAT": 3911.11111111111
+  },
+  {
+    "name": "Ivory 300gsm (48x89) NIGHBO",
+    "width": 48,
+    "height": 89,
+    "priceVAT": 2820,
+    "priceNoVAT": 2611.11111111111
+  },
+  {
+    "name": "Ivory 300gsm (65x89) NIGHBO",
+    "width": 65,
+    "height": 89,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Ivory 300gsm (65x86) NIGHBO",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2901,
+    "priceNoVAT": 2686.11111111111
+  },
+  {
+    "name": "Ivory 300gsm (65x97) NIGHBO",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 4736,
+    "priceNoVAT": 4385.18518518519
+  },
+  {
+    "name": "Ivory 300gsm (79x109) NIGHBO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5680,
+    "priceNoVAT": 5259.25925925926
+  },
+  {
+    "name": "Ivory 350gsm (65x86) IP SUN(Startpark)",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 3502,
+    "priceNoVAT": 3242.59259259259
+  },
+  {
+    "name": "Ivory 350gsm (65x86) Nighbo",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 4265,
+    "priceNoVAT": 3949.07407407407
+  },
+  {
+    "name": "Ivory 350gsm (65x89) NIGHBO",
+    "width": 65,
+    "height": 89,
+    "priceVAT": 5069,
+    "priceNoVAT": 4693.51851851852
+  },
+  {
+    "name": "Ivory 350gsm (65x97) NIGHBO",
+    "width": 65,
+    "height": 97,
+    "priceVAT": 5525,
+    "priceNoVAT": 5115.74074074074
+  },
+  {
+    "name": "Ivory 350gsm (79X109) NIGHBO",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 7546,
+    "priceNoVAT": 6987.03703703704
+  },
+  {
+    "name": "Ivory 400gsm (65x86) NIGHBO",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 4875,
+    "priceNoVAT": 4513.88888888889
+  },
+  {
+    "name": "Ivory 400gsm (79x102) NIGHBO",
+    "width": 79,
+    "height": 102,
+    "priceVAT": 6608,
+    "priceNoVAT": 6118.51851851852
+  },
+  {
+    "name": "Ivory kem FC02 80gsm (65x86)--HÀNG TỒN LÂU",
+    "width": 65,
+    "height": 86,
+    "priceVAT": 2486,
+    "priceNoVAT": 2301.85185185185
+  },
+  {
+    "name": "ECONO 170gms (79x109)",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 8200,
+    "priceNoVAT": 7592.59259259259
+  },
+  {
+    "name": "ECONO 190gms (79x109)",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 9450,
+    "priceNoVAT": 8750
+  },
+  {
+    "name": "ECONO new white 100gms (79x109)-ĐẶT THEO ĐƠN HÀNG",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4700,
+    "priceNoVAT": 4351.85185185185
+  },
+  {
+    "name": "Elica white 250gsm (79x109) - (Xưởng)",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 1349,
+    "priceNoVAT": 1249.07407407407
+  },
+  {
+    "name": "Giấy báo Tipco 45gsm (39.5x54)-Philippines",
+    "width": 39.5,
+    "height": 54,
+    "priceVAT": 150,
+    "priceNoVAT": 138.888888888889
+  },
+  {
+    "name": "Giấy chống thấm dầu 20gsm (30x60)",
+    "width": 30,
+    "height": 60,
+    "priceVAT": null,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "GIẤY NHUNG ĐỎ 2 MẶT 350GSM 79x109(XƯỞNG)--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 6541,
+    "priceNoVAT": 6056.48148148148
+  },
+  {
+    "name": "Giấy sáp chống thấm dầu 20gsm (30x60)",
+    "width": 30,
+    "height": 60,
+    "priceVAT": null,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Natural 170gsm (79x109)--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 1020,
+    "priceNoVAT": 944.444444444444
+  },
+  {
+    "name": "Performance 225gms (79x109)--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 1100,
+    "priceNoVAT": 1018.51851851852
+  },
+  {
+    "name": "TV303 150gsm (79x109)--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 6382,
+    "priceNoVAT": 5909.25925925926
+  },
+  {
+    "name": "Krap 120gsm (80x109) trắng - Nhật-XUẤT CHẬM",
+    "width": 80,
+    "height": 109,
+    "priceVAT": 3904,
+    "priceNoVAT": 3614.81481481481
+  },
+  {
+    "name": "Krap 150gsm (79x109) trắng - Nhật-XUẤT CHẬM",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4819,
+    "priceNoVAT": 4462.03703703704
+  },
+  {
+    "name": "KRAP 160GMS (80x109) NIPPON NHẬT",
+    "width": 80,
+    "height": 109,
+    "priceVAT": 2790,
+    "priceNoVAT": 2583.33333333333
+  },
+  {
+    "name": "Krap 160gsm (79x109)",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 2945,
+    "priceNoVAT": 2726.85185185185
+  },
+  {
+    "name": "Krap 170gsm (55x79) Việt Trì-XUẤT CHẬM",
+    "width": 55,
+    "height": 79,
+    "priceVAT": 1424,
+    "priceNoVAT": 1318.51851851852
+  },
+  {
+    "name": "Krap 180gsm (80x109) NIPPON NHẬT",
+    "width": 80,
+    "height": 109,
+    "priceVAT": 3220,
+    "priceNoVAT": 2981.48148148148
+  },
+  {
+    "name": "Krap 200gsm (79x109) Châu Âu-XUẤT CHẬM",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 4041,
+    "priceNoVAT": 3741.66666666667
+  },
+  {
+    "name": "Krap 250gsm (79x109) - châu âu--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 5051,
+    "priceNoVAT": 4676.85185185185
+  },
+  {
+    "name": "Krap 280gsm (80x109) NIPPON NHẬT",
+    "width": 80,
+    "height": 109,
+    "priceVAT": 4794,
+    "priceNoVAT": 4438.88888888889
+  },
+  {
+    "name": "Krap 300gsm (79x109) - châu âu--ĐẶT THEO ĐƠN HÀNG",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 9124,
+    "priceNoVAT": 8448.14814814815
+  },
+  {
+    "name": "Krap 70gsm (79x109) LG",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 0,
+    "priceNoVAT": 0
+  },
+  {
+    "name": "Krap 70gsm (79x109) Bãi Bằng Việt Nam",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 1800,
+    "priceNoVAT": 1666.66666666667
+  },
+  {
+    "name": "KRAFT NÂU 210gms (79X109)--HÀNG TỒN LÂU",
+    "width": 79,
+    "height": 109,
+    "priceVAT": 3534,
+    "priceNoVAT": 3272.22222222222
+  },
+  {
+    "name": "KRAFT NÂU 210gms (84x120)--HÀNG TỒN LÂU",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 3845,
+    "priceNoVAT": 3560.18518518518
+  },
+  {
+    "name": "KRAFT NÂU 210gms (84x120)--HÀNG TỒN LÂU",
+    "width": 84,
+    "height": 120,
+    "priceVAT": 3845,
+    "priceNoVAT": 3560.18518518518
+  }
+]

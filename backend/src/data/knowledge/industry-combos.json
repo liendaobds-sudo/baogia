@@ -1,0 +1,142 @@
+{
+    "_description": "Combo sản phẩm theo ngành - cafe, spa, thực phẩm, startup, cưới...",
+    "industryCombos": {
+        "cafe_restaurant": {
+            "name": "Quán cafe / Nhà hàng",
+            "products": [
+                "menu (A3 gấp 3, cán mờ)",
+                "namecard (couche 300gsm, cán mờ)",
+                "tent card (bàn)",
+                "voucher/coupon",
+                "sticker niêm phong ly/hộp"
+            ],
+            "tip": "Menu nên cán mờ chống bám vân tay + chống nước nhẹ. Combo 5 món tiết kiệm 15-20%.",
+            "keywords": [
+                "cafe",
+                "quán cafe",
+                "nhà hàng",
+                "restaurant",
+                "quán ăn",
+                "trà sữa",
+                "quán nước"
+            ]
+        },
+        "spa_beauty": {
+            "name": "Spa / Thẩm mỹ viện / Beauty",
+            "products": [
+                "namecard (mỹ thuật/soft touch)",
+                "voucher (ép nhũ vàng)",
+                "nhãn sản phẩm (decal nhựa)",
+                "túi giấy (kraft/couche)",
+                "bảng giá dịch vụ"
+            ],
+            "tip": "Nhãn mỹ phẩm nên dùng decal nhựa chống nước. Namecard soft touch tạo ấn tượng cao cấp.",
+            "keywords": [
+                "spa",
+                "salon",
+                "beauty",
+                "thẩm mỹ",
+                "mỹ phẩm",
+                "nails",
+                "tóc"
+            ]
+        },
+        "food_beverage": {
+            "name": "Thực phẩm / Đồ uống",
+            "products": [
+                "nhãn sản phẩm (decal nhựa PVC)",
+                "hộp giấy (ivory/duplex)",
+                "túi giấy (kraft)",
+                "sticker niêm phong",
+                "menu/bảng giá"
+            ],
+            "tip": "Nhãn thực phẩm PHẢI dùng decal nhựa chống nước nếu để tủ lạnh. Hộp dùng ivory cho cao cấp, duplex cho phổ thông.",
+            "keywords": [
+                "thực phẩm",
+                "đồ ăn",
+                "nước uống",
+                "bánh",
+                "yến sào",
+                "mật ong",
+                "trà",
+                "coffee"
+            ]
+        },
+        "startup_corporate": {
+            "name": "Startup / Doanh nghiệp",
+            "products": [
+                "namecard (couche 300gsm, cán mờ)",
+                "phong bì (offset 120gsm)",
+                "giấy tiêu đề (offset 100gsm)",
+                "folder/kẹp file (couche 300gsm)",
+                "sổ tay (bìa cứng)"
+            ],
+            "tip": "Bộ nhận diện cần ĐỒNG BỘ màu sắc. Nên in offset cùng lúc để tiết kiệm.",
+            "keywords": [
+                "công ty",
+                "doanh nghiệp",
+                "startup",
+                "văn phòng",
+                "brand",
+                "thương hiệu",
+                "nhận diện"
+            ]
+        },
+        "wedding": {
+            "name": "Cưới hỏi",
+            "products": [
+                "thiệp cưới (mỹ thuật/bristol, ép nhũ)",
+                "phong bì (mỹ thuật)",
+                "menu bàn tiệc",
+                "tag cảm ơn (kraft/mỹ thuật)",
+                "sticker dán phong bì"
+            ],
+            "tip": "Giấy mỹ thuật + ép nhũ vàng là combo thiệp cưới sang nhất. Tag cảm ơn kraft cho phong cách rustic.",
+            "keywords": [
+                "cưới",
+                "wedding",
+                "thiệp cưới",
+                "đám cưới",
+                "lễ cưới",
+                "hỏi"
+            ]
+        },
+        "event": {
+            "name": "Sự kiện / Hội nghị",
+            "products": [
+                "backdrop/banner (bạt hiflex)",
+                "standee (PP + khung)",
+                "badge/thẻ tên",
+                "tờ rơi/brochure",
+                "folder tài liệu"
+            ],
+            "tip": "Backdrop nên in bạt hiflex hoặc decal dán fomex. Badge in digital cho linh hoạt tên.",
+            "keywords": [
+                "event",
+                "sự kiện",
+                "hội nghị",
+                "hội thảo",
+                "triển lãm",
+                "workshop"
+            ]
+        },
+        "medical_pharma": {
+            "name": "Y tế / Dược phẩm",
+            "products": [
+                "nhãn dược phẩm (decal nhựa)",
+                "hộp thuốc (ivory 300gsm)",
+                "tờ hướng dẫn (offset 70gsm)",
+                "túi giấy (kraft y tế)"
+            ],
+            "tip": "Nhãn dược cần in rõ thành phần, hạn sử dụng. Hộp ivory giữ form tốt cho bảo quản.",
+            "keywords": [
+                "thuốc",
+                "dược",
+                "y tế",
+                "bệnh viện",
+                "phòng khám",
+                "clinic"
+            ]
+        }
+    }
+}

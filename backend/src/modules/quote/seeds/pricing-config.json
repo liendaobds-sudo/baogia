@@ -1,0 +1,62 @@
+[
+    {
+        "configKey": "pricing_method",
+        "configValue": "markup",
+        "description": "Phương pháp tính giá: markup hoặc margin"
+    },
+    {
+        "configKey": "default_markup",
+        "configValue": "40",
+        "description": "% markup mặc định"
+    },
+    {
+        "configKey": "min_margin",
+        "configValue": "15",
+        "description": "% lợi nhuận tối thiểu"
+    },
+    {
+        "configKey": "price_rounding",
+        "configValue": "1000",
+        "description": "Làm tròn giá đến (đ): 1, 10, 100, 500, 1000"
+    },
+    {
+        "configKey": "waste_offset_percent",
+        "configValue": "5",
+        "description": "% hao hụt in offset"
+    },
+    {
+        "configKey": "waste_digital_percent",
+        "configValue": "2",
+        "description": "% hao hụt in digital"
+    },
+    {
+        "configKey": "waste_binding_percent",
+        "configValue": "3",
+        "description": "% hao hụt đóng cuốn"
+    },
+    {
+        "configKey": "waste_lamination_percent",
+        "configValue": "2",
+        "description": "% hao hụt cán màng"
+    },
+    {
+        "configKey": "waste_die_cut_percent",
+        "configValue": "3",
+        "description": "% hao hụt bế"
+    },
+    {
+        "configKey": "waste_minimum_sheets",
+        "configValue": "50",
+        "description": "Số tờ hao hụt tối thiểu"
+    },
+    {
+        "configKey": "min_order_value",
+        "configValue": "100000",
+        "description": "Giá trị đơn hàng tối thiểu (đ)"
+    },
+    {
+        "configKey": "min_order_surcharge",
+        "configValue": "50000",
+        "description": "Phụ thu đơn hàng nhỏ (đ)"
+    }
+]

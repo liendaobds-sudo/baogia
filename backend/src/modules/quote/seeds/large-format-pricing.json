@@ -1,0 +1,114 @@
+{
+    "PP_INDOOR": [
+        {
+            "areaFrom": 0,
+            "areaTo": 10,
+            "pricePerSqm": 50000
+        },
+        {
+            "areaFrom": 10,
+            "areaTo": 50,
+            "pricePerSqm": 45000
+        },
+        {
+            "areaFrom": 50,
+            "areaTo": 100,
+            "pricePerSqm": 40000
+        },
+        {
+            "areaFrom": 100,
+            "areaTo": null,
+            "pricePerSqm": 35000
+        }
+    ],
+    "PP_OUTDOOR": [
+        {
+            "areaFrom": 0,
+            "areaTo": 10,
+            "pricePerSqm": 60000
+        },
+        {
+            "areaFrom": 10,
+            "areaTo": 50,
+            "pricePerSqm": 55000
+        },
+        {
+            "areaFrom": 50,
+            "areaTo": 100,
+            "pricePerSqm": 50000
+        },
+        {
+            "areaFrom": 100,
+            "areaTo": null,
+            "pricePerSqm": 45000
+        }
+    ],
+    "PVC-DECAL": [
+        {
+            "areaFrom": 0,
+            "areaTo": 10,
+            "pricePerSqm": 85000
+        },
+        {
+            "areaFrom": 10,
+            "areaTo": 50,
+            "pricePerSqm": 75000
+        },
+        {
+            "areaFrom": 50,
+            "areaTo": null,
+            "pricePerSqm": 65000
+        }
+    ],
+    "HFX-13OZ": [
+        {
+            "areaFrom": 0,
+            "areaTo": 20,
+            "pricePerSqm": 55000
+        },
+        {
+            "areaFrom": 20,
+            "areaTo": 100,
+            "pricePerSqm": 48000
+        },
+        {
+            "areaFrom": 100,
+            "areaTo": null,
+            "pricePerSqm": 42000
+        }
+    ],
+    "CVS-260": [
+        {
+            "areaFrom": 0,
+            "areaTo": 5,
+            "pricePerSqm": 150000
+        },
+        {
+            "areaFrom": 5,
+            "areaTo": 20,
+            "pricePerSqm": 130000
+        },
+        {
+            "areaFrom": 20,
+            "areaTo": null,
+            "pricePerSqm": 110000
+        }
+    ],
+    "BACKLIT": [
+        {
+            "areaFrom": 0,
+            "areaTo": 10,
+            "pricePerSqm": 95000
+        },
+        {
+            "areaFrom": 10,
+            "areaTo": 50,
+            "pricePerSqm": 85000
+        },
+        {
+            "areaFrom": 50,
+            "areaTo": null,
+            "pricePerSqm": 75000
+        }
+    ]
+}

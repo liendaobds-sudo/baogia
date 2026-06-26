@@ -1,0 +1,182 @@
+{
+  "toRoi": [
+    {
+      "kichThuoc": "41cm x 29.7cm (tờ rơi, gấp giấy Coucher)",
+      "khoIn": "43 x 65cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 2,
+      "soConToLon": 4
+    },
+    {
+      "kichThuoc": "20.5cm x 29.7cm (tờ rơi, gấp giấy Coucher)",
+      "khoIn": "43 x 65cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 4,
+      "soConToLon": 8
+    },
+    {
+      "kichThuoc": "14.8cm x 20.5cm (tờ rơi, gấp giấy Coucher)",
+      "khoIn": "43 x 65cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 8,
+      "soConToLon": 16
+    },
+    {
+      "kichThuoc": "10cm x 14.5cm (tờ rơi, gấp giấy Coucher)",
+      "khoIn": "43 x 65cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 16,
+      "soConToLon": 32
+    },
+    {
+      "kichThuoc": "20cm x 20cm (tờ rơi, gấp giấy Coucher)",
+      "khoIn": "43 x 65cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 6,
+      "soConToLon": 12
+    },
+    {
+      "kichThuoc": "17cm x 24.5cm (tờ rơi, gấp giấy Coucher)",
+      "khoIn": "52 x 72cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 8,
+      "soConToLon": 16
+    },
+    {
+      "kichThuoc": "14.8cm x 21cm (Letter giấy Ford Đúng A5)",
+      "khoIn": "32 x 47cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 4,
+      "soConToLon": 20
+    },
+    {
+      "kichThuoc": "21cm x 29.7cm (Letter giấy Ford Đúng A4)",
+      "khoIn": "32 x 47cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 2,
+      "soConToLon": 10
+    }
+  ],
+  "biThuFolder": [
+    {
+      "kichThuoc": "Bì thư 22 x 12 x nắp 3cm",
+      "khoIn": "39.5 x 54cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 2,
+      "soConKhoGiayLon": 8,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 23 x 16 x nắp 3cm",
+      "khoIn": "39.5 x 54cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 2,
+      "soConKhoGiayLon": 8,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 24 x 17 x nắp 3cm",
+      "khoIn": "42 x 60cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 2,
+      "soConKhoGiayLon": 4,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 24 x 18 x nắp 3cm",
+      "khoIn": "42 x 60cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 2,
+      "soConKhoGiayLon": 4,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 25 x 34 x nắp 3.5cm",
+      "khoIn": "39.5 x 54cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 1,
+      "soConKhoGiayLon": 4,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 10 x 15 x  nắp 2.5 cm",
+      "khoIn": "42 x 60cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 4,
+      "soConKhoGiayLon": 8,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 9 x 19 x nắp 2.5 cm",
+      "khoIn": "42 x 60cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 8,
+      "soConKhoGiayLon": 16,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 8.5 x 11.5 x nắp 2cm",
+      "khoIn": "42 x 60cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 6,
+      "soConKhoGiayLon": 12,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 8 x 16 x nắp 3cm",
+      "khoIn": "42 x 60cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 6,
+      "soConKhoGiayLon": 12,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 10 x 15 x  nắp 2.5 cm (5000 cái trở lên)",
+      "khoIn": "50 x 70cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 6,
+      "soConKhoGiayLon": 12,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 9 x 19 x nắp 2.5 cm  (5000 cái trở lên)",
+      "khoIn": "50 x 70cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 12,
+      "soConKhoGiayLon": 24,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Bì thư 8.5 x 11.5 x nắp 2cm  (5000 cái trở lên)",
+      "khoIn": "50 x 70cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 12,
+      "soConKhoGiayLon": 24,
+      "loai": "bithu"
+    },
+    {
+      "kichThuoc": "Folder 22 x 31 x 6.5cm",
+      "khoIn": "39.5 x 54cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 1,
+      "soConKhoGiayLon": 4,
+      "loai": "folder"
+    },
+    {
+      "kichThuoc": "Folder 15 x 21 x 4cm",
+      "khoIn": "39.5 x 54cm",
+      "khoGiayLon": "79 x 109cm",
+      "soConBaiIn": 2,
+      "soConKhoGiayLon": 8,
+      "loai": "folder"
+    },
+    {
+      "kichThuoc": "Folder 16 x 23.5 x 6cm",
+      "khoIn": "43 x 65cm",
+      "khoGiayLon": "65 x 86cm",
+      "soConBaiIn": 2,
+      "soConKhoGiayLon": 4,
+      "loai": "folder"
+    }
+  ]
+}

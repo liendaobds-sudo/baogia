@@ -1,0 +1,105 @@
+{
+  "kemNho": [
+    {
+      "soKem": 1,
+      "donGia": 500000
+    },
+    {
+      "soKem": 2,
+      "donGia": 600000
+    },
+    {
+      "soKem": 3,
+      "donGia": 700000
+    },
+    {
+      "soKem": 4,
+      "donGia": 800000
+    },
+    {
+      "soKem": 5,
+      "donGia": 1000000
+    },
+    {
+      "soKem": 6,
+      "donGia": 1100000
+    }
+  ],
+  "kemLon": [
+    {
+      "soKem": 1,
+      "donGia": 1000000
+    },
+    {
+      "soKem": 2,
+      "donGia": 1200000
+    },
+    {
+      "soKem": 3,
+      "donGia": 1400000
+    },
+    {
+      "soKem": 4,
+      "donGia": 1600000
+    },
+    {
+      "soKem": 5,
+      "donGia": 2000000
+    },
+    {
+      "soKem": 6,
+      "donGia": 2200000
+    }
+  ],
+  "vatTuBeMat": [
+    {
+      "ten": "Không",
+      "donGiaKg": 0,
+      "soMat": null
+    },
+    {
+      "ten": "Màng bóng 1m",
+      "donGiaKg": 1600,
+      "soMat": "1 mặt"
+    },
+    {
+      "ten": "Màng bóng 2m",
+      "donGiaKg": 3200,
+      "soMat": "2 mặt"
+    },
+    {
+      "ten": "Màng mờ 1m",
+      "donGiaKg": 1700,
+      "soMat": "1 mặt"
+    },
+    {
+      "ten": "Màng mờ 2m",
+      "donGiaKg": 3400,
+      "soMat": "2 mặt"
+    },
+    {
+      "ten": "WB bóng 1m",
+      "donGiaKg": 575,
+      "soMat": "1 mặt"
+    },
+    {
+      "ten": "WB bóng 2m",
+      "donGiaKg": 1150,
+      "soMat": "2 mặt"
+    },
+    {
+      "ten": "WB mờ 1m",
+      "donGiaKg": 676,
+      "soMat": "1 mặt"
+    },
+    {
+      "ten": "WB mờ 2m",
+      "donGiaKg": 1352,
+      "soMat": "2 mặt"
+    }
+  ],
+  "donGia1Kem": {
+    "kemNho": 50000,
+    "kemLon": 100000
+  }
+}

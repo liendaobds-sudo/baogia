@@ -1,0 +1,56 @@
+[
+    {
+        "code": "paper",
+        "name": "Giấy",
+        "tabScope": "sheet",
+        "sortOrder": 1
+    },
+    {
+        "code": "decal",
+        "name": "Decal",
+        "tabScope": "sheet",
+        "sortOrder": 2
+    },
+    {
+        "code": "ink",
+        "name": "Mực in",
+        "tabScope": "sheet",
+        "sortOrder": 4
+    },
+    {
+        "code": "film",
+        "name": "Màng",
+        "tabScope": "roll",
+        "sortOrder": 1
+    },
+    {
+        "code": "tarpaulin",
+        "name": "Bạt",
+        "tabScope": "roll",
+        "sortOrder": 2
+    },
+    {
+        "code": "canvas",
+        "name": "Canvas",
+        "tabScope": "roll",
+        "sortOrder": 3
+    },
+    {
+        "code": "lamination",
+        "name": "Màng cán",
+        "tabScope": "processing",
+        "sortOrder": 1
+    },
+    {
+        "code": "finishing",
+        "name": "Gia công",
+        "tabScope": "processing",
+        "sortOrder": 3
+    },
+    {
+        "code": "accessory",
+        "name": "Phụ kiện",
+        "tabScope": "accessory",
+        "sortOrder": 1
+    }
+]
