@@ -57,9 +57,11 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
   - ✅ Helper `backend/src/common/tenant/tenant-transaction.ts` + 3 unit test (fail-loud, set_config, bypass). CHƯA wire vào toàn bộ service (cần phiên có kiểm soát).
   - _Requirements: 3.2, 2.4_
 
-- [ ] 8. Migration Pha B: NOT NULL + ENABLE/FORCE RLS + policy `tenant_isolation`
+- [~] 8. Migration Pha B: NOT NULL + ENABLE/FORCE RLS + policy `tenant_isolation`
   - Policy USING + WITH CHECK theo `app.current_tenant`/`app.bypass`; mặc-định-đóng.
-  - 📝 SQL ĐÃ SOẠN (chưa chạy): `backend/db/2026-06-26_tenant_phaseB_enable_rls.sql` + trigger auto-set tenant_id. ⚠️ GOTCHA: app đang nối bằng superuser `postgres` → RLS bị bypass; phải tạo role NOSUPERUSER trước. Áp staging + backup + dừng watch.
+  - 📝 SQL ĐÃ SOẠN (chưa chạy): `backend/db/2026-06-26_tenant_phaseB_enable_rls.sql` + trigger auto-set tenant_id.
+  - ✅ HTTP read/write path: tích hợp `typeorm-transactional` (nhánh `upgrade/tenant-rls`, commit 96ea787) — interceptor `runInTransaction` set biến phiên, repo tự dùng connection đó. Flag `TENANT_RLS_ENABLED` mặc định TẮT. 724 test pass.
+  - 🔴 CHẶN flip: (1) trigger NOT NULL → app nối `postgres`/flag-tắt sẽ NULL tenant_id → vỡ INSERT; (2) **đường ghi NỀN (zca-js inbound, cron, BullMQ) CHƯA bọc `withTenant`+`runInTransaction`** → insert nền gán NULL → vỡ. Phải bọc đường nền (Task 3/10) TRƯỚC, và flip trên DB sao / maintenance window (KHÔNG live).
   - _Requirements: 3.1, 3.3, 3.4, 3.5, 1.2_
 
 ## G3 — Realtime / cache / storage
