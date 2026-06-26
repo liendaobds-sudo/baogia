@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (tsc + jest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Cây phụ thuộc có xung đột peer (@nestjs/swagger@11 vs @nestjs/common@10)
+      # → dùng --legacy-peer-deps cho tới khi đồng bộ version (xem audit §12.2).
+      - run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npx jest --runInBand
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+      - run: npm run build
