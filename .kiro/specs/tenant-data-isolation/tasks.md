@@ -25,9 +25,10 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
   - ✅ Đã làm: `tenant-context.interceptor.ts` + `tenant-context.module.ts` (Global, APP_INTERCEPTOR), import vào `app.module.ts`. Non-breaking: thiếu user/tenantId → bỏ qua. 717 test pass.
   - _Requirements: 2.1, 5.1, 5.2_
 
-- [ ] 3. Bọc các đường chạy nền bằng `withTenant`
+- [~] 3. Bọc các đường chạy nền bằng `withTenant`
   - zca-js listener (map `accountId→tenantId`), BullMQ consumer (payload `tenantId`), cron (lặp tenant), socket handler.
-  - ⏸ HOÃN sang làm cùng G1: cần `zalo_account.tenant_id` (chưa có) để có tenantId thật cho job nền; làm bây giờ sẽ là withTenant(?) vô nghĩa. Socket room cũng đổi hành vi nên để cùng G3.
+  - ✅ Đường chính (zca-js inbound `processInbound`): bọc `withTenant`+`runInTransaction`, gated `TENANT_RLS_ENABLED` (commit 11b7a76). Phân giải tenant từ `channels.tenant_id`.
+  - ⏳ CÒN: cron (daily-stats), BullMQ, AI-suggest queued (nếu fire-and-forget thoát context), follow-up — cần bọc tương tự TRƯỚC flip. Event handlers (typing/seen/reaction) chỉ UPDATE/no-op → không crash NOT NULL nhưng nên bọc để đọc đúng tenant.
   - _Requirements: 2.2, 4.1, 4.2_
 
 ## G1 — Schema additive + gắn tenant_id
