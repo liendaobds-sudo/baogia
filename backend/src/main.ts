@@ -1,6 +1,7 @@
 // Trigger backend restart 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { initializeTransactionalContext } from 'typeorm-transactional';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -12,6 +13,10 @@ import { RedisIoAdapter } from './modules/gateway/redis-io.adapter';
 import * as cors from 'cors';
 
 async function bootstrap() {
+    // Khởi tạo CLS context cho typeorm-transactional TRƯỚC khi tạo app —
+    // để runInTransaction (RLS) gắn connection theo request cho mọi repo.
+    initializeTransactionalContext();
+
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         logger: ['error', 'warn', 'log'],
     });
