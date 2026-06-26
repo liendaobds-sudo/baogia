@@ -1,6 +1,8 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { runInTransaction } from 'typeorm-transactional';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { Contact, Conversation, Message, Channel } from '../../entities';
 import { ConversationStatus, ConversationPriority } from '../../entities/conversation.entity';
 import { SenderType, ContentType, MessageStatus } from '../../entities/message.entity';
@@ -70,6 +72,7 @@ export class MessageProcessorService {
         private configService: ConfigService,
         @Optional() @Inject('AiSuggestService') private aiSuggestService?: AiSuggestService,
         @Optional() private followUpService?: FollowUpService,
+        @Optional() private tenantCtx?: TenantContextService,
     ) { }
 
     /**
@@ -115,7 +118,32 @@ export class MessageProcessorService {
     /**
      * Process inbound message from webhook
      */
+    /**
+     * Process inbound message from webhook.
+     * Khi RLS bật (TENANT_RLS_ENABLED): phân giải tenant của channel rồi bọc
+     * withTenant + runInTransaction để insert nền (tin Zalo) gắn đúng tenant_id +
+     * qua connection có biến phiên (RLS). Khi tắt: chạy thẳng như cũ (không overhead).
+     */
     async processInbound(channelId: string, parsedMessage: ParsedMessage): Promise<boolean> {
+        if (process.env.TENANT_RLS_ENABLED !== 'true' || !this.tenantCtx) {
+            return this.processInboundCore(channelId, parsedMessage);
+        }
+        let tenantId = 1;
+        try {
+            const rows = await this.channelRepo.manager.query(
+                'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', [channelId]);
+            if (rows?.[0]?.tenant_id) tenantId = Number(rows[0].tenant_id);
+        } catch { /* fallback tenant 1 */ }
+        return this.tenantCtx.withTenant(tenantId, () =>
+            runInTransaction(async () => {
+                await this.channelRepo.manager.query(
+                    `SELECT set_config('app.current_tenant', $1, true)`, [String(tenantId)]);
+                return this.processInboundCore(channelId, parsedMessage);
+            }),
+        ) as Promise<boolean>;
+    }
+
+    private async processInboundCore(channelId: string, parsedMessage: ParsedMessage): Promise<boolean> {
         try {
         this.logger.log(`📩 Processing inbound from ${parsedMessage.senderName} via channel ${channelId}`);
 
