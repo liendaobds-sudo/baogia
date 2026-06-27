@@ -217,7 +217,9 @@ export class SheetOptimizerService {
       const sheetArea = new Decimal(sheetWidth).times(sheetHeight);
       const wastePercent = sheetArea.minus(usedArea).dividedBy(sheetArea).times(100).toNumber();
 
-      const pricePerSheet = Number(material.pricePerSheet || material.unit_price || 0);
+      // Bất biến VAT: mọi giá trong settings là CHƯA VAT. Chỉ dùng unit_price (= "Giá vốn" = priceNoVAT),
+      // KHÔNG dùng material.pricePerSheet (cột legacy đã gồm VAT) để tránh nhiễm VAT vào tính toán.
+      const pricePerSheet = Number(material.unit_price || material.cost_price || 0);
       const totalCost = new Decimal(totalSheets).times(pricePerSheet).toNumber();
 
       const hasPricing = await this.checkMaterialHasPricing(material.id);
