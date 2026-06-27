@@ -559,7 +559,9 @@ Luồng (mọi product offset, vd `to-roi.ts`):
 - `buildWaste(d, sl, soCon, …)` → `sheetsNet = ceil(số con cần / soConToLon)` = **số tờ nguyên khổ** (net); `sheetsGross` = tờ nguyên khổ sau bù hao cascade.
 - `cpGiay = giaGiay(materialCode) × sheetsGross`.
 
-⇒ **`materials.pricePerSheet` PHẢI là giá MỘT TỜ GIẤY NGUYÊN KHỔ** (đúng khổ `width × height` đã khai của vật liệu, ví dụ 79×109 hoặc 65×86), **CHƯA gồm VAT** (VAT cộng 1 lần ở `totals`).
+⇒ **Engine lấy giá giấy = `materials.unit_price` ("Giá vốn" admin nhập) = giá MỘT TỜ NGUYÊN KHỔ, CHƯA gồm VAT** (`giaGiay` trả `priceNoVAT` ← `unit_price`). VAT cộng 1 lần ở `totals` theo mức UI.
+
+> ĐÍNH CHÍNH (2026-06-27): trước đây `giaGiay` trả `priceVAT` (= cột `materials.pricePerSheet`, vốn lưu giá ĐÃ gồm VAT = `unit_price`×1.08 theo dữ liệu seed) → bị **VAT 2 lần** + ô "Giá vốn" admin sửa không có tác dụng (engine đọc nhầm cột). Đã đổi sang `priceNoVAT`/`unit_price`. Tiền giấy offset giảm ~7.4% (đúng phần VAT bị tính dư). `pricePerSheet`/`priceVAT` nay KHÔNG còn dùng cho tiền giấy.
 
 **Pha cắt ĐÃ được mô hình hoá** (không phải "thiếu" như A14 cũ):
 - `chiaTo` (vd "Chia 4") = số bài in cắt ra từ 1 tờ nguyên; nó nằm sẵn trong `soConToLon`.
