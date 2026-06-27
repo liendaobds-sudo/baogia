@@ -45,6 +45,9 @@ postgres_data/
 redis_data/
 minio_data/
 
+# Redis dump (runtime artifact — không commit)
+dump.rdb
+
 # ── Secrets & runtime config (added 2026-06-15 cleanup) ──
 admin-password.txt
 *-password.txt

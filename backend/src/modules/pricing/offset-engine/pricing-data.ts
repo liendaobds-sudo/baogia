@@ -13,6 +13,7 @@ export interface OffsetMaterial {
     materialName: string;
     type: string;
     gsm: number | null;
+    /** Đơn giá giấy GỐC CHƯA gồm VAT (tên trường có "VAT" là lịch sử). VAT cộng 1 lần ở totals theo UI. Nguồn: materials.pricePerSheet. */
     priceVAT: number;
     priceNoVAT: number;
     sheetWidth: number;
