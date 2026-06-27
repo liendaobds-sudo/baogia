@@ -8,6 +8,7 @@ import { API_URL } from '@/lib/api';
 import { QuoteConfigurator } from '../_components/QuoteConfigurator';
 import { useQuoteCart, type QuoteCartItem } from '../_store/useQuoteCart';
 import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components/CustomerInfo';
+import { useResizableSidebar } from '../_components/useResizableSidebar';
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
 
@@ -22,19 +23,59 @@ const mapTabToType = (tab: QuoteTab): string => {
     }
 };
 
+/** Số hữu hạn, hoặc undefined để @IsOptional bỏ qua (tránh gửi NaN/'' làm fail @IsNumber). */
+const numOrUndef = (v: unknown): number | undefined => {
+    const n = Number(v);
+    return Number.isFinite(n) && v !== '' && v != null ? n : undefined;
+};
+
 /**
- * Trải phẳng `configParams` theo khóa snake_case của QuoteItemDto (không bọc
- * `config_params`/`calculation_details` — tránh bị `forbidNonWhitelisted` loại bỏ).
- * KHÔNG đổi logic tính giá, chỉ đổi hình dạng truyền tải.
+ * Ánh xạ item giỏ hàng → QuoteItemDto.
+ * LƯU Ý: QuoteItemDto whitelist theo snake_case + ValidationPipe(forbidNonWhitelisted) →
+ * KHÔNG spread thẳng configParams (camelCase) (sẽ bị HTTP 400 "property ... should not exist").
+ * Vì vậy: map sang đúng cột snake_case theo từng loại, đồng thời gói FULL configParams + details
+ * vào `printing_detail` (JSON whitelisted) để mở Sửa khôi phục lại cấu hình.
  */
-const mapItem = (it: QuoteCartItem): Record<string, unknown> => ({
-    ...(it.configParams as Record<string, unknown>),
-    product_name: it.name,
-    item_type: it.type,
-    product_type: it.type,
-    quantity: it.quantity,
-    item_total: it.total,
-});
+const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
+    const cfg = (it.configParams ?? {}) as Record<string, unknown>;
+    const base: Record<string, unknown> = {
+        product_name: it.name,
+        item_type: it.type,
+        product_type: it.type,
+        quantity: it.quantity,
+        item_total: it.total,
+        // Gói cấu hình + kết quả tính để Sửa khôi phục (đọc lại từ printing_detail).
+        printing_detail: { digital: true, configParams: cfg, details: it.details },
+    };
+    if (it.type === 'loose') {
+        return {
+            ...base,
+            material_id: numOrUndef(cfg.materialId),
+            paper_size_id: numOrUndef(cfg.paperSizeId),
+            item_width: numOrUndef(cfg.itemWidth),
+            item_height: numOrUndef(cfg.itemHeight),
+            print_type: (cfg.printType as string) || undefined,
+            print_side: (cfg.printSide as string) || undefined,
+        };
+    }
+    if (it.type === 'large_format') {
+        return {
+            ...base,
+            material_id: numOrUndef(cfg.lfMaterialId),
+            item_width: numOrUndef(cfg.lfWidth),
+            item_height: numOrUndef(cfg.lfHeight),
+            print_type: (cfg.lfPrintType as string) || undefined,
+        };
+    }
+    if (it.type === 'bound') {
+        return {
+            ...base,
+            page_count: numOrUndef(cfg.bPageCount),
+            binding_type: (cfg.bBindingType as string) || undefined,
+        };
+    }
+    return base;
+};
 
 export default function NewQuotePage() {
     const { token } = useAuth();
@@ -42,6 +83,7 @@ export default function NewQuotePage() {
     const toast = useToast();
 
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const { width: sidebarWidth, isResizing: isResizingSidebar, startResize } = useResizableSidebar('zp.quote.sidebarWidth');
     const [quoteTab, setQuoteTab] = useState<QuoteTab>('loose');
     const [isSaving, setIsSaving] = useState(false);
 
@@ -93,14 +135,15 @@ export default function NewQuotePage() {
                     clearCart();
                     if (d.items && Array.isArray(d.items)) {
                         d.items.forEach((item: any) => {
-                            let parsedConfig: any = {};
-                            let parsedDetails: any = {};
-                            try { parsedConfig = typeof item.config_params === 'string' ? JSON.parse(item.config_params) : (item.config_params || {}); } catch {}
-                            try { parsedDetails = typeof item.calculation_details === 'string' ? JSON.parse(item.calculation_details) : (item.calculation_details || {}); } catch {}
+                            // Cấu hình + kết quả tính được gói trong printing_detail (xem mapItem).
+                            let pd: any = {};
+                            try { pd = typeof item.printing_detail === 'string' ? JSON.parse(item.printing_detail) : (item.printing_detail || {}); } catch {}
+                            const parsedConfig = pd.configParams || {};
+                            const parsedDetails = pd.details || {};
 
                             addItem({
                                 name: item.product_name || 'Sản phẩm',
-                                type: item.type || 'loose',
+                                type: item.product_type || item.item_type || 'loose',
                                 quantity: item.quantity || 1,
                                 unitPrice: item.quantity > 0 ? (parseFloat(item.item_total) / item.quantity) : 0,
                                 total: parseFloat(item.item_total) || 0,
@@ -293,7 +336,22 @@ export default function NewQuotePage() {
                     setIsSidebarCollapsed={setIsSidebarCollapsed}
                     onCustomerNameChange={handleCustomerNameChange}
                     nameError={errors.customerName}
+                    widthPx={sidebarWidth}
+                    isResizing={isResizingSidebar}
                 />
+
+                {/* Thanh kéo chỉnh độ rộng sidebar (ẩn khi đã thu gọn) */}
+                {!isSidebarCollapsed && (
+                    <div
+                        onPointerDown={startResize}
+                        role="separator"
+                        aria-orientation="vertical"
+                        title="Kéo để chỉnh độ rộng cột thông tin khách"
+                        className="group flex-shrink-0 w-2 cursor-col-resize flex items-center justify-center bg-slate-100 hover:bg-indigo-50 transition-colors z-10"
+                    >
+                        <div className="w-1 h-10 rounded-full bg-slate-300 group-hover:bg-indigo-400 transition-colors" />
+                    </div>
+                )}
 
                 {/* Right: Configurator Area */}
                 <div className="flex-1 overflow-hidden relative bg-slate-100">
@@ -309,7 +367,7 @@ export default function NewQuotePage() {
                         </button>
                     </div>
 
-                    <div className="absolute inset-0 p-5 overflow-y-auto custom-scrollbar">
+                    <div className="absolute inset-0 overflow-hidden">
                         <QuoteConfigurator token={token} activeTab={quoteTab} onTabChange={setQuoteTab} />
                     </div>
                 </div>

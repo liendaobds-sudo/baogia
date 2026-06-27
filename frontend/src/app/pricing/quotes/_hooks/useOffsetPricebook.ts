@@ -49,7 +49,7 @@ export interface Pricebook {
     productConfig?: Record<string, OffsetProductConfig>;
 }
 
-/** Cấu hình form theo loại sản phẩm. Mọi mảng allowed* rỗng/thiếu = cho phép tất cả. */
+/** Cấu hình form theo loại sản phẩm. STRICT: mảng allowed* rỗng/thiếu = KHÔNG hiện mục nào (phải cấu hình mới hiện). */
 export interface OffsetProductConfig {
     allowedMaterials?: string[];
     allowedVatTuBeMat?: string[];
@@ -79,6 +79,8 @@ export interface OffsetQuoteResult {
     khachTra: number;
     donGia1SP: number;
     meta?: OffsetQuoteMeta;
+    /** Cảnh báo cấu hình (không chặn tính) từ engine. */
+    warnings?: string[];
 }
 
 export interface OffsetQuoteMeta {

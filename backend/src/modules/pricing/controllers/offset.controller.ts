@@ -34,6 +34,13 @@ export class OffsetController {
     async calculate(@Body() body: any) {
         // Engine duy nhất: định tuyến theo `type` ∈ {to_roi, bi_thu_folder, sp_khac, hop_giay, tui_giay}.
         // Type không hợp lệ → EngineOffset trả success=false kèm thông báo lỗi.
+        // GUARDRAIL đơn vị: engine kỳ vọng vatRate/chietKhauRate dạng PHÂN SỐ (0..1). Nếu caller lỡ
+        // gửi dạng % (>1, vd 10) thì quy về phân số để tránh VAT/chiết khấu bị ×100.
+        if (body && typeof body === 'object') {
+            const toFraction = (v: any) => { const n = Number(v); return Number.isFinite(n) && n > 1 ? n / 100 : v; };
+            if (body.vatRate != null) body.vatRate = toFraction(body.vatRate);
+            if (body.chietKhauRate != null) body.chietKhauRate = toFraction(body.chietKhauRate);
+        }
         return this.engineNew.calculate(body as OffsetEngineInput);
     }
 

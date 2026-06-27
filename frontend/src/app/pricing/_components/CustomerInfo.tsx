@@ -17,6 +17,10 @@ export interface CustomerInfoProps {
     onCustomerNameChange?: (name: string) => void;
     /** Lỗi kiểm tra hiển thị inline ngay dưới ô tên khách (Req 5.2). */
     nameError?: string;
+    /** Độ rộng sidebar (px) khi mở — để kéo giãn. Không truyền thì dùng độ rộng mặc định. */
+    widthPx?: number;
+    /** Đang kéo chỉnh độ rộng — tắt transition cho mượt tay. */
+    isResizing?: boolean;
 }
 
 /**
@@ -52,7 +56,7 @@ export interface CustomerInfoHandle {
 
 export const CustomerInfo = forwardRef<CustomerInfoHandle, CustomerInfoProps>(({
     token, isSidebarCollapsed, setIsSidebarCollapsed, title = 'Thông tin Khách', subtitle = 'Đơn hàng',
-    onCustomerNameChange, nameError,
+    onCustomerNameChange, nameError, widthPx, isResizing,
 }, ref) => {
     const [customerName, setCustomerName] = useState('');
     const [customerCode, setCustomerCode] = useState('');
@@ -119,7 +123,10 @@ export const CustomerInfo = forwardRef<CustomerInfoHandle, CustomerInfoProps>(({
     const labelCls = "flex items-center gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 group-focus-within:text-indigo-600 transition-colors";
 
     return (
-        <div className={`bg-white border-r border-slate-200 flex flex-col shadow-[2px_0_10px_rgba(0,0,0,0.02)] z-10 flex-shrink-0 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-0 overflow-hidden opacity-0 invisible' : 'w-[280px] lg:w-[320px] opacity-100 visible'}`}>
+        <div
+            style={!isSidebarCollapsed && widthPx ? { width: widthPx, transition: isResizing ? 'none' : undefined } : undefined}
+            className={`bg-white border-r border-slate-200 flex flex-col shadow-[2px_0_10px_rgba(0,0,0,0.02)] z-10 flex-shrink-0 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-0 overflow-hidden opacity-0 invisible' : (widthPx ? 'opacity-100 visible' : 'w-[280px] lg:w-[320px] opacity-100 visible')}`}
+        >
             <div className="bg-gradient-to-r from-indigo-50 to-white px-5 py-3 border-b border-indigo-100 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm border border-indigo-200">

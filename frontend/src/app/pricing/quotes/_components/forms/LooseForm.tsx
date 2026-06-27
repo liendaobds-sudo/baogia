@@ -3,6 +3,8 @@ import React from 'react';
 import SearchableSelect from '@/components/SearchableSelect';
 import { PreviewLayoutSVG } from '../PreviewLayoutSVG';
 import { useQuoteConfigurator } from '../_hooks/useQuoteConfigurator';
+import { formatVND, StatCard, STAT_TONE } from '../quote-ui';
+import { ResizableColumns } from '../ResizableColumns';
 
 type QuoteState = ReturnType<typeof useQuoteConfigurator>;
 
@@ -22,13 +24,12 @@ export function LooseForm({ state }: { state: QuoteState }) {
         addItem, productName
     } = state;
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+    const formatCurrency = formatVND;
 
     return (
-
-                    <div className="grid grid-cols-1 lg:grid-cols-8 gap-5 w-full">
-                        {/* LEFT PANEL: 3 cols */}
-                        <div className="lg:col-span-3 flex flex-col gap-4">
+        <ResizableColumns storageKey="zp.quote.cols.loose" defaultRatios={[0.375, 0.375, 0.25]} className="w-full h-full">
+                        {/* LEFT PANEL: Cấu hình */}
+                        <div className="flex-1 min-h-0 flex flex-col gap-4 pr-1 overflow-y-auto custom-scrollbar">
                             <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 shadow-sm">
                                 <div className="border-b border-indigo-200/60 pb-3 mb-3">
                                     <SearchableSelect 
@@ -39,8 +40,9 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                         }}
                                         options={templates.flatMap((group: any) => {
                                             const looseTemplates = group.templates.filter((t: any) => t.product_type === 'loose' || t.product_type === 'offset');
-                                            // Nhóm mặc định 'other' (Danh mục chung) → bỏ tiền tố nhóm cho gọn.
-                                            return looseTemplates.map((t: any) => ({ id: t.code, label: group.code === 'other' ? t.name : `${group.name} › ${t.name}` }));
+                                            // Nhóm theo danh mục: dòng tiêu đề danh mục + sản phẩm con thụt vào.
+                                            // Nhóm mặc định 'other' (Danh mục chung) → không gắn group, hiển thị phẳng.
+                                            return looseTemplates.map((t: any) => ({ id: t.code, label: t.name, group: group.code === 'other' ? undefined : group.name }));
                                         })}
                                         placeholder="-- Chọn mẫu sản phẩm rời --"
                                     />
@@ -222,8 +224,8 @@ export function LooseForm({ state }: { state: QuoteState }) {
                             </div>
                         </div>
 
-                        {/* CENTER PANEL: 3 cols */}
-                        <div className="lg:col-span-3 flex flex-col min-h-0 overflow-hidden">
+                        {/* CENTER PANEL: Preview */}
+                        <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-1">
 
                             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col flex-1 mb-4 min-h-0">
                                 <div className="py-2.5 px-4 border-b border-slate-100 flex items-center bg-slate-50/50">
@@ -244,24 +246,15 @@ export function LooseForm({ state }: { state: QuoteState }) {
 
                             <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)]">
                                 <div className="grid grid-cols-3 gap-2.5 text-center">
-                                    <div className="bg-blue-50/80 pt-2 pb-2.5 rounded-lg border border-blue-100/60 shadow-sm">
-                                        <div className="text-[9px] font-bold text-blue-900 uppercase tracking-widest mb-0.5">Số con/tờ</div>
-                                        <div className="text-xl font-black text-blue-600 tracking-tight">{(pricingResult as any)?.breakdown?.items_per_sheet ? Intl.NumberFormat().format((pricingResult as any).breakdown.items_per_sheet) : '-'}</div>
-                                    </div>
-                                    <div className="bg-emerald-50/80 pt-2 pb-2.5 rounded-lg border border-emerald-100/60 shadow-sm">
-                                        <div className="text-[9px] font-bold text-emerald-900 uppercase tracking-widest mb-0.5">Số trang in</div>
-                                        <div className="text-xl font-black text-emerald-600 tracking-tight">{(pricingResult as any)?.breakdown?.sheets_needed ? Intl.NumberFormat().format((pricingResult as any).breakdown.sheets_needed) : '-'}</div>
-                                    </div>
-                                    <div className="bg-amber-50/80 pt-2 pb-2.5 rounded-lg border border-amber-100/60 shadow-sm">
-                                        <div className="text-[9px] font-bold text-amber-900 uppercase tracking-widest mb-0.5">Hiệu suất</div>
-                                        <div className="text-xl font-black text-amber-600 tracking-tight">{(pricingResult as any)?.breakdown?.efficiency ? `${(pricingResult as any).breakdown.efficiency}%` : '-'}</div>
-                                    </div>
+                                    <StatCard label="Số con/tờ" tone={STAT_TONE.blue} value={(pricingResult as any)?.breakdown?.items_per_sheet ? Intl.NumberFormat().format((pricingResult as any).breakdown.items_per_sheet) : '-'} />
+                                    <StatCard label="Số trang in" tone={STAT_TONE.emerald} value={(pricingResult as any)?.breakdown?.sheets_needed ? Intl.NumberFormat().format((pricingResult as any).breakdown.sheets_needed) : '-'} />
+                                    <StatCard label="Hiệu suất" tone={STAT_TONE.amber} value={(pricingResult as any)?.breakdown?.efficiency ? `${(pricingResult as any).breakdown.efficiency}%` : '-'} />
                                 </div>
                             </div>
                         </div>
 
-                        {/* RIGHT PANEL: 2 cols */}
-                        <div className="lg:col-span-2 flex flex-col gap-4">
+                        {/* RIGHT PANEL: Chi phí */}
+                        <div className="flex-1 min-h-0 flex flex-col gap-4 pl-1 overflow-y-auto custom-scrollbar">
                             {/* Paper Size Suggestions - moved here */}
                             {optimizedSizes.length > 0 && (
                                 <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
@@ -388,11 +381,11 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                         className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white font-bold py-3 px-5 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2"
                                     >
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                                        THÊM ITEM NÀY VÀO BÁO GIÁ
+                                        THÊM VÀO BÁO GIÁ
                                     </button>
                                 )}
                             </div>
                         </div>
-                    </div>
+        </ResizableColumns>
     );
 }

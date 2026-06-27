@@ -6,6 +6,8 @@ import { ChevronDown, Search, X, Lock } from 'lucide-react';
 interface Option {
   id: string | number;
   label: string;
+  /** Tên danh mục — nếu có, các option cùng group sẽ gom dưới 1 dòng tiêu đề. */
+  group?: string;
 }
 
 interface SearchableSelectProps {
@@ -31,7 +33,9 @@ export default function SearchableSelect({
 
   // Lấy label của item đang được chọn hiện tại
   const selectedOption = options.find(opt => opt.id.toString() === value?.toString());
-  const displayLabel = selectedOption ? selectedOption.label : '';
+  const displayLabel = selectedOption
+    ? (selectedOption.group ? `${selectedOption.group} › ${selectedOption.label}` : selectedOption.label)
+    : '';
 
   // Đóng dropdown khi click ra ngoài
   useEffect(() => {
@@ -45,10 +49,11 @@ export default function SearchableSelect({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [wrapperRef]);
 
-  // Lọc options dựa trên từ khoá
-  const filteredOptions = options.filter(opt => 
-    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Lọc options dựa trên từ khoá (khớp cả tên sản phẩm lẫn tên danh mục)
+  const filteredOptions = options.filter(opt => {
+    const q = searchTerm.toLowerCase();
+    return opt.label.toLowerCase().includes(q) || (opt.group?.toLowerCase().includes(q) ?? false);
+  });
 
   const handleSelect = (id: string | number) => {
     onChange(id);
@@ -106,17 +111,35 @@ export default function SearchableSelect({
                 Không tìm thấy kết quả
               </li>
             ) : (
-              filteredOptions.map((opt) => (
-                <li
-                  key={opt.id}
-                  onClick={() => handleSelect(opt.id)}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-primary-light hover:text-primary transition-colors
-                    ${opt.id.toString() === value?.toString() ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}
-                  `}
-                >
-                  {opt.label}
-                </li>
-              ))
+              (() => {
+                const rows: React.ReactNode[] = [];
+                let lastGroup: string | undefined;
+                filteredOptions.forEach((opt) => {
+                  const g = opt.group;
+                  // Mở danh mục mới → chèn dòng tiêu đề (không bấm được).
+                  if (g && g !== lastGroup) {
+                    rows.push(
+                      <li key={`grp-${g}`} className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50/70 select-none cursor-default">
+                        {g}
+                      </li>
+                    );
+                    lastGroup = g;
+                  }
+                  if (!g) lastGroup = undefined;
+                  rows.push(
+                    <li
+                      key={opt.id}
+                      onClick={() => handleSelect(opt.id)}
+                      className={`${g ? 'pl-6 pr-3' : 'px-3'} py-2 text-sm cursor-pointer hover:bg-primary-light hover:text-primary transition-colors
+                        ${opt.id.toString() === value?.toString() ? 'bg-primary/5 text-primary font-medium' : 'text-text-primary'}
+                      `}
+                    >
+                      {opt.label}
+                    </li>
+                  );
+                });
+                return rows;
+              })()
             )}
           </ul>
         </div>

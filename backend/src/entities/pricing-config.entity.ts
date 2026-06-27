@@ -7,7 +7,8 @@ import {
 
 /**
  * PricingConfig entity — maps to `pricing_config` table in erp_print DB.
- * Verified against live DB: config_value is varchar(255), NOT 500.
+ * config_value là `text` để chứa cả giá trị ngắn (vat_rate…) lẫn JSON dài
+ * (offset.ProductConfig / offset.WasteStages). Trước đây là varchar(255) → JSON bị tràn.
  */
 @Entity('pricing_config')
 export class PricingConfig {
@@ -17,7 +18,7 @@ export class PricingConfig {
     @Column({ name: 'config_key', length: 50, unique: true })
     configKey: string;
 
-    @Column({ name: 'config_value', length: 255 })
+    @Column({ name: 'config_value', type: 'text' })
     configValue: string;
 
     @Column({ type: 'text', nullable: true })

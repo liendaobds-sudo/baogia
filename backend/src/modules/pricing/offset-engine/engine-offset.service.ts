@@ -66,17 +66,23 @@ export class EngineOffsetService implements OnModuleInit {
     }
 
     /**
-     * Kiểm tra giá trị gửi lên có nằm trong whitelist của loại sản phẩm (`productConfig`) không —
-     * để cấu hình nhà in là NGUỒN QUYỀN LỰC kể cả khi gọi API trực tiếp (không qua UI đã lọc).
-     * Mảng allowed* rỗng/thiếu = cho phép tất cả. Giá trị rỗng / 'Không' luôn hợp lệ.
+     * Kiểm tra giá trị gửi lên so với whitelist của loại sản phẩm (`productConfig`).
+     *  - Whitelist CÓ cấu hình + giá trị nằm NGOÀI  → lỗi cứng (chặn tính).
+     *  - Whitelist RỖNG/chưa cấu hình nhưng trường đang dùng → KHÔNG chặn, trả cảnh báo
+     *    để nhắc admin cấu hình (vẫn tính bình thường các mục khác).
+     * Trả về danh sách cảnh báo (rỗng = không có).
      */
-    private validateAgainstConfig(input: OffsetEngineInput, d: PricingData): void {
+    private validateAgainstConfig(input: OffsetEngineInput, d: PricingData): string[] {
+        const warnings: string[] = [];
         const cfg = d.productConfig?.[input.type];
-        if (!cfg) return;
+        if (!cfg) return warnings;
         const v = input as any;
         const check = (val: any, allowed: string[] | undefined, label: string, normalize = false) => {
-            if (!allowed || allowed.length === 0) return;
             if (val == null || val === '' || val === 'Không') return;
+            if (!allowed || allowed.length === 0) {
+                warnings.push(`${label} đang dùng nhưng loại sản phẩm này chưa cấu hình whitelist — vào "Cấu Hình Sản Phẩm Offset" để thiết lập.`);
+                return;
+            }
             const norm = (s: string) => (normalize ? chuanHoaKho(s) : String(s));
             const target = norm(String(val));
             if (!allowed.some((a) => norm(a) === target)) {
@@ -89,21 +95,25 @@ export class EngineOffsetService implements OnModuleInit {
         check(v.epKimViTri, cfg.allowedEpKim, 'Ép kim');
         check(v.vatTuBeMat, cfg.allowedVatTuBeMat, 'Vật tư bề mặt');
         check(v.boxType, cfg.allowedBoxTypes, 'Loại khuôn');
+        return warnings;
     }
 
     calculate(input: OffsetEngineInput): OffsetEngineResult {
         try {
             const d = this.getPricingData();
-            this.validateAgainstConfig(input, d);
+            const cfgWarnings = this.validateAgainstConfig(input, d);
+            let data: QuoteResult;
             switch (input.type) {
-                case 'to_roi': return { success: true, data: tinhToRoi(input, d) };
-                case 'bi_thu_folder': return { success: true, data: tinhBiThuFolder(input, d) };
-                case 'sp_khac': return { success: true, data: tinhSpKhac(input, d) };
-                case 'hop_giay': return { success: true, data: tinhHopGiay(input, d) };
-                case 'tui_giay': return { success: true, data: tinhTuiGiay(input, d) };
+                case 'to_roi': data = tinhToRoi(input, d); break;
+                case 'bi_thu_folder': data = tinhBiThuFolder(input, d); break;
+                case 'sp_khac': data = tinhSpKhac(input, d); break;
+                case 'hop_giay': data = tinhHopGiay(input, d); break;
+                case 'tui_giay': data = tinhTuiGiay(input, d); break;
                 default:
                     return { success: false, error: `Loại sản phẩm offset không được hỗ trợ: ${(input as any).type}` };
             }
+            if (cfgWarnings.length) data.warnings = [...(data.warnings ?? []), ...cfgWarnings];
+            return { success: true, data };
         } catch (err) {
             if (err instanceof OffsetPricingError) {
                 return { success: false, error: err.message };

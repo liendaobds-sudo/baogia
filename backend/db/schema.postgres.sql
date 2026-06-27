@@ -683,7 +683,7 @@ CREATE TABLE IF NOT EXISTS "plate_pricing" (
 CREATE TABLE IF NOT EXISTS "pricing_config" (
   "id" integer DEFAULT nextval('pricing_config_id_seq'::regclass) NOT NULL,
   "config_key" character varying(50) NOT NULL,
-  "config_value" character varying(255) NOT NULL,
+  "config_value" text NOT NULL,
   "description" text,
   "updated_at" timestamp without time zone DEFAULT now() NOT NULL
 );

@@ -194,6 +194,8 @@ export interface QuoteResult {
     donGia1SP: number;
     /** Dữ liệu bình bài/sản xuất phục vụ preview + thống kê (không ảnh hưởng giá). */
     meta?: QuoteMeta;
+    /** Cảnh báo cấu hình (không chặn tính): vd trường đang dùng nhưng chưa whitelist. */
+    warnings?: string[];
 }
 
 /**

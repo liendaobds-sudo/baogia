@@ -18,6 +18,8 @@ import { useOffsetPricebook, type OffsetQuoteResult, type Pricebook, type KhoInO
 import { useQuoteCart } from '../_store/useQuoteCart';
 import { OffsetPreviewSVG } from './OffsetPreviewSVG';
 import DielinePreview from './DielinePreview';
+import { formatVND, StatCard, LBL, INP } from './quote-ui';
+import { ResizableColumns } from './ResizableColumns';
 
 /** Loại khuôn bế cho xếp bài chính xác (engine dieline). BẮT BUỘC chọn — không còn chế độ ước lượng. */
 const BOX_TYPE_OPTS = [
@@ -53,13 +55,10 @@ const TYPE_TABS: { id: ProductType; label: string; hint: string }[] = [
     { id: 'tui_giay', label: 'Túi giấy', hint: 'Khổ tùy chỉnh' },
 ];
 
-// Bảng "bài in" túi: lấy từ pricebook (backend TUI_NEST_OPTIONS), fallback rỗng.
-const fmt = (n: number | undefined) =>
-    n == null ? '-' : n.toLocaleString('vi-VN', { maximumFractionDigits: 0 });
-
 // ─────────────── field helpers ───────────────
-const lbl = 'block text-[13px] font-bold text-slate-600 mb-1.5';
-const inp = 'w-full text-sm font-medium px-3 py-2 border border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white';
+// Dùng token nhãn/input CHUNG (quote-ui) để đồng bộ với luồng kỹ thuật số.
+const lbl = LBL;
+const inp = INP;
 
 function Num({ label, value, onChange, min = 0, step, disabled }: { label: string; value: number; onChange: (v: number) => void; min?: number; step?: number; disabled?: boolean }) {
     return (
@@ -245,7 +244,8 @@ function makeUI(pb: any, cfg: OffsetProductConfig = {}) {
         epKim: () => [{ id: 'Không', label: 'Không' }, ...pb.epKim.rows.filter((r: any) => keep(cfg.allowedEpKim, r.viTri)).map((r: any) => ({ id: r.viTri, label: r.viTri }))],
         kichToRoi: () => pb.fixedSizes.toRoi.filter((f: any) => keep(cfg.allowedKichThuoc, f.kichThuoc)).map((f: any) => ({ id: f.kichThuoc, label: f.kichThuoc })),
         kichBiThu: () => pb.fixedSizes.biThuFolder.filter((f: any) => keep(cfg.allowedKichThuoc, f.kichThuoc)).map((f: any) => ({ id: f.kichThuoc, label: `${f.kichThuoc} (${f.loai})` })),
-        // Lọc loại khuôn theo whitelist (không còn tùy chọn rỗng — bắt buộc chọn khuôn bế).
+        // STRICT (đồng bộ với các list khác): chỉ hiện khuôn nằm trong whitelist.
+        // Chưa cấu hình → rỗng. Cấu hình ở Settings → Cấu Hình Sản Phẩm Offset → Hộp giấy.
         boxTypes: (full: { id: string; label: string }[]) => full.filter((o) => keep(cfg.allowedBoxTypes, o.id)),
     };
 }
@@ -526,48 +526,73 @@ function buildPayload(type: ProductType, st: Record<string, any>): Record<string
 }
 
 function ResultPanel({ result, error }: { result: OffsetQuoteResult | null; error: string | null }) {
-    if (error) return <div className="text-[12px] text-red-600 font-semibold bg-red-50 border border-red-200 rounded p-3">{error}</div>;
-    if (!result) return <div className="text-[12px] text-slate-400 italic">Nhập đầy đủ cấu hình để tự động tính giá.</div>;
+    // Cùng "khung thẻ" với luồng kỹ thuật số (TỔNG CHI PHÍ): luôn hiển thị thẻ,
+    // kể cả khi chưa có kết quả (hiện "-"), để hai trang nhìn đồng bộ.
+    const DOT = ['bg-blue-400', 'bg-emerald-400', 'bg-orange-400', 'bg-purple-400', 'bg-pink-400'];
     return (
-        <div className="space-y-3">
-            <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl p-4 text-center shadow-sm">
-                <div className="text-[11px] uppercase tracking-widest opacity-80 font-semibold">Đơn giá / sản phẩm</div>
-                <div className="text-2xl font-black">{fmt(result.donGia1SP)}đ</div>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <table className="w-full text-[11px]">
-                    <tbody>
-                        {result.lines.map((l, i) => (
-                            <tr key={i} className="border-b border-slate-100 last:border-0">
-                                <td className="px-2.5 py-1.5 text-slate-700">{l.label}</td>
-                                <td className="px-2.5 py-1.5 text-right font-semibold text-slate-900">{fmt(l.amount)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 text-[11px] space-y-1">
-                <Row k="Tổng chưa VAT" v={result.tongChuaVAT} />
-                <Row k="Hao hụt" v={result.haoHut} />
-                <Row k="VAT" v={result.vat} />
-                <Row k="Tổng gồm VAT" v={result.tongGomVAT} />
-                <Row k="Chiết khấu" v={-result.chietKhau} />
-                <div className="flex justify-between font-black text-indigo-700 pt-1 border-t border-slate-200">
-                    <span>Khách trả</span><span>{fmt(result.khachTra)}đ</span>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] flex-1 relative overflow-hidden">
+            <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-slate-50 border border-slate-100 z-0" />
+            <h3 className="font-extrabold text-[15px] mb-5 text-slate-800 relative z-10 border-b border-slate-100 pb-3 uppercase tracking-wider flex items-center justify-between">
+                TỔNG CHI PHÍ
+            </h3>
+            {error ? (
+                <div className="relative z-10 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs font-semibold flex items-start gap-2">
+                    <svg className="w-4 h-4 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                    {error}
                 </div>
-            </div>
+            ) : (
+                <div className="space-y-4 text-[13px] relative z-10">
+                    {/* Cảnh báo cấu hình (không chặn tính) */}
+                    {result?.warnings && result.warnings.length > 0 && (
+                        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+                            {result.warnings.map((w, i) => (
+                                <div key={i} className="flex items-start gap-1.5"><span>⚠️</span><span>{w}</span></div>
+                            ))}
+                        </div>
+                    )}
+                    {/* Các khoản chi phí (line items từ engine) */}
+                    <div className="flex flex-col gap-1.5">
+                        {result && result.lines.length > 0 ? result.lines.map((l, i) => (
+                            <div key={i} className="flex justify-between items-center text-slate-600 font-medium">
+                                <span className="flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${DOT[i % DOT.length]}`} /> {l.label}:</span>
+                                <span className="font-bold text-slate-800">{formatVND(l.amount)}</span>
+                            </div>
+                        )) : (
+                            <div className="flex justify-between items-center text-slate-600 font-medium">
+                                <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> Chi phí in:</span>
+                                <span className="font-bold text-slate-800">-</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* VAT / hao hụt / chiết khấu */}
+                    <div className="flex flex-col gap-1 text-[12px] text-slate-500 border-t border-slate-100 pt-3">
+                        <Row k="Tổng chưa VAT" v={result?.tongChuaVAT} />
+                        <Row k="Hao hụt" v={result?.haoHut} />
+                        <Row k="VAT" v={result?.vat} />
+                        <Row k="Chiết khấu" v={result ? -result.chietKhau : undefined} />
+                    </div>
+
+                    {/* Tổng cuối */}
+                    <div className="border-t-2 border-dashed border-slate-200 pt-4 mt-2">
+                        <div className="flex justify-between items-end mb-1">
+                            <span className="text-slate-800 font-extrabold text-sm uppercase">Khách trả:</span>
+                            <span className="font-black text-2xl text-indigo-600 leading-none tracking-tight">{result ? formatVND(result.khachTra) : '0 ₫'}</span>
+                        </div>
+                        <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide">
+                            Đơn giá: <span className="text-slate-700 font-bold">{result ? formatVND(result.donGia1SP) : '-'}</span> / sp
+                        </div>
+                        <div className="mt-2 text-[10px] text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-200 font-medium flex items-center gap-1.5">
+                            <span>💡</span> Giá đã gồm VAT &amp; chiết khấu theo cấu hình bên trái.
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
-const Row = ({ k, v }: { k: string; v: number }) => (
-    <div className="flex justify-between text-slate-600"><span>{k}</span><span className="font-semibold">{fmt(v)}đ</span></div>
-);
-
-const StatCard = ({ label, value, tone }: { label: string; value: React.ReactNode; tone: string }) => (
-    <div className={`pt-2 pb-2.5 rounded-lg border ${tone}`}>
-        <div className="text-[8px] font-bold uppercase tracking-widest mb-0.5 opacity-70">{label}</div>
-        <div className="text-lg font-black">{value}</div>
-    </div>
+const Row = ({ k, v }: { k: string; v: number | undefined }) => (
+    <div className="flex justify-between"><span>{k}</span><span className="font-semibold text-slate-700">{v == null ? '-' : formatVND(v)}</span></div>
 );
 
 function PreviewPanel({ result }: { result: OffsetQuoteResult | null }) {
@@ -778,9 +803,24 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                 {loading && <div className="text-slate-400 text-sm">Đang tải bảng giá...</div>}
                 {pbError && <div className="text-red-600 text-sm font-semibold">{pbError}</div>}
                 {!loading && pb && (
-                    <div className="grid grid-cols-1 lg:grid-cols-8 gap-5 h-full">
+                    <ResizableColumns storageKey="zp.quote.cols.offset" defaultRatios={[0.375, 0.375, 0.25]} className="w-full h-full">
                         {/* LEFT: Form cấu hình */}
-                        <div className="lg:col-span-3 bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 overflow-y-auto custom-scrollbar shadow-sm">
+                        <div className="flex-1 min-h-0 mr-1 bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 overflow-y-auto custom-scrollbar shadow-sm">
+                            {(() => {
+                                const missing: string[] = [];
+                                if (ui.materials().length === 0) missing.push('Giấy in');
+                                if (type === 'hop_giay' && ui.boxTypes(BOX_TYPE_OPTS).length === 0) missing.push('Loại khuôn');
+                                if ((type === 'sp_khac' || type === 'hop_giay') && ui.khoIn().length === 0) missing.push('Khổ in');
+                                if (type === 'to_roi' && ui.kichToRoi().length === 0) missing.push('Kích thước');
+                                if (type === 'bi_thu_folder' && ui.kichBiThu().length === 0) missing.push('Kích thước');
+                                if (missing.length === 0) return null;
+                                return (
+                                    <div className="mb-3 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                                        <div className="font-bold flex items-center gap-1.5 mb-0.5"><span>⚠️</span> Chưa cấu hình: {missing.join(', ')}</div>
+                                        <div className="text-[11px] leading-relaxed">Các mục trên đang trống vì chưa được whitelist cho loại sản phẩm này. Vào <a href="/pricing/settings/offset-products" className="font-semibold text-indigo-600 underline">Cấu Hình Sản Phẩm Offset</a> để thiết lập rồi các lựa chọn sẽ hiện ra.</div>
+                                    </div>
+                                );
+                            })()}
                             <div className="mb-3">
                                 <label className="block text-[10px] font-bold text-indigo-700 mb-1 tracking-wide uppercase">Tên File / Sản Phẩm <span className="text-red-500">*</span></label>
                                 <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} placeholder="Nhập tên gọi để phân biệt" className={inp} />
@@ -792,7 +832,7 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                             {type === 'tui_giay' && <TuiForm pb={pb} st={st} set={set} ui={ui} />}
                         </div>
                         {/* CENTER: Preview + Gợi ý khổ giấy */}
-                        <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+                        <div className="flex-1 min-h-0 px-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
                             {dielineProps
                                 ? <DielinePreview {...dielineProps} />
                                 : <PreviewPanel result={result} />}
@@ -829,7 +869,7 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                             )}
                         </div>
                         {/* RIGHT: Chi phí + Thêm vào báo giá */}
-                        <div className="lg:col-span-2 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-1">
+                        <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto custom-scrollbar pl-1 pr-1">
                             {calculating && <div className="text-[12px] text-indigo-500 font-semibold flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Đang tính giá...</div>}
                             <ResultPanel result={result} error={calcError} />
                             {result && !calcError && (
@@ -840,7 +880,7 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                                 </button>
                             )}
                         </div>
-                    </div>
+                    </ResizableColumns>
                 )}
             </div>
         </div>

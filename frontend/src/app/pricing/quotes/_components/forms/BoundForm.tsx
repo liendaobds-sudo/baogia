@@ -3,6 +3,7 @@ import React from 'react';
 import SearchableSelect from '@/components/SearchableSelect';
 import { PreviewLayoutSVG } from '../PreviewLayoutSVG';
 import { useQuoteConfigurator } from '../_hooks/useQuoteConfigurator';
+import { formatVND } from '../quote-ui';
 
 type QuoteState = ReturnType<typeof useQuoteConfigurator>;
 
@@ -22,7 +23,7 @@ export function BoundForm({ state }: { state: QuoteState }) {
         addItem, productName
     } = state;
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+    const formatCurrency = formatVND;
 
                     const allMats = (masterData?.materials as any[]) || [];
                     // Khổ giấy: CHỈ khổ sản phẩm cho phép (rỗng = không có — đúng theo cài đặt)
@@ -393,7 +394,7 @@ export function BoundForm({ state }: { state: QuoteState }) {
                                         className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white font-bold py-3 px-5 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2"
                                     >
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                                        THÊM ITEM NÀY VÀO BÁO GIÁ
+                                        THÊM VÀO BÁO GIÁ
                                     </button>
                                 )}
                             </div>

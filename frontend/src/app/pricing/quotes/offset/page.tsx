@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { API_URL } from '@/lib/api';
 import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components/CustomerInfo';
+import { useResizableSidebar } from '../_components/useResizableSidebar';
 import { OffsetQuoteConfigurator, type OffsetProductType } from '../_components/OffsetQuoteConfigurator';
 import { useQuoteCart, type QuoteCartItem } from '../_store/useQuoteCart';
 import { useToast } from '@/lib/ui/toast';
@@ -46,6 +47,7 @@ export default function OffsetQuotePage() {
     const toast = useToast();
 
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const { width: sidebarWidth, isResizing: isResizingSidebar, startResize } = useResizableSidebar('zp.quote.sidebarWidth');
     const [isSaving, setIsSaving] = useState(false);
     const [productType, setProductType] = useState<OffsetProductType>('to_roi');
 
@@ -192,7 +194,7 @@ export default function OffsetQuotePage() {
                     </Link>
                     <div>
                         <h1 className="text-[16px] font-black text-slate-800 m-0 leading-none">Báo Giá In Offset</h1>
-                        <p className="text-[10px] uppercase font-bold text-indigo-500 mt-1 tracking-wider m-0">⚙️ Hệ thống tính giá Offset</p>
+                        <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider m-0">Hệ thống tính giá Offset</p>
                     </div>
                 </div>
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
@@ -240,7 +242,21 @@ export default function OffsetQuotePage() {
                     setIsSidebarCollapsed={setIsSidebarCollapsed}
                     onCustomerNameChange={handleCustomerNameChange}
                     nameError={errors.customerName}
+                    widthPx={sidebarWidth}
+                    isResizing={isResizingSidebar}
                 />
+
+                {!isSidebarCollapsed && (
+                    <div
+                        onPointerDown={startResize}
+                        role="separator"
+                        aria-orientation="vertical"
+                        title="Kéo để chỉnh độ rộng cột thông tin khách"
+                        className="group flex-shrink-0 w-2 cursor-col-resize flex items-center justify-center bg-slate-100 hover:bg-indigo-50 transition-colors z-10"
+                    >
+                        <div className="w-1 h-10 rounded-full bg-slate-300 group-hover:bg-indigo-400 transition-colors" />
+                    </div>
+                )}
 
                 <div className="flex-1 min-w-0 overflow-hidden">
                     <OffsetQuoteConfigurator activeType={productType} />

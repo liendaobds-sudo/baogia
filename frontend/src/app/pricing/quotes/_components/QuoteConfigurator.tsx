@@ -30,13 +30,9 @@ export function QuoteConfigurator({ token, activeTab, onTabChange }: { token: st
     } = quoteState;
     if (loading) return <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Đang tải dữ liệu cấu hình...</div>;
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
-
     return (
-        <div className="flex flex-col h-full bg-[#f8fafc] rounded-xl overflow-hidden relative">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 z-10" />
-            
-            <div className="flex-1 p-5 overflow-y-auto w-full">
+        <div className="flex flex-col h-full bg-white">
+            <div className="flex-1 p-5 overflow-y-auto w-full bg-[#f8fafc]">
                 {tab === 'loose' && <LooseForm state={quoteState} />}
                 {tab === 'bound' && <BoundForm state={quoteState} />}
                 {tab === 'large_format' && <LargeFormatForm state={quoteState} />}
