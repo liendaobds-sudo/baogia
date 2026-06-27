@@ -15,16 +15,19 @@ import {
 /**
  * 2.1 — Tra đơn giá giấy theo code hoặc alias. Ném lỗi nếu không có.
  *
- * LƯU Ý ĐƠN VỊ: trả `priceVAT` = cột `materials.pricePerSheet` admin nhập. Theo quy ước nhập liệu
- * của xưởng, giá này là giá GỐC CHƯA gồm VAT (dù tên trường có chữ "VAT" — đặt tên lịch sử, gây
- * hiểu nhầm). VAT được cộng ĐÚNG MỘT LẦN ở `totals.ts` theo mức VAT trên UI báo giá → KHÔNG double-VAT.
+ * ĐƠN VỊ (chốt 2026-06-27): trả `priceNoVAT` = cột `materials.unit_price` ("Giá vốn" admin nhập),
+ * là giá MỘT TỜ NGUYÊN KHỔ **CHƯA gồm VAT**. VAT được cộng ĐÚNG MỘT LẦN ở `totals.ts` theo mức
+ * VAT trên UI báo giá → KHÔNG double-VAT.
+ *
+ * (Trước đây trả `priceVAT` = `pricePerSheet` = giá ĐÃ gồm VAT → bị VAT 2 lần + admin sửa "Giá vốn"
+ *  không có tác dụng vì engine đọc nhầm cột. Xem docs/offset-waste-model.md mục "QUY ƯỚC GIÁ GIẤY".)
  */
 export function giaGiay(code: string, d: PricingData): number {
     const m = d.materials.find(
         (x) => x.code === code || (x.aliases ?? []).includes(code),
     );
     if (!m) throw new OffsetPricingError(`Mã vật liệu không tồn tại: ${code}`);
-    return m.priceVAT;
+    return m.priceNoVAT;
 }
 
 /**

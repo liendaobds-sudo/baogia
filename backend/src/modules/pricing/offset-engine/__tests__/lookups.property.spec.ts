@@ -112,8 +112,8 @@ describe('EngineOffset lookups (property)', () => {
 
     it('Feature: offset-pricebook-revamp, Property 9: tra giá vật liệu theo code và alias nhất quán', () => {
         for (const m of D.materials) {
-            expect(giaGiay(m.code, D)).toBe(m.priceVAT);
-            for (const a of m.aliases) expect(giaGiay(a, D)).toBe(m.priceVAT);
+            expect(giaGiay(m.code, D)).toBe(m.priceNoVAT);
+            for (const a of m.aliases) expect(giaGiay(a, D)).toBe(m.priceNoVAT);
         }
     });
 

@@ -44,9 +44,10 @@ describe('Hộp giấy — cascade bù hao theo công đoạn (khuôn bế bắt
         const sheetsNet = Math.ceil(900 / soCon);
         // Số tờ gross ≥ số tờ net (có makeready + rate hao theo công đoạn).
         expect(r.meta!.soToLon!).toBeGreaterThanOrEqual(sheetsNet);
-        // Giá giấy = đơn giá tờ (2923) × số tờ gross — bất biến cascade.
+        // Giá giấy = đơn giá tờ CHƯA VAT (priceNoVAT) × số tờ gross — bất biến cascade.
         const giay = r.lines.find((l) => l.label === 'Chi phí giấy')!.amount;
-        expect(giay).toBe(2923 * r.meta!.soToLon!);
+        const giaTo = D.materials.find((m) => m.code === 'I250')!.priceNoVAT;
+        expect(giay).toBe(giaTo * r.meta!.soToLon!);
     });
 
     it('các dòng độc lập số con giữ nguyên; các dòng gia công dương', () => {
