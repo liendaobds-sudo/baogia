@@ -127,7 +127,7 @@ VAT nằm ở **hai nơi**: `pricing_config.vat_rate` (digital) và `params.TyLe
 
 Hiện ở mức "máy tính báo giá theo Excel", chưa phải "mô hình định mức sản xuất":
 - Makeready in cứng 50 tờ, không theo số màu/kẽm/lượt.
-- Chi phí giấy = đơn giá tờ × số tờ, **không** truy lên giấy nguyên khổ + sơ đồ pha cắt.
+- ~~Chi phí giấy = đơn giá tờ × số tờ, không truy lên giấy nguyên khổ + sơ đồ pha cắt.~~ **(ĐÍNH CHÍNH 2026-06-27):** engine THỰC TẾ đếm theo **tờ giấy NGUYÊN KHỔ** (`soConToLon`, đã gồm pha cắt `chiaTo`); `pricePerSheet` = giá/tờ nguyên khổ. Quy ước chốt tại `docs/offset-waste-model.md` mục "QUY ƯỚC GIÁ GIẤY OFFSET". Còn lại 2 điều kiện dữ liệu: (1) admin nhập đúng giá/tờ nguyên; (2) khổ nguyên vật liệu khớp `khoGiayLon`.
 - Không tách giá vốn → giá bán theo markup cho offset (chỉ chiết khấu ngược).
 - Thiếu: phí film/bình, phụ phí số màu pha (Pantone), mực theo độ phủ, công theo ca máy.
 - Bù hao theo công đoạn (cốt lõi định mức xưởng) chưa mô hình hoá — xem `offset-waste-model.md`.

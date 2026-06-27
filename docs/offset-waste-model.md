@@ -544,3 +544,30 @@ Kiểm chứng: module pricing **180 pass** (thêm 2 ca A1 đọc/seed paper_siz
 - **UI mới `settings/offset-materials`**: cấu hình Kẽm (đơn giá 1 kẽm nhỏ/lớn + bảng giá bình bài theo số kẽm), Vật tư bề mặt (tên/đơn giá-kg/số mặt), Ép kim (vị trí × 4 bậc số lượng). Nạp từ `pricebook`; lưu qua `cfg/param` (DonGia1Kem_*), `cfg/kem`, `cfg/vat-tu-be-mat`, `cfg/ep-kim` (endpoint + ConfigStore CRUD đã có sẵn, bảng `offset_cfg_kem/vat_tu_be_mat/ep_kim` nhất quán — không split-brain). Đóng nốt khoảng trống "chỉ seed, chưa có màn" của kẽm/vtbm/epkim.
 
 Diagnostics sạch toàn bộ.
+
+
+---
+
+## QUY ƯỚC GIÁ GIẤY OFFSET (chốt 2026-06-27)
+
+> Mục này chốt quy ước để tránh hiểu nhầm (A8/A14 cũ mô tả chưa chính xác).
+
+**Đơn vị đếm giấy của engine = TỜ GIẤY NGUYÊN KHỔ (khổ giấy lớn / `khoGiayLon`).**
+
+Luồng (mọi product offset, vd `to-roi.ts`):
+- `soCon = imposeFromKhoIn(...).soConToLon` = **số con trên 1 TỜ GIẤY NGUYÊN KHỔ** (đã gồm pha cắt: `soConToLon = soConBaiIn × chiaTo`).
+- `buildWaste(d, sl, soCon, …)` → `sheetsNet = ceil(số con cần / soConToLon)` = **số tờ nguyên khổ** (net); `sheetsGross` = tờ nguyên khổ sau bù hao cascade.
+- `cpGiay = giaGiay(materialCode) × sheetsGross`.
+
+⇒ **`materials.pricePerSheet` PHẢI là giá MỘT TỜ GIẤY NGUYÊN KHỔ** (đúng khổ `width × height` đã khai của vật liệu, ví dụ 79×109 hoặc 65×86), **CHƯA gồm VAT** (VAT cộng 1 lần ở `totals`).
+
+**Pha cắt ĐÃ được mô hình hoá** (không phải "thiếu" như A14 cũ):
+- `chiaTo` (vd "Chia 4") = số bài in cắt ra từ 1 tờ nguyên; nó nằm sẵn trong `soConToLon`.
+- `luotIn = ceil(sl / soConBaiIn) × soMat` đếm theo **bài in** (= tờ nguyên × chiaTo) — đúng cho công in/bình bài.
+- Quan hệ nhất quán: `số con = sheetsNet(tờ nguyên) × soConToLon = luotIn/soMat(bài in) × soConBaiIn`.
+
+**Điều kiện để giá giấy ĐÚNG (cần đảm bảo dữ liệu):**
+1. Giá nhập ở màn Vật tư (tab Offset) là **giá/tờ nguyên khổ**, không phải giá/bài in.
+2. Khổ nguyên của vật liệu (`materials.width × height`) **khớp** với `khoGiayLon` của khổ in đang chọn. Nếu lệch (vd vật liệu khai 65×86 nhưng khổ in dùng giấy lớn 79×109) → số tờ tính theo 79×109 nhưng giá theo 65×86 → **lệch giá giấy**.
+
+**Lưu ý liên quan (cán màng — thứ cấp, chưa sửa):** `cpCanMang = dienTichKho(khoIn) × đơn giá kg × số mặt × sheetsAtCan`. `dienTichKho(khoIn)` là **diện tích BÀI IN** còn `sheetsAtCan` là **số TỜ NGUYÊN** → trộn đơn vị, có thể lệch ~hệ số `chiaTo` cho phần cán màng. Cần rà riêng nếu dùng cán màng nhiều.
