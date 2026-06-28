@@ -12,10 +12,14 @@ jest.mock('./ChatArea', () => {
 
 import ChatArea from './ChatArea';
 
+// ChatArea bị mock thành dummy không nhận props (xem jest.mock ở trên), nhưng type
+// import vẫn giữ ChatAreaProps gốc → cast về FC không-props để khớp với mock thật.
+const MockedChatArea = ChatArea as unknown as React.FC;
+
 describe('ChatArea Component', () => {
     it('renders without crashing', () => {
         // Since we mocked it, it just renders the dummy
-        render(<ChatArea />);
+        render(<MockedChatArea />);
         expect(screen.getByTestId('chat-area')).toBeInTheDocument();
     });
 });

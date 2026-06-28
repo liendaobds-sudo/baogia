@@ -85,12 +85,23 @@ import { addTransactionalDataSource } from 'typeorm-transactional';
                     const host = config.get<string>('DB_HOST', 'localhost');
                     const port = config.get<number>('DB_PORT', 5432);
                     const database = config.get<string>('DB_DATABASE', 'zeplao_erp');
+                    const isProduction = config.get<string>('NODE_ENV') === 'production';
+                    const username = config.get<string>('DB_USERNAME');
+                    const password = config.get<string>('DB_PASSWORD');
+                    // Fail-fast ở production: KHÔNG cho phép default 'postgres/postgres' âm thầm.
+                    // (Tương tự fail-fast JWT_SECRET trong jwt.strategy.ts.)
+                    if (isProduction && (!username || !password)) {
+                        throw new Error(
+                            'DB_USERNAME và DB_PASSWORD là bắt buộc khi NODE_ENV=production. ' +
+                            'Không khởi động với credential mặc định.',
+                        );
+                    }
                     console.log(`[DB:Default] 🐘 PostgreSQL → ${host}:${port}/${database} (schema: public)`);
                     return {
                         type: 'postgres' as const,
                         host, port,
-                        username: config.get<string>('DB_USERNAME', 'postgres'),
-                        password: config.get<string>('DB_PASSWORD', 'postgres'),
+                        username: username ?? 'postgres',
+                        password: password ?? 'postgres',
                         database,
                         schema: 'public',
                         autoLoadEntities: true,

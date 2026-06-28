@@ -59,3 +59,7 @@ automation-config.json
 
 # ── Local archive of legacy/dev scripts (giữ máy local, không commit) ──
 _archive/
+
+# ── Tài liệu cá nhân / file lạc không thuộc dự án (added audit cleanup) ──
+*.pdf
+JLPT*
