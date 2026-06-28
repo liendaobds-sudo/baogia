@@ -5,7 +5,8 @@
  * Phạm vi kiểm thử (focused):
  *  - Nút "LƯU BÁO GIÁ" disabled khi thiếu hạng mục HOẶC thiếu tên khách; bật khi đủ cả hai.
  *  - Khi hợp lệ + bấm Lưu: gọi `fetch` tới URL kết thúc `/erp/orders` với method POST và
- *    body có item ĐÃ TRẢI PHẲNG (`product_name`, `item_total`, không bọc `config_params`).
+ *    body có item map snake_case whitelisted (`product_name`, `item_total`), cấu hình gói
+ *    trong `printing_detail` (không spread camelCase lên gốc, không bọc `config_params`).
  *  - fetch lỗi (res.ok=false) ⇒ toast error + KHÔNG `router.push`.
  *  - fetch thành công ⇒ `router.push('/pricing/quotes')`.
  *
@@ -88,7 +89,7 @@ const seedCartItem = (overrides: Partial<Omit<QuoteCartItem, 'id'>> = {}) => {
         unitPrice: 1000,
         total: 100000,
         details: {},
-        // configParams được trải phẳng vào item — KHÔNG bọc trong config_params.
+        // configParams được gói trong printing_detail khi map sang QuoteItemDto.
         configParams: { width: 148, height: 210 },
         ...overrides,
     });
@@ -137,7 +138,7 @@ describe('NewQuotePage — luồng tạo Báo giá', () => {
         expect(getSaveButton()).toBeEnabled();
     });
 
-    it('gọi POST /erp/orders với item đã trải phẳng và điều hướng khi thành công', async () => {
+    it('gọi POST /erp/orders với item map snake_case (cấu hình trong printing_detail) và điều hướng khi thành công', async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
             ok: true,
             status: 200,
@@ -159,12 +160,15 @@ describe('NewQuotePage — luồng tạo Báo giá', () => {
         const body = JSON.parse(opts.body);
         expect(Array.isArray(body.items)).toBe(true);
         const item = body.items[0];
-        // Item trải phẳng: có khóa snake_case + giữ configParams ở cấp gốc.
+        // Item map sang snake_case whitelisted theo QuoteItemDto. configParams (camelCase)
+        // được gói trong `printing_detail` để khỏi vướng ValidationPipe(forbidNonWhitelisted)
+        // ở backend; KHÔNG spread thẳng lên cấp gốc (xem mapItem trong page.tsx).
         expect(item).toHaveProperty('product_name', 'Tờ rơi A5');
         expect(item).toHaveProperty('item_total', 100000);
         expect(item).toHaveProperty('quantity', 100);
-        expect(item).toHaveProperty('width', 148);
-        // KHÔNG bọc cấu hình trong config_params/calculation_details.
+        expect(item).toHaveProperty('printing_detail.configParams.width', 148);
+        // KHÔNG spread cấu hình camelCase lên gốc, KHÔNG bọc trong config_params/calculation_details.
+        expect(item).not.toHaveProperty('width');
         expect(item).not.toHaveProperty('config_params');
         expect(item).not.toHaveProperty('calculation_details');
 

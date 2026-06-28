@@ -17,9 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # Cây phụ thuộc có xung đột peer (@nestjs/swagger@11 vs @nestjs/common@10)
-      # → dùng --legacy-peer-deps cho tới khi đồng bộ version (xem audit §12.2).
-      - run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+      # NestJS_Suite đã đồng bộ lên major 11 (xem audit §B1/B8) → không còn xung đột peer,
+      # bỏ --legacy-peer-deps, dùng npm ci thuần để build tái lập từ lockfile.
+      - run: npm ci
       - run: npx tsc --noEmit -p tsconfig.json
       - run: npx jest --runInBand
 
@@ -34,5 +34,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+      - run: npm ci
       - run: npm run build
