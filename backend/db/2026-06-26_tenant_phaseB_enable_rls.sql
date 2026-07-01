@@ -82,10 +82,14 @@ END $$;
 --     → KHÔNG SET NOT NULL, KHÔNG gắn trigger auto-set (sẽ phá hàng baseline).
 --   • Hàng THEO TENANT (tenant_id = <id>) chỉ tenant đó thấy.
 --
--- Policy đọc (USING): bypass HOẶC tenant_id IS NULL (baseline) HOẶC tenant_id = current.
--- Policy ghi (WITH CHECK): bypass (super-admin toggle mọi tenant + ghi baseline) HOẶC
---   tenant_id = current (tenant chỉ ghi hàng của chính mình). Ghi baseline (tenant_id NULL)
---   CHỈ qua bypass → tenant thường không thể sửa mặc định nền.
+-- TÁCH đọc/ghi (2 policy) — KHÁC bảng thường (1 policy FOR ALL):
+--   • mc_read (FOR SELECT): bypass HOẶC tenant_id IS NULL (baseline) HOẶC tenant_id = current.
+--   • mc_write (FOR ALL): bypass HOẶC tenant_id = current — tenant chỉ ghi hàng CỦA MÌNH.
+-- Vì sao tách: nếu gộp 1 policy FOR ALL có `tenant_id IS NULL` trong USING thì UPDATE/DELETE
+--   của tenant sẽ KHỚP hàng baseline (USING pass) rồi bị WITH CHECK từ chối → NÉM lỗi
+--   "row violates row-level security policy". Tách ra: baseline nằm ngoài USING của mc_write
+--   → UPDATE/DELETE của tenant không đụng baseline (0 hàng, KHÔNG lỗi). Ghi/sửa baseline
+--   (tenant_id NULL) CHỈ qua bypass (super-admin). Phát hiện qua dry-run RLS.
 -- ─────────────────────────────────────────────────────────────────────────────
 DO $$
 BEGIN
@@ -93,9 +97,14 @@ BEGIN
     RAISE NOTICE '[phaseB] bỏ qua method_capabilities (không tồn tại)';
   ELSE
     DROP POLICY IF EXISTS tenant_isolation ON method_capabilities;
-    CREATE POLICY tenant_isolation ON method_capabilities
+    DROP POLICY IF EXISTS mc_read ON method_capabilities;
+    DROP POLICY IF EXISTS mc_write ON method_capabilities;
+    CREATE POLICY mc_read ON method_capabilities FOR SELECT
       USING (current_setting('app.bypass', true) = 'on'
              OR tenant_id IS NULL
+             OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int);
+    CREATE POLICY mc_write ON method_capabilities FOR ALL
+      USING (current_setting('app.bypass', true) = 'on'
              OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int)
       WITH CHECK (current_setting('app.bypass', true) = 'on'
              OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int);

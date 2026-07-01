@@ -133,5 +133,18 @@ suite('Tenant isolation (RLS) e2e — Postgres NOSUPERUSER role', () => {
         ).rejects.toBeTruthy();
       });
     });
+
+    // Regression (phát hiện qua dry-run RLS): policy TÁCH đọc/ghi (mc_read/mc_write) — nếu
+    // gộp 1 policy FOR ALL có `tenant_id IS NULL` trong USING thì UPDATE của tenant sẽ KHỚP
+    // hàng baseline rồi bị WITH CHECK từ chối → NÉM lỗi. Tách ra: UPDATE baseline của tenant
+    // → 0 hàng (baseline ngoài USING của mc_write), KHÔNG lỗi.
+    it('tenant 1 UPDATE hàng baseline (tenant_id NULL) → 0 hàng bị đổi, KHÔNG ném lỗi', async () => {
+      await withTenant(app, 1, async () => {
+        const upd = await app.query(
+          `update method_capabilities set enabled = false where tenant_id is null and method_id = 'digital'`,
+        );
+        expect(upd.rowCount).toBe(0);
+      });
+    });
   });
 });
