@@ -303,6 +303,16 @@ describe('QuoteController (integration) — POST /quote-tool/calculate end-to-en
 
     // ── Endpoint cũ vẫn hoạt động (Req 9.3, 9.4) ───────────────────────────
     describe('luồng báo giá cũ vẫn hoạt động (Req 9.3, 9.4)', () => {
+        // Enforcement /pricing/* dùng resolveEnabledMethods() (theo tenant); không có
+        // tenant context → phân giải BASELINE (tenant_id NULL). Seed baseline bật cả hai
+        // như migration Pha B để các luồng cũ không bị chặn 403.
+        beforeEach(async () => {
+            await repo.save([
+                repo.create({ unitId: 'default', tenantId: null, methodId: 'digital', enabled: true }),
+                repo.create({ unitId: 'default', tenantId: null, methodId: 'offset', enabled: true }),
+            ]);
+        });
+
         it('POST /pricing/calculate (digital) trả grand_total qua facade THẬT', async () => {
             const res = await request(app.getHttpServer())
                 .post('/pricing/calculate')

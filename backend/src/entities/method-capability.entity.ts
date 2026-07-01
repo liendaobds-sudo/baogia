@@ -27,6 +27,15 @@ export class MethodCapability {
     @Column({ name: 'unit_id', type: 'varchar', length: 50, default: 'default' })
     unitId: string;
 
+    /**
+     * Tenant sở hữu cấu hình này (tenant-method-capability).
+     *  - NULL  = hàng baseline/global (unit_id='default') — mặc định nền cho tenant chưa cấu hình.
+     *  - <id>  = cấu hình tường minh riêng của tenant đó.
+     * Uniqueness theo tenant do partial index `uq_method_cap_tenant_method` ở DB đảm nhiệm.
+     */
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId?: number | null;
+
     /** Định danh Phương_Pháp_In: 'digital' | 'offset' | ... (mở rộng được) */
     @Column({ name: 'method_id', type: 'varchar', length: 30 })
     methodId: string;

@@ -32,15 +32,10 @@ import {
     ProductRef,
     Specification,
 } from '../types/method-plugin.types';
+import { OFFSET_QUOTE_TYPE_SET } from '../method-mapping';
 
 /** 5 loại offset mà plugin phục vụ (gợi ý định tuyến từ `quoteType`). */
-const OFFSET_QUOTE_TYPES = new Set<string>([
-    'to_roi',
-    'bi_thu_folder',
-    'sp_khac',
-    'hop_giay',
-    'tui_giay',
-]);
+const OFFSET_QUOTE_TYPES = OFFSET_QUOTE_TYPE_SET;
 
 @Injectable()
 export class OffsetMethodPlugin implements MethodPlugin, OnModuleInit {

@@ -257,8 +257,10 @@ export class MessageProcessorService {
         // (Bỏ qua khi backfill — tin cũ không cần cảnh báo SLA)
         if (!parsedMessage.isBackfill) {
             const warningMinutes = Math.max(slaMinutes - 5, 1);
+            // Bắt tenantId TRƯỚC khi vào setTimeout (callback chạy ngoài AsyncLocalStorage scope).
+            const slaTenantId = this.tenantCtx?.currentTenantId() ?? undefined;
             setTimeout(() => {
-                this.eventsGateway.emitSlaWarning(conversation!.id, 5);
+                this.eventsGateway.emitSlaWarning(conversation!.id, 5, slaTenantId);
                 this.logger.log(`⏳ SLA warning emitted for conversation ${conversation!.id}`);
             }, warningMinutes * 60 * 1000);
         }
@@ -308,19 +310,24 @@ export class MessageProcessorService {
                 contactName: contact.displayName,
                 lastMessagePreview: (parsedMessage.text || '(attachment)').substring(0, 80),
                 slaDeadline: conversation.slaDeadline,
-            });
+            }, this.tenantCtx?.currentTenantId() ?? undefined);
 
             // Emit Dashboard update
             this.eventsGateway.emitDashboardUpdate({
                 event: 'new_message',
                 conversationId: conversation.id,
                 timestamp: now.toISOString(),
-            });
+            }, this.tenantCtx?.currentTenantId() ?? undefined);
         }
 
         // Trigger AI suggestion (async — don't block inbound, and do not trigger if message is sent by Agent/Self)
         if (this.aiSuggestService && !parsedMessage.isSelf && !parsedMessage.isBackfill) {
-            this.aiSuggestService.generateSuggestion(conversation.id, savedMessage.id)
+            // Nhánh AI chạy fire-and-forget SAU khi transaction nhận-tin đã commit/đóng.
+            // Khi RLS bật, bọc lại trong withTenant để công việc nền có tenant scope tự-chứa
+            // (KHÔNG phụ thuộc việc context propagate từ transaction đang đóng). RLS tắt → chạy như cũ.
+            const aiTenantId = this.tenantCtx?.currentTenantId() ?? null;
+            const fireAiSuggestion = () =>
+                this.aiSuggestService!.generateSuggestion(conversation!.id, savedMessage.id)
                 .then(s => {
                     if (!s) return;
                     this.logger.log(`💡 AI suggestion generated: ${s.id}`);
@@ -340,7 +347,7 @@ export class MessageProcessorService {
                         this.processOutbound(conversation!.id, { text: cleanText }, 'ai-auto')
                             .then(() => {
                                 this.logger.log(`🤖 Auto-reply sent for conversation ${conversation!.id} (intent: ${s.intent})`);
-                                this.eventsGateway.emitAutoReply(conversation!.id, { text: cleanText });
+                                this.eventsGateway.emitAutoReply(conversation!.id, { text: cleanText }, aiTenantId ?? undefined);
                                 // Đánh dấu đã auto-gửi → đếm rate-limit thật + FE ẩn nút "Gửi" (chống gửi 2 lần)
                                 this.aiSuggestService?.markAutoSent(s.id, conversation!.id)
                                     .catch(err => this.logger.warn(`⚠️ markAutoSent failed: ${err.message}`));
@@ -349,6 +356,14 @@ export class MessageProcessorService {
                     }
                 })
                 .catch(err => this.logger.warn(`⚠️ AI suggestion failed: ${err.message}`));
+
+            if (process.env.TENANT_RLS_ENABLED === 'true' && this.tenantCtx && aiTenantId != null) {
+                // withTenant trả promise nhưng cố ý KHÔNG await (fire-and-forget) — chỉ để
+                // thiết lập AsyncLocalStorage scope cho toàn bộ chuỗi async của nhánh AI.
+                void this.tenantCtx.withTenant(aiTenantId, fireAiSuggestion);
+            } else {
+                void fireAiSuggestion();
+            }
         }
 
         return true;

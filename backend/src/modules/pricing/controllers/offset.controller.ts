@@ -9,6 +9,8 @@ import { buildFlatShape, FlatShape } from '../dieline';
 import { docKichThuocCm } from '../offset-engine/lookups';
 import { computeBoundingBox } from '../dieline/utils';
 import { buildPanelFillPaths, buildDielineFill } from '../dieline/panel-fill';
+import { CapabilityService } from '../../../quote/capability.service';
+import { assertMethodEnabled } from '../../../quote/assert-method-enabled';
 
 /**
  * OffsetController — API endpoints cho In Offset
@@ -20,18 +22,22 @@ import { buildPanelFillPaths, buildDielineFill } from '../dieline/panel-fill';
  * Engine cũ (machine/imposition) đã được gỡ sau khi 5 golden + 10 property test khớp (Req 21).
  */
 @Controller('pricing/offset')
+@UseGuards(AuthGuard('jwt'))
 export class OffsetController {
 
     constructor(
         private readonly masterData: OffsetMasterDataService,
         private readonly engineNew: EngineOffsetService,
         private readonly configStore: ConfigStore,
+        private readonly capability: CapabilityService,
     ) {}
 
     // ═══ Tính giá ═══
 
     @Post('calculate')
     async calculate(@Body() body: any) {
+        // Enforce Cờ_Năng_Lực theo tenant: đường này luôn là phương pháp 'offset'.
+        await assertMethodEnabled(this.capability, 'offset');
         // Engine duy nhất: định tuyến theo `type` ∈ {to_roi, bi_thu_folder, sp_khac, hop_giay, tui_giay}.
         // Type không hợp lệ → EngineOffset trả success=false kèm thông báo lỗi.
         // GUARDRAIL đơn vị: engine kỳ vọng vatRate/chietKhauRate dạng PHÂN SỐ (0..1). Nếu caller lỡ

@@ -1,7 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { ConversationsService } from './conversations.service';
 import { EventsGateway } from '../gateway/events.gateway';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { forEachTenant } from '../../common/tenant/tenant-background';
 
 @Injectable()
 export class SlaMonitorService {
@@ -10,10 +14,21 @@ export class SlaMonitorService {
     constructor(
         private convService: ConversationsService,
         private gateway: EventsGateway,
+        @Optional() private tenantCtx?: TenantContextService,
+        @Optional() @InjectDataSource() private dataSource?: DataSource,
     ) { }
 
+    /**
+     * Khi RLS bật (TENANT_RLS_ENABLED): lặp từng tenant, mỗi vòng quét SLA trong scope
+     * tenant (RLS lọc đúng hội thoại từng xưởng). Khi tắt (mặc định): chạy thẳng như cũ.
+     */
     @Cron(CronExpression.EVERY_30_SECONDS)
     async checkSlaBreaches() {
+        const manager = this.dataSource?.manager ?? (this.convService as any).convRepo?.manager;
+        await forEachTenant(this.tenantCtx, manager, () => this.checkSlaBreachesCore());
+    }
+
+    private async checkSlaBreachesCore() {
         const breached = await this.convService.findBreachedSla();
         if (breached.length === 0) return;
 

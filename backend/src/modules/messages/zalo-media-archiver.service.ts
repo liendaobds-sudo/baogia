@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Message, MessageStatus } from '../../entities/message.entity';
@@ -8,6 +8,8 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { forEachTenant, tenantRlsEnabled } from '../../common/tenant/tenant-background';
 
 @Injectable()
 export class ZaloMediaArchiverService implements OnApplicationBootstrap {
@@ -18,7 +20,8 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
         @InjectRepository(Message)
         private messageRepo: Repository<Message>,
         @InjectRepository(SystemSetting)
-        private settingRepo: Repository<SystemSetting>
+        private settingRepo: Repository<SystemSetting>,
+        @Optional() private tenantCtx?: TenantContextService,
     ) {}
 
     onApplicationBootstrap() {
@@ -33,10 +36,22 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
         await this.processPendingMedia();
     }
 
+    /**
+     * Khi RLS bật (TENANT_RLS_ENABLED): lặp từng tenant, mỗi vòng quét media trong scope
+     * tenant (RLS lọc đúng message từng xưởng). Khi tắt (mặc định): chạy thẳng như cũ.
+     * Guard `isRunning` giữ ở ngoài → vẫn chỉ 1 lượt chạy tại một thời điểm.
+     */
     async processPendingMedia() {
         if (this.isRunning) return;
         this.isRunning = true;
+        try {
+            await forEachTenant(this.tenantCtx, this.messageRepo.manager, () => this.processPendingMediaCore());
+        } finally {
+            this.isRunning = false;
+        }
+    }
 
+    private async processPendingMediaCore() {
         try {
             // Find 5 messages that haven't been backed up, but have attachments
             const messages = await this.messageRepo
@@ -50,7 +65,6 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
                 .getMany();
 
             if (messages.length === 0) {
-                this.isRunning = false;
                 return;
             }
 
@@ -65,7 +79,14 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
                     let updated = false;
                     let hasFailed = false;
                     const datePath = new Date(msg.createdAt).toISOString().slice(0, 10).replace(/-/g, '/'); // 2026/04/14
-                    const uploadDir = path.join(storageRoot, datePath);
+                    // Phân vùng media theo tenant cho FILE MỚI: khi RLS bật + có tenant context
+                    // (forEachTenant đã vào withTenant từng tenant) → thư mục con `t<id>/...`.
+                    // Khi flag TẮT (mặc định) hoặc không có tenant → relDir === datePath ⇒
+                    // uploadDir + localUrl byte-for-byte như cũ. File CŨ giữ localUrl cũ nên
+                    // controller đọc (path.join(storageRoot, localUrl)) vẫn resolve đúng.
+                    const tenantId = tenantRlsEnabled() ? (this.tenantCtx?.currentTenantId() ?? null) : null;
+                    const relDir = tenantId != null ? `t${tenantId}/${datePath}` : datePath;
+                    const uploadDir = path.join(storageRoot, relDir);
 
                     if (!fs.existsSync(uploadDir)) {
                         fs.mkdirSync(uploadDir, { recursive: true });
@@ -91,7 +112,7 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
                             await pipeline(response.data, fs.createWriteStream(destPath));
 
                             // Save relative path for controller resolution
-                            attachment.localUrl = `/${datePath}/${safeFileName}`;
+                            attachment.localUrl = `/${relDir}/${safeFileName}`;
                             updated = true;
                         } catch (err: any) {
                             this.logger.error(`Failed to download ${attachment.url}: ${err.message}`);
@@ -114,8 +135,6 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
             }
         } catch (error) {
             this.logger.error('Error in Zalo Media Archiver sequence', error);
-        } finally {
-            this.isRunning = false;
         }
     }
 }

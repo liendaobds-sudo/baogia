@@ -16,6 +16,10 @@ import { getPricingBindingCode } from './extractors';
 import { PricingApiService } from './pricing-api.service';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { applyTenantToConnection } from '../../common/tenant/tenant-transaction';
+import { tenantRlsEnabled } from '../../common/tenant/tenant-background';
+// Nguồn sự thật duy nhất cho quote_type → Phương_Pháp_In (khử trùng lặp hằng số).
+import { DIGITAL_QUOTE_TYPE_SET as DIGITAL_QUOTE_TYPES, resolveMethodForQuoteType } from '../../quote/method-mapping';
+import { CapabilityService } from '../../quote/capability.service';
 
 @Injectable()
 export class QuoteService implements OnModuleInit {
@@ -52,7 +56,16 @@ export class QuoteService implements OnModuleInit {
             coverMaterial: parsed.coverMaterial?.name ?? null,
             innerMaterial: parsed.innerMaterial?.name ?? null,
         };
-        return crypto.createHash('md5').update(JSON.stringify(keyObj)).digest('hex');
+        const hash = crypto.createHash('md5').update(JSON.stringify(keyObj)).digest('hex');
+        // Cô lập cache giá theo tenant: cấu hình giá/vật tư là org-scoped → cùng tham số
+        // ở 2 tenant KHÔNG được dùng chung 1 ô cache (sẽ trả giá tenant A cho tenant B).
+        // GATED sau TENANT_RLS_ENABLED + có tenant context. Khi flag TẮT (mặc định) hoặc
+        // không có tenant → key giữ NGUYÊN (byte-for-byte như cũ), không đổi hành vi.
+        if (tenantRlsEnabled()) {
+            const tenantId = this.tenantCtx?.currentTenantId();
+            if (tenantId != null) return `t${tenantId}:${hash}`;
+        }
+        return hash;
     }
 
     constructor(
@@ -68,6 +81,7 @@ export class QuoteService implements OnModuleInit {
         private readonly pricingApi: PricingApiService,
         @InjectDataSource() private dataSource: DataSource,
         @Optional() private readonly tenantCtx?: TenantContextService,
+        @Optional() private readonly capability?: CapabilityService,
     ) { }
 
     /**
@@ -121,7 +135,7 @@ export class QuoteService implements OnModuleInit {
      * Resolve material name/type/gsm to Pricing material_id + paper_size_id
      * Uses cached Pricing master data for fuzzy matching (fallback when AI doesn't provide direct IDs)
      */
-    private resolveMaterialId(material: { name?: string; type?: string; gsm?: number } | undefined): {
+    private resolveMaterialId(material: { name?: string; type?: string; gsm?: number } | undefined, warnings?: string[]): {
         material_id: number; paper_size_id: number;
     } | null {
         if (!material || this.pricingMaterialsCache.length === 0) return null;
@@ -206,14 +220,23 @@ export class QuoteService implements OnModuleInit {
                 return buildResult(match);
             }
             
-            // Strategy 4: Fuse.js fallback
+            // Strategy 4: Fuse.js fallback (KHÔNG đổi ngưỡng/khớp — chỉ thêm cảnh báo khi khớp yếu)
             const fuse = new Fuse(this.pricingMaterialsCache, {
                 keys: ['name', 'display_name', 'type', 'category'],
-                threshold: 0.4
+                threshold: 0.4,
+                includeScore: true,
             });
             const fuzzyResult = fuse.search(material.name);
             if (fuzzyResult && fuzzyResult.length > 0 && fuzzyResult[0].item) {
-                this.logger.debug(`📍 Material resolved (Fuse.js): ${material.name} → id=${fuzzyResult[0].item.id}`);
+                const score = fuzzyResult[0].score ?? 0; // 0 = khớp hoàn hảo; càng lớn càng yếu
+                const matchName = fuzzyResult[0].item.name || fuzzyResult[0].item.display_name || `id=${fuzzyResult[0].item.id}`;
+                this.logger.debug(`📍 Material resolved (Fuse.js, score=${score.toFixed(3)}): ${material.name} → id=${fuzzyResult[0].item.id}`);
+                // Khớp yếu → giá đi theo vật tư GẦN ĐÚNG, có thể không đúng ý khách → cảnh báo để nhân viên kiểm.
+                if (score > 0.2) {
+                    const msg = `Vật tư "${material.name}" khớp gần đúng "${matchName}" — vui lòng kiểm tra lại trước khi chốt giá.`;
+                    this.logger.warn(`⚠️ ${msg} (Fuse score=${score.toFixed(3)})`);
+                    warnings?.push(msg);
+                }
                 return buildResult(fuzzyResult[0].item);
             }
         }
@@ -255,6 +278,44 @@ export class QuoteService implements OnModuleInit {
         const type = parsed.type || 'loose';
         const quantity = parsed.quantity || 0;
         const warnings: string[] = [...(parsed.warnings || [])];
+
+        // Chặn định tuyến nhầm sản phẩm offset sang engine digital (sai giá).
+        // Offset có engine riêng (EngineOffsetService) không nằm trong luồng chatbot →
+        // trả về yêu cầu tư vấn thủ công thay vì tính bằng công thức digital.
+        if (!DIGITAL_QUOTE_TYPES.has(type)) {
+            this.logger.warn(`⚠️ Loại sản phẩm '${type}' ngoài luồng digital — chuyển báo giá thủ công (offset).`);
+            return {
+                productType: parsed.product || type,
+                type: type as any,
+                total: null,
+                currency: 'VND',
+                breakdown: [],
+                requiresManualQuote: true,
+                reason: 'Sản phẩm in offset cần nhân viên tư vấn và báo giá riêng.',
+                warnings: [...warnings, 'Sản phẩm offset — ngoài phạm vi báo giá tự động của chatbot.'],
+                source: 'offset_manual',
+            };
+        }
+
+        // Enforce Cờ_Năng_Lực theo tenant (Req 4.4): phương pháp bị tắt → báo giá thủ công
+        // (KHÔNG ném 403 cho luồng chatbot). Thiếu tenant context → baseline (cả hai bật).
+        if (this.capability) {
+            const methodId = resolveMethodForQuoteType(type);
+            const enabled = await this.capability.resolveEnabledMethods();
+            if (methodId && !enabled.includes(methodId)) {
+                return {
+                    productType: parsed.product || type,
+                    type: type as any,
+                    total: null,
+                    currency: 'VND',
+                    breakdown: [],
+                    requiresManualQuote: true,
+                    reason: `Phương pháp in '${methodId}' không khả dụng cho đơn vị của bạn. Nhân viên sẽ tư vấn và báo giá riêng.`,
+                    warnings: [...warnings, `Phương pháp in '${methodId}' đang tắt cho đơn vị — chuyển báo giá thủ công.`],
+                    source: 'capability_disabled',
+                };
+            }
+        }
 
         // If not complete, return missing info
         if (!parsed.isComplete) {
@@ -315,6 +376,9 @@ export class QuoteService implements OnModuleInit {
         const isHealthy = await this.pricingApi.isHealthy();
         if (!isHealthy) return null;
 
+        // Gom cảnh báo phát sinh trong lúc phân giải (vd vật tư khớp fuzzy yếu) để trả về cho nhân viên.
+        const calcWarnings: string[] = [];
+
         const pricingData: any = { type, quantity };
         // Gắn mã sản phẩm để backend kiểm whitelist (đồng bộ mini + thủ công).
         // Khi nhận diện được template Pricing, `parsed.product` chính là template code;
@@ -334,7 +398,7 @@ export class QuoteService implements OnModuleInit {
                 this.logger.debug(`📍 Material from direct ID: material_id=${pricingData.material_id}, paper_size_id=${pricingData.paper_size_id}`);
             } else {
                 // Fallback: fuzzy match material name → Pricing material_id
-                const resolved = this.resolveMaterialId(parsed.material);
+                const resolved = this.resolveMaterialId(parsed.material, calcWarnings);
                 if (resolved) {
                     pricingData.material_id = resolved.material_id;
                     pricingData.paper_size_id = resolved.paper_size_id;
@@ -368,7 +432,7 @@ export class QuoteService implements OnModuleInit {
             this.logger.debug(`📍 Binding type: ${chatbotBindingCode} → Pricing: ${pricingData.binding_type}`);
 
             // Resolve cover material
-            const coverResolved = this.resolveMaterialId(parsed.coverMaterial);
+            const coverResolved = this.resolveMaterialId(parsed.coverMaterial, calcWarnings);
             if (coverResolved) {
                 const coverProcessing: Array<{ id: number; side?: string }> = [];
 
@@ -394,7 +458,7 @@ export class QuoteService implements OnModuleInit {
             }
 
             // Resolve inner material
-            const innerResolved = this.resolveMaterialId(parsed.innerMaterial);
+            const innerResolved = this.resolveMaterialId(parsed.innerMaterial, calcWarnings);
             if (innerResolved) {
                 pricingData.inner = [{
                     material_id: innerResolved.material_id,
@@ -410,7 +474,7 @@ export class QuoteService implements OnModuleInit {
             if (pricingData.width <= 20 && pricingData.width > 0) pricingData.width *= 1000;
             if (pricingData.height <= 20 && pricingData.height > 0) pricingData.height *= 1000;
 
-            const resolved = this.resolveMaterialId(parsed.material);
+            const resolved = this.resolveMaterialId(parsed.material, calcWarnings);
             if (resolved) {
                 pricingData.material_id = resolved.material_id;
             } else {
@@ -455,7 +519,7 @@ export class QuoteService implements OnModuleInit {
             currency: 'VND',
             breakdown: breakdownItems,
             requiresManualQuote: false,
-            warnings: [],
+            warnings: calcWarnings,
             source: 'pricing',
         };
     }
@@ -654,6 +718,27 @@ export class QuoteService implements OnModuleInit {
 
         const productType = input.product_type || input.type || 'loose';
 
+        // Chặn offset đi nhầm vào engine digital (xem calculateFromParsed).
+        if (!DIGITAL_QUOTE_TYPES.has(productType)) {
+            return {
+                requiresManualQuote: true,
+                reason: 'Sản phẩm in offset cần nhân viên tư vấn và báo giá riêng.',
+            };
+        }
+
+        // Enforce Cờ_Năng_Lực theo tenant (Req 4.3): phương pháp bị tắt → báo giá thủ công
+        // (KHÔNG ném 403 cho luồng mini/chatbot). Thiếu tenant context → baseline (cả hai bật).
+        if (this.capability) {
+            const methodId = resolveMethodForQuoteType(productType);
+            const enabled = await this.capability.resolveEnabledMethods();
+            if (methodId && !enabled.includes(methodId)) {
+                return {
+                    requiresManualQuote: true,
+                    reason: `Phương pháp in '${methodId}' không khả dụng cho đơn vị của bạn — vui lòng dùng báo giá thủ công.`,
+                };
+            }
+        }
+
         // ─── Common validation ───
         if (!input.quantity || input.quantity <= 0) {
             return { requiresManualQuote: true, reason: 'Chưa nhập số lượng' };
@@ -679,6 +764,7 @@ export class QuoteService implements OnModuleInit {
                     page_count: pageCount,
                     binding_type: bindingType,
                     product_code: input.product_code,
+                    vat_rate: input.vat_rate, // VAT đi theo ô VAT trên form mini (không lấy từ config)
                 };
 
                 if (input.cover) {
@@ -726,6 +812,7 @@ export class QuoteService implements OnModuleInit {
                     height: input.height,
                     print_type: input.print_type || 'uv',
                     product_code: input.product_code,
+                    vat_rate: input.vat_rate, // VAT đi theo ô VAT trên form mini (không lấy từ config)
                 };
 
                 if (input.processing) calcPayload.processing = input.processing;
@@ -763,6 +850,7 @@ export class QuoteService implements OnModuleInit {
                 processing: input.processing || [],
                 accessories: input.accessories || [],
                 product_code: input.product_code,
+                vat_rate: input.vat_rate, // VAT đi theo ô VAT trên form mini (không lấy từ config)
             });
 
             return result;
@@ -808,20 +896,33 @@ export class QuoteService implements OnModuleInit {
             };
         }
 
+        // ── Chỉ tới đây khi cần TẠO MỚI (không trúng idempotency) ──
+        // Tenant: ưu tiên context (interceptor/job); endpoint web CÔNG KHAI không có context → tenant gốc (1).
+        // Khi bật multi-tenant, widget web cần mang khóa site/tenant để thay default này.
+        const tenantId = this.tenantCtx?.currentTenantId() ?? 1;
+
+        // Hardening đầu vào cho endpoint CÔNG KHAI (không auth): trim + cắt độ dài + kiểm định dạng
+        // cơ bản, tránh ghi bản ghi rác/oversize từ Internet. (ThrottlerGuard toàn cục giới hạn tần suất.)
+        const custName = String(customerInfo.name).trim().slice(0, 160);
+        const phone = String(customerInfo.phone).trim().slice(0, 20);
+        const company = customerInfo.company ? String(customerInfo.company).trim().slice(0, 200) : null;
+        const productName = String(quoteData.product).trim().slice(0, 200);
+        if (!custName) throw new Error('Tên khách hàng không hợp lệ');
+        if (!/^[0-9+()\-.\s]{6,20}$/.test(phone)) throw new Error('Số điện thoại không hợp lệ');
+
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
 
         try {
             await applyTenantToConnection(queryRunner, this.tenantCtx);
-            const phone = customerInfo.phone.trim();
             let customerId;
-            const custRes = await queryRunner.query('SELECT id FROM customers WHERE phone = $1 LIMIT 1', [phone]);
+            const custRes = await queryRunner.query('SELECT id FROM customers WHERE phone = $1 AND tenant_id = $2 LIMIT 1', [phone, tenantId]);
             if (custRes && custRes.length > 0) customerId = custRes[0].id;
             else {
                 const insertCust = await queryRunner.query(
-                    'INSERT INTO customers (name, phone, company, source) VALUES ($1, $2, $3, $4) RETURNING id',
-                    [customerInfo.name, phone, customerInfo.company || null, 'website_chatbot']
+                    'INSERT INTO customers (name, phone, company, source, tenant_id) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                    [custName, phone, company, 'website_chatbot', tenantId]
                 );
                 customerId = insertCust[0].id;
             }
@@ -835,9 +936,9 @@ export class QuoteService implements OnModuleInit {
             // DB `quotes` has: customer_id, code, total, status, source, quote_hash, customer_name, customer_phone
             // DB does NOT have: notes, quote_number
             const insertQuote = await queryRunner.query(
-                `INSERT INTO quotes (customer_id, code, total, status, source, quote_hash, customer_name, customer_phone, customer_note)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-                [customerId, tempCode, total, 'new', 'website_chatbot', quoteHash, customerInfo.name, phone, 'Created via AI Chatbot']
+                `INSERT INTO quotes (customer_id, code, total, status, source, quote_hash, customer_name, customer_phone, customer_note, tenant_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+                [customerId, tempCode, total, 'new', 'website_chatbot', quoteHash, custName, phone, 'Created via AI Chatbot', tenantId]
             );
             const quoteId = insertQuote[0].id;
             
@@ -856,9 +957,9 @@ export class QuoteService implements OnModuleInit {
 
             // DB `quote_items` columns: quote_id, product_name, quantity, item_total, product_type, processing_details
             await queryRunner.query(
-                `INSERT INTO quote_items (quote_id, product_name, quantity, item_total, product_type, processing_details)
-                 VALUES ($1, $2, $3, $4, $5, $6)`,
-                [quoteId, quoteData.product, quoteData.quantity || 1, total, quoteData.productType || 'loose', processingDetails]
+                `INSERT INTO quote_items (quote_id, product_name, quantity, item_total, product_type, processing_details, tenant_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [quoteId, productName, quoteData.quantity || 1, total, quoteData.productType || 'loose', processingDetails, tenantId]
             );
 
             // Link to AI conversation
@@ -866,7 +967,7 @@ export class QuoteService implements OnModuleInit {
             if (convRes && convRes.length > 0) {
                 await queryRunner.query('UPDATE ai_conversations SET customer_id = $1, quote_id = $2 WHERE id = $3', [customerId, quoteId, convRes[0].id]);
             } else {
-                await queryRunner.query('INSERT INTO ai_conversations (session_id, customer_id, quote_id) VALUES ($1, $2, $3)', [session_id, customerId, quoteId]);
+                await queryRunner.query('INSERT INTO ai_conversations (session_id, customer_id, quote_id, tenant_id) VALUES ($1, $2, $3, $4)', [session_id, customerId, quoteId, tenantId]);
             }
 
             await queryRunner.commitTransaction();

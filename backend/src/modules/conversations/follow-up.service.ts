@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -6,6 +6,8 @@ import { FollowUp, FollowUpStatus } from '../../entities/follow-up.entity';
 import { Conversation } from '../../entities/conversation.entity';
 import { AiSuggestion } from '../../entities/ai-suggestion.entity';
 import { EventsGateway } from '../gateway/events.gateway';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { forEachTenant } from '../../common/tenant/tenant-background';
 
 // Follow-up delay schedule: attempt 1 → 2h, attempt 2 → 6h, attempt 3 → 24h
 const FOLLOW_UP_DELAYS_HOURS = [2, 6, 24];
@@ -39,6 +41,7 @@ export class FollowUpService {
         @InjectRepository(Conversation) private convRepo: Repository<Conversation>,
         @InjectRepository(AiSuggestion) private suggestRepo: Repository<AiSuggestion>,
         private gateway: EventsGateway,
+        @Optional() private tenantCtx?: TenantContextService,
     ) { }
 
     /**
@@ -121,10 +124,17 @@ export class FollowUpService {
     }
 
     /**
-     * Cron job: check and send due follow-ups every 5 minutes
+     * Cron job: check and send due follow-ups every 5 minutes.
+     *
+     * Khi RLS bật (TENANT_RLS_ENABLED): lặp từng tenant, mỗi vòng xử lý trong scope tenant
+     * → RLS chỉ trả follow-up của xưởng hiện hành. Khi tắt (mặc định): chạy thẳng như cũ.
      */
     @Cron(CronExpression.EVERY_5_MINUTES)
     async processFollowUps() {
+        await forEachTenant(this.tenantCtx, this.followUpRepo.manager, () => this.processFollowUpsCore());
+    }
+
+    private async processFollowUpsCore() {
         const now = new Date();
         const dueFollowUps = await this.followUpRepo.find({
             where: {

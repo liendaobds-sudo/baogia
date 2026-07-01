@@ -16,9 +16,8 @@
  * _Requirements: 1.2, 1.3, 1.6, 1.8, 2.1_
  */
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { MethodCapability } from '../entities/method-capability.entity';
 import { PricingModule } from '../modules/pricing/pricing.module';
+import { CapabilityModule } from './capability.module';
 import { CapabilityService } from './capability.service';
 import { ComparatorService } from './comparator.service';
 import { MethodRegistry } from './method-registry.service';
@@ -28,17 +27,16 @@ import { QuoteController } from './quote.controller';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([MethodCapability]),
+        CapabilityModule,
         PricingModule,
     ],
     controllers: [QuoteController],
     providers: [
-        CapabilityService,
         MethodRegistry,
         DigitalMethodPlugin,
         OffsetMethodPlugin,
         ComparatorService,
     ],
-    exports: [CapabilityService, MethodRegistry, ComparatorService],
+    exports: [CapabilityModule, MethodRegistry, ComparatorService],
 })
 export class QuoteCapabilityModule {}

@@ -21,8 +21,13 @@ interface DashboardData {
         status: string;
         created_at: string;
         users_count?: number;
+        email?: string;
+        phone?: string;
+        subscriptionEndsAt?: string;
     }>;
 }
+
+type Tenant = DashboardData['tenants'][number];
 
 interface Plan {
     id: number;
@@ -31,7 +36,7 @@ interface Plan {
     price_monthly: number;
     price_yearly: number;
     max_users: number;
-    features: string;
+    features: string[] | string;
     is_active: boolean;
 }
 
@@ -72,6 +77,11 @@ export default function SuperAdminPage() {
     const [roles, setRoles] = useState<RbacRole[]>([]);
     const [systemHealth, setSystemHealth] = useState<{ name: string; status: string; color: string }[]>([]);
     const [showCreateTenant, setShowCreateTenant] = useState(false);
+    const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+    const [capsTenant, setCapsTenant] = useState<Tenant | null>(null);
+    // Thông tin đăng nhập vừa tạo/đặt lại — hiển thị modal rõ ràng (email + mật khẩu, có copy)
+    // thay cho alert() chớp nhoáng.
+    const [credsInfo, setCredsInfo] = useState<{ title: string; tenantName?: string; email: string; password: string } | null>(null);
 
     const fetchData = useCallback(async (tab: Tab) => {
         setLoading(true);
@@ -104,9 +114,14 @@ export default function SuperAdminPage() {
                 }
                 // Issue #1 fix: Tenants tab calls dedicated /tenants endpoint
                 case 'tenants': {
-                    const res = await authFetch(`${API}/super-admin/tenants`);
-                    const json = await res.json();
-                    if (json.success) setTenants(json.data || []);
+                    const [tenantsRes, plansRes] = await Promise.all([
+                        authFetch(`${API}/super-admin/tenants`),
+                        authFetch(`${API}/super-admin/plans`),
+                    ]);
+                    const tenantsJson = await tenantsRes.json();
+                    if (tenantsJson.success) setTenants(tenantsJson.data || []);
+                    const plansJson = await plansRes.json();
+                    if (plansJson.success) setPlans(plansJson.data || []);
                     break;
                 }
                 case 'plans': {
@@ -155,7 +170,7 @@ export default function SuperAdminPage() {
         } catch { alert('Lỗi kết nối'); }
     };
 
-    const createTenant = async (data: { name: string; code: string; email?: string; phone?: string }) => {
+    const createTenant = async (data: { name: string; code: string; username?: string; email?: string; phone?: string }) => {
         try {
             const res = await authFetch(`${API}/super-admin/tenants`, {
                 method: 'POST',
@@ -165,11 +180,72 @@ export default function SuperAdminPage() {
             const json = await res.json();
             if (json.success) {
                 setShowCreateTenant(false);
-                alert(`✅ Tạo thành công!\n\nTenant: ${json.data.tenant.name}\nAdmin: ${json.data.adminUser.email}\nMật khẩu: ${json.data.adminUser.defaultPassword}\n\n⚠️ Hãy đổi mật khẩu ngay sau khi đăng nhập!`);
+                setCredsInfo({
+                    title: '✅ Tạo tenant thành công',
+                    tenantName: json.data.tenant.name,
+                    email: json.data.adminUser.email,
+                    password: json.data.adminUser.defaultPassword,
+                });
                 fetchData('tenants');
                 setActiveTab('tenants');
             } else {
                 alert(json.error || 'Lỗi tạo tenant');
+            }
+        } catch { alert('Lỗi kết nối'); }
+    };
+
+    const updateTenant = async (id: number, patch: { name?: string; email?: string; phone?: string; address?: string; taxCode?: string; planId?: number | null; maxUsers?: number }) => {
+        try {
+            const res = await authFetch(`${API}/super-admin/tenants/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch),
+            });
+            const json = await res.json();
+            if (json.success) {
+                setEditingTenant(null);
+                fetchData('tenants');
+            } else {
+                alert(json.error || 'Lỗi cập nhật tenant');
+            }
+        } catch { alert('Lỗi kết nối'); }
+    };
+
+    const setTenantStatus = async (id: number, status: 'trial' | 'active' | 'suspended' | 'cancelled') => {
+        if ((status === 'suspended' || status === 'cancelled') &&
+            !confirm(status === 'suspended'
+                ? 'Tạm ngưng tenant này? Toàn bộ người dùng của tenant sẽ bị vô hiệu hóa.'
+                : 'Hủy tenant này? Toàn bộ người dùng của tenant sẽ bị vô hiệu hóa.')) {
+            return;
+        }
+        try {
+            const res = await authFetch(`${API}/super-admin/tenants/${id}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status }),
+            });
+            const json = await res.json();
+            if (json.success) {
+                fetchData('tenants');
+            } else {
+                alert(json.error || 'Lỗi đổi trạng thái');
+            }
+        } catch { alert('Lỗi kết nối'); }
+    };
+
+    const resetTenantAdminPassword = async (id: number) => {
+        if (!confirm('Đặt lại mật khẩu quản trị của tenant này? Mật khẩu hiện tại sẽ không còn dùng được.')) return;
+        try {
+            const res = await authFetch(`${API}/super-admin/tenants/${id}/reset-admin-password`, { method: 'POST' });
+            const json = await res.json();
+            if (json.success) {
+                setCredsInfo({
+                    title: '🔑 Đã đặt lại mật khẩu',
+                    email: json.data.adminEmail,
+                    password: json.data.newPassword,
+                });
+            } else {
+                alert(json.error || 'Lỗi đặt lại mật khẩu');
             }
         } catch { alert('Lỗi kết nối'); }
     };
@@ -201,139 +277,407 @@ export default function SuperAdminPage() {
     const formatVnd = (n: number) => new Intl.NumberFormat('vi-VN').format(n);
     const formatDate = (s: string) => s ? new Date(s).toLocaleDateString('vi-VN') : '—';
 
-    // Check permission
-    if (user && !['super_admin', 'admin'].includes(user.role)) {
+    // Chỉ SUPER_ADMIN được vào Super Admin Portal (đồng bộ với backend @Roles(SUPER_ADMIN)).
+    // Admin cấp tenant KHÔNG có quyền platform (tránh leo thang chéo-tenant).
+    if (user && user.role !== 'super_admin') {
         return (
-            <div style={styles.accessDenied}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-                <h2 style={{ color: '#f87171', marginBottom: 8 }}>Không có quyền truy cập</h2>
-                <p style={{ color: '#94a3b8' }}>Trang này chỉ dành cho Super Admin.</p>
+            <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+                <div className="text-5xl mb-4">🔒</div>
+                <h2 className="text-xl font-bold text-red-600 mb-2">Không có quyền truy cập</h2>
+                <p className="text-slate-500">Trang này chỉ dành cho Super Admin.</p>
             </div>
         );
     }
 
     return (
-        <div style={styles.container}>
-            {/* Issue #12 fix: Global keyframes for spinner animation */}
-            <style dangerouslySetInnerHTML={{ __html: `@keyframes sa-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .sa-spinner { animation: sa-spin 0.8s linear infinite; }` }} />
-            {/* Header */}
-            <div style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4338ca 100%)', borderRadius: 20, padding: '28px 32px', marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: -20, right: -20, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,.15), transparent)', pointerEvents: 'none' }} />
-                <div style={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(192,132,252,.1), transparent)', pointerEvents: 'none' }} />
-                <div style={{ position: 'relative' }}>
-                    <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0, color: '#fff', letterSpacing: -0.5 }}>
-                        ⚡ Super Admin Portal
-                    </h1>
-                    <p style={{ fontSize: 14, color: 'rgba(255,255,255,.6)', margin: '6px 0 0' }}>Quản lý hệ thống SaaS ZeplaoPrint — Multi-tenant Control Center</p>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-                    <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{user?.email}</div>
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>Đăng nhập với quyền Quản trị cao nhất</div>
+        <div className="min-h-screen bg-slate-50">
+            <div className="max-w-[1200px] mx-auto px-8 py-6">
+                {/* Header */}
+                <div className="flex justify-between items-start mb-6">
+                    <div>
+                        <h1 className="text-[28px] font-bold text-slate-900 m-0 tracking-tight">⚡ Super Admin Portal</h1>
+                        <p className="text-sm text-slate-500 mt-1.5 m-0">Quản lý hệ thống SaaS ZeplaoPrint — Multi-tenant Control Center</p>
                     </div>
-                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(135deg,#c084fc,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, color: '#fff', boxShadow: '0 4px 12px rgba(129,140,248,.4)' }}>
-                        👑
+                    <div className="flex items-center gap-3">
+                        <div className="text-right">
+                            <div className="text-[13px] font-semibold text-slate-700">{user?.email}</div>
+                            <div className="text-[11px] text-slate-400">Đăng nhập với quyền Quản trị cao nhất</div>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-base">
+                            👑
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', gap: 6, background: 'linear-gradient(135deg,#0f172a,#1e293b)', padding: 6, borderRadius: 14, marginBottom: 24, boxShadow: 'inset 0 1px 3px rgba(0,0,0,.3)' }}>
-                {([
-                    { key: 'dashboard', label: '📊 Tổng quan' },
-                    { key: 'tenants', label: '🏢 Tenants' },
-                    { key: 'plans', label: '💎 Gói dịch vụ' },
-                    { key: 'payments', label: '💳 Thanh toán' },
-                    { key: 'rbac', label: '🔐 Phân quyền' },
-                ] as { key: Tab; label: string }[]).map(tab => (
-                    <button
-                        key={tab.key}
-                        onClick={() => handleTabChange(tab.key)}
-                        style={{
-                            flex: 1, padding: '12px 16px', border: 'none', borderRadius: 10,
-                            background: activeTab === tab.key ? 'linear-gradient(135deg,#4338ca,#6366f1)' : 'transparent',
-                            color: activeTab === tab.key ? '#fff' : '#94a3b8',
-                            fontSize: 13, fontWeight: activeTab === tab.key ? 700 : 500,
-                            cursor: 'pointer', transition: 'all 0.25s ease',
-                            boxShadow: activeTab === tab.key ? '0 4px 12px rgba(99,102,241,.3)' : 'none',
-                            letterSpacing: 0.2,
-                        }}
-                        onMouseEnter={e => { if (activeTab !== tab.key) e.currentTarget.style.color = '#e2e8f0'; }}
-                        onMouseLeave={e => { if (activeTab !== tab.key) e.currentTarget.style.color = '#94a3b8'; }}
-                    >
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
+                {/* Tabs */}
+                <div className="flex gap-1 bg-white border border-slate-200 rounded-lg p-1 mb-6 shadow-sm">
+                    {([
+                        { key: 'dashboard', label: '📊 Tổng quan' },
+                        { key: 'tenants', label: '🏢 Tenants' },
+                        { key: 'plans', label: '💎 Gói dịch vụ' },
+                        { key: 'payments', label: '💳 Thanh toán' },
+                        { key: 'rbac', label: '🔐 Phân quyền' },
+                    ] as { key: Tab; label: string }[]).map(tab => (
+                        <button
+                            key={tab.key}
+                            onClick={() => handleTabChange(tab.key)}
+                            className={`flex-1 px-4 py-2.5 rounded-md text-[13px] font-semibold transition-colors ${activeTab === tab.key ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
 
-            {/* Content */}
-            <div style={styles.content}>
+                {/* Content */}
+                <div className="min-h-[400px]">
+                    {loading ? (
+                        <div className="flex items-center justify-center gap-3 py-16 text-slate-500">
+                            <div className="w-6 h-6 border-[3px] border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+                            <span>Đang tải...</span>
+                        </div>
+                    ) : error ? (
+                        <div className="flex items-center justify-center gap-4 py-10 text-red-600 bg-white border border-slate-200 rounded-xl shadow-sm">
+                            <span>⚠️ {error}</span>
+                            <button onClick={() => fetchData(activeTab)} className="px-4 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-md text-[13px] hover:bg-slate-50 transition-colors">Thử lại</button>
+                        </div>
+                    ) : (
+                        <>
+                            {activeTab === 'dashboard' && dashboard && <DashboardTab data={dashboard} formatVnd={formatVnd} systemHealth={systemHealth} onTabChange={handleTabChange} onCreateTenant={() => setShowCreateTenant(true)} onExportReport={exportReport} />}
+                            {activeTab === 'tenants' && <TenantsTab tenants={tenants} plans={plans} formatDate={formatDate} onCreateTenant={() => setShowCreateTenant(true)} onEdit={setEditingTenant} onSetStatus={setTenantStatus} onResetPassword={resetTenantAdminPassword} onCapabilities={setCapsTenant} />}
+                            {activeTab === 'plans' && <PlansTab plans={plans} formatVnd={formatVnd} />}
+                            {activeTab === 'payments' && <PaymentsTab payments={payments} formatVnd={formatVnd} formatDate={formatDate} onConfirm={confirmPayment} />}
+                            {activeTab === 'rbac' && <RbacTab roles={roles} authFetch={authFetch} onRefresh={() => fetchData('rbac')} />}
+                        </>
+                    )}
+                </div>
+            </div>
+            {showCreateTenant && <CreateTenantModal onClose={() => setShowCreateTenant(false)} onSubmit={createTenant} />}
+            {editingTenant && <EditTenantModal tenant={editingTenant} plans={plans} onClose={() => setEditingTenant(null)} onSubmit={updateTenant} />}
+            {capsTenant && <CapabilitiesModal tenant={capsTenant} authFetch={authFetch} onClose={() => setCapsTenant(null)} />}
+            {credsInfo && <CredentialsModal info={credsInfo} onClose={() => setCredsInfo(null)} />}
+        </div>
+    );
+}
+
+/* ─── Credentials Modal (hiển thị tên đăng nhập + mật khẩu, có copy) ─── */
+function CredentialsModal({ info, onClose }: { info: { title: string; tenantName?: string; email: string; password: string }; onClose: () => void }) {
+    const [copied, setCopied] = useState<string | null>(null);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
+    const copy = async (label: string, value: string) => {
+        try { await navigator.clipboard.writeText(value); setCopied(label); setTimeout(() => setCopied(null), 1500); } catch { /* clipboard blocked */ }
+    };
+
+    const Row = ({ label, value }: { label: string; value: string }) => (
+        <div className="mb-3">
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5 uppercase tracking-wide">{label}</label>
+            <div className="flex items-center gap-2">
+                <code className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 break-all select-all">{value}</code>
+                <button onClick={() => copy(label, value)} className="px-3 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-md text-xs font-semibold hover:bg-slate-50 transition-colors whitespace-nowrap">
+                    {copied === label ? '✓ Đã chép' : '📋 Chép'}
+                </button>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="bg-white border border-slate-200 rounded-xl shadow-xl p-7 w-[460px]">
+                <h2 className="text-xl font-bold text-slate-900 m-0 mb-1.5">{info.title}</h2>
+                {info.tenantName && <p className="text-[13px] text-slate-500 m-0 mb-4">Tenant: <span className="font-semibold text-slate-700">{info.tenantName}</span></p>}
+                <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4 text-[13px] text-amber-800">
+                    ⚠️ Thông tin đăng nhập chỉ hiển thị <b>một lần</b>. Hãy chép và bàn giao an toàn — sau khi đóng sẽ không xem lại được.
+                </div>
+                <Row label="Tên đăng nhập (email)" value={info.email} />
+                <Row label="Mật khẩu" value={info.password} />
+                <div className="flex justify-end mt-5">
+                    <button onClick={onClose} className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors">Đã lưu, đóng</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Capabilities Modal (Cờ_Năng_Lực Phương_Pháp_In theo tenant) ─── */
+const METHOD_LABELS: Record<string, string> = {
+    digital: '🖨️ In nhanh (Digital)',
+    offset: '🏭 In Offset',
+};
+
+function CapabilitiesModal({ tenant, authFetch, onClose }: {
+    tenant: Tenant;
+    authFetch: (url: string, opts?: any) => Promise<Response>;
+    onClose: () => void;
+}) {
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [enabledMethods, setEnabledMethods] = useState<string[]>([]);
+    const [source, setSource] = useState<'explicit' | 'inherited'>('inherited');
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await authFetch(`${API}/super-admin/tenants/${tenant.id}/capabilities`);
+            const json = await res.json();
+            if (json.success) {
+                setEnabledMethods(json.data.enabledMethods || []);
+                setSource(json.data.source || 'inherited');
+            } else {
+                setError(json.error || 'Lỗi tải năng lực');
+            }
+        } catch {
+            setError('Lỗi kết nối');
+        } finally {
+            setLoading(false);
+        }
+    }, [authFetch, tenant.id]);
+
+    useEffect(() => { load(); }, [load]);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
+    const toggle = async (methodId: string) => {
+        const nextEnabled = !enabledMethods.includes(methodId);
+        setSaving(methodId);
+        setError(null);
+        try {
+            const res = await authFetch(`${API}/super-admin/tenants/${tenant.id}/capabilities/${methodId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: nextEnabled }),
+            });
+            if (res.status === 409) {
+                const json = await res.json().catch(() => ({}));
+                setError(json.message || 'Không thể tắt phương pháp khả dụng cuối cùng.');
+            } else if (res.ok) {
+                await load();
+            } else {
+                const json = await res.json().catch(() => ({}));
+                setError(json.message || json.error || 'Lỗi cập nhật');
+            }
+        } catch {
+            setError('Lỗi kết nối');
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    const ALL_METHODS = ['digital', 'offset'];
+
+    return (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="bg-white border border-slate-200 rounded-xl shadow-xl p-7 w-[440px]">
+                <h2 className="text-xl font-bold text-slate-900 m-0 mb-1.5">🖨️ Năng lực báo giá</h2>
+                <p className="text-[13px] text-slate-500 m-0 mb-4">
+                    {tenant.name} <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px] text-indigo-600">{tenant.slug}</code>
+                </p>
+
                 {loading ? (
-                    <div style={styles.loading}>
-                        <div className="sa-spinner" style={styles.spinner} />
-                        <span>Đang tải...</span>
-                    </div>
-                ) : error ? (
-                    <div style={styles.error}>
-                        <span>⚠️ {error}</span>
-                        <button onClick={() => fetchData(activeTab)} style={styles.retryBtn}>Thử lại</button>
+                    <div className="flex items-center justify-center gap-3 py-10 text-slate-500">
+                        <div className="w-5 h-5 border-[3px] border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+                        <span className="text-sm">Đang tải...</span>
                     </div>
                 ) : (
                     <>
-                        {activeTab === 'dashboard' && dashboard && <DashboardTab data={dashboard} formatVnd={formatVnd} systemHealth={systemHealth} onTabChange={handleTabChange} onCreateTenant={() => setShowCreateTenant(true)} onExportReport={exportReport} />}
-                        {activeTab === 'tenants' && <TenantsTab tenants={tenants} formatDate={formatDate} onCreateTenant={() => setShowCreateTenant(true)} />}
-                        {activeTab === 'plans' && <PlansTab plans={plans} formatVnd={formatVnd} />}
-                        {activeTab === 'payments' && <PaymentsTab payments={payments} formatVnd={formatVnd} formatDate={formatDate} onConfirm={confirmPayment} />}
-                        {activeTab === 'rbac' && <RbacTab roles={roles} authFetch={authFetch} onRefresh={() => fetchData('rbac')} />}
+                        <div className={`rounded-md px-3 py-2 mb-4 text-[13px] ${source === 'explicit' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-50 text-slate-600'}`}>
+                            {source === 'explicit'
+                                ? '⚙️ Cấu hình riêng cho tenant này.'
+                                : '↩️ Đang kế thừa mặc định hệ thống (bật tất cả). Thay đổi sẽ tạo cấu hình riêng.'}
+                        </div>
+
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 rounded-md px-3 py-2 mb-4 text-[13px] text-red-700">
+                                ⚠️ {error}
+                            </div>
+                        )}
+
+                        <div className="flex flex-col gap-2.5">
+                            {ALL_METHODS.map(methodId => {
+                                const on = enabledMethods.includes(methodId);
+                                const busy = saving === methodId;
+                                return (
+                                    <div key={methodId} className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                        <span className="text-sm font-semibold text-slate-800">{METHOD_LABELS[methodId] || methodId}</span>
+                                        <button
+                                            onClick={() => toggle(methodId)}
+                                            disabled={busy}
+                                            aria-pressed={on}
+                                            className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-60 disabled:cursor-wait ${on ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                            title={on ? 'Đang bật — nhấn để tắt' : 'Đang tắt — nhấn để bật'}
+                                        >
+                                            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </>
                 )}
+
+                <div className="flex justify-end mt-6">
+                    <button onClick={onClose} className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors">Đóng</button>
+                </div>
             </div>
-            {showCreateTenant && <CreateTenantModal onClose={() => setShowCreateTenant(false)} onSubmit={createTenant} />}
         </div>
     );
 }
 
 /* ─── Create Tenant Modal ─── */
-function CreateTenantModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (data: { name: string; code: string; email?: string; phone?: string }) => void }) {
-    const [form, setForm] = useState({ name: '', code: '', email: '', phone: '' });
+function CreateTenantModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (data: { name: string; code: string; username?: string; email?: string; phone?: string }) => void }) {
+    const [form, setForm] = useState({ name: '', code: '', username: '', email: '', phone: '' });
     const [submitting, setSubmitting] = useState(false);
     const set = (key: string, val: string) => setForm(prev => ({ ...prev, [key]: val }));
+
+    // Đóng modal bằng phím ESC (đồng bộ với các modal khác trong app).
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
 
     const handleSubmit = async () => {
         if (!form.name.trim() || !form.code.trim()) { alert('Tên và Mã tenant là bắt buộc'); return; }
         if (!/^[a-z0-9_]+$/.test(form.code)) { alert('Mã tenant chỉ chứa chữ thường, số và dấu gạch dưới'); return; }
+        if (form.username.trim() && !/^[a-z0-9._-]+$/.test(form.username.trim())) { alert('Tên đăng nhập chỉ gồm chữ thường, số, . _ -'); return; }
         setSubmitting(true);
-        await onSubmit({ name: form.name.trim(), code: form.code.trim(), email: form.email.trim() || undefined, phone: form.phone.trim() || undefined });
+        await onSubmit({
+            name: form.name.trim(),
+            code: form.code.trim(),
+            username: form.username.trim() || undefined,
+            email: form.email.trim() || undefined,
+            phone: form.phone.trim() || undefined,
+        });
         setSubmitting(false);
     };
 
     return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={onClose}>
-            <div onClick={e => e.stopPropagation()} style={{ background: 'linear-gradient(135deg,#1e293b,#0f172a)', borderRadius: 20, padding: '32px 28px', width: 440, border: '1px solid #334155', boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
-                <h2 style={{ fontSize: 20, fontWeight: 800, color: '#f1f5f9', margin: '0 0 6px' }}>🏢 Tạo Tenant mới</h2>
-                <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 24px' }}>Tạo xưởng in mới trên nền tảng SaaS</p>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="bg-white border border-slate-200 rounded-xl shadow-xl p-7 w-[440px]">
+                <h2 className="text-xl font-bold text-slate-900 m-0 mb-1.5">🏢 Tạo Tenant mới</h2>
+                <p className="text-[13px] text-slate-500 m-0 mb-6">Tạo xưởng in mới trên nền tảng SaaS</p>
                 {[
                     { key: 'name', label: 'Tên xưởng in *', placeholder: 'VD: Xưởng In Hoàng Phú' },
                     { key: 'code', label: 'Mã tenant (slug) *', placeholder: 'VD: hoangphu (chữ thường, không dấu)' },
-                    { key: 'email', label: 'Email quản trị', placeholder: 'admin@hoangphu.vn' },
+                    { key: 'username', label: 'Tên đăng nhập', placeholder: 'VD: hoangphu (để trống → admin@{mã}.vn)' },
+                    { key: 'email', label: 'Email quản trị (tuỳ chọn)', placeholder: 'admin@hoangphu.vn' },
                     { key: 'phone', label: 'Số điện thoại', placeholder: '0901234567' },
                 ].map(f => (
-                    <div key={f.key} style={{ marginBottom: 16 }}>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{f.label}</label>
+                    <div key={f.key} className="mb-4">
+                        <label className="text-xs font-semibold text-slate-500 block mb-1.5 uppercase tracking-wide">{f.label}</label>
                         <input
                             value={(form as any)[f.key]}
                             onChange={e => set(f.key, e.target.value)}
                             placeholder={f.placeholder}
-                            style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 10, color: '#f1f5f9', fontSize: 14, outline: 'none', boxSizing: 'border-box', transition: 'border-color .2s' }}
-                            onFocus={e => e.currentTarget.style.borderColor = '#6366f1'}
-                            onBlur={e => e.currentTarget.style.borderColor = '#334155'}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 outline-none focus:border-blue-400 transition-colors box-border"
                         />
                     </div>
                 ))}
-                <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                    <button onClick={onClose} style={{ flex: 1, padding: '11px 0', background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Hủy</button>
-                    <button onClick={handleSubmit} disabled={submitting} style={{ flex: 1, padding: '11px 0', background: 'linear-gradient(135deg,#4338ca,#6366f1)', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+                <div className="flex gap-2.5 mt-6">
+                    <button onClick={onClose} className="flex-1 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-md text-sm font-semibold hover:bg-slate-50 transition-colors">Hủy</button>
+                    <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-2.5 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-wait">
                         {submitting ? 'Đang tạo...' : '✅ Tạo Tenant'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ─── Edit Tenant Modal ─── */
+function EditTenantModal({ tenant, plans, onClose, onSubmit }: {
+    tenant: Tenant;
+    plans: Plan[];
+    onClose: () => void;
+    onSubmit: (id: number, patch: { name?: string; email?: string; phone?: string; address?: string; taxCode?: string; planId?: number | null; maxUsers?: number }) => void;
+}) {
+    // The list item exposes `plan` as a code string, not a planId — best-effort match by code.
+    const matchedPlanId = plans.find(p => p.code === tenant.plan)?.id;
+    const [form, setForm] = useState({
+        name: tenant.name || '',
+        email: tenant.email || '',
+        phone: tenant.phone || '',
+        address: '',
+        taxCode: '',
+        maxUsers: '',
+        planId: matchedPlanId != null ? String(matchedPlanId) : '',
+    });
+    const [submitting, setSubmitting] = useState(false);
+    const set = (key: string, val: string) => setForm(prev => ({ ...prev, [key]: val }));
+
+    // Đóng modal bằng phím ESC (đồng bộ với các modal khác trong app).
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
+    const handleSubmit = async () => {
+        if (!form.name.trim()) { alert('Tên tenant là bắt buộc'); return; }
+        setSubmitting(true);
+        await onSubmit(tenant.id, {
+            name: form.name.trim(),
+            email: form.email.trim() || undefined,
+            phone: form.phone.trim() || undefined,
+            address: form.address.trim() || undefined,
+            taxCode: form.taxCode.trim() || undefined,
+            planId: form.planId ? Number(form.planId) : null,
+            maxUsers: form.maxUsers.trim() ? Number(form.maxUsers) : undefined,
+        });
+        setSubmitting(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="bg-white border border-slate-200 rounded-xl shadow-xl p-7 w-[440px] max-h-[90vh] overflow-y-auto">
+                <h2 className="text-xl font-bold text-slate-900 m-0 mb-1.5">✏️ Chỉnh sửa Tenant</h2>
+                <p className="text-[13px] text-slate-500 m-0 mb-6">{tenant.name} <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px] text-indigo-600">{tenant.slug}</code></p>
+                {[
+                    { key: 'name', label: 'Tên xưởng in *', placeholder: 'VD: Xưởng In Hoàng Phú' },
+                    { key: 'email', label: 'Email quản trị', placeholder: 'admin@hoangphu.vn' },
+                    { key: 'phone', label: 'Số điện thoại', placeholder: '0901234567' },
+                    { key: 'address', label: 'Địa chỉ', placeholder: 'VD: 123 Lê Lợi, Q1, TP.HCM' },
+                    { key: 'taxCode', label: 'Mã số thuế', placeholder: 'VD: 0312345678' },
+                    { key: 'maxUsers', label: 'Số người dùng tối đa', placeholder: 'VD: 10' },
+                ].map(f => (
+                    <div key={f.key} className="mb-4">
+                        <label className="text-xs font-semibold text-slate-500 block mb-1.5 uppercase tracking-wide">{f.label}</label>
+                        <input
+                            value={(form as any)[f.key]}
+                            onChange={e => set(f.key, e.target.value)}
+                            placeholder={f.placeholder}
+                            type={f.key === 'maxUsers' ? 'number' : 'text'}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 outline-none focus:border-blue-400 transition-colors box-border"
+                        />
+                    </div>
+                ))}
+                <div className="mb-4">
+                    <label className="text-xs font-semibold text-slate-500 block mb-1.5 uppercase tracking-wide">Gói dịch vụ</label>
+                    <select
+                        value={form.planId}
+                        onChange={e => set('planId', e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 outline-none focus:border-blue-400 transition-colors box-border"
+                    >
+                        <option value="">— Không gán —</option>
+                        {plans.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex gap-2.5 mt-6">
+                    <button onClick={onClose} className="flex-1 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-md text-sm font-semibold hover:bg-slate-50 transition-colors">Hủy</button>
+                    <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-2.5 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-wait">
+                        {submitting ? 'Đang lưu...' : '💾 Lưu thay đổi'}
                     </button>
                 </div>
             </div>
@@ -344,46 +688,54 @@ function CreateTenantModal({ onClose, onSubmit }: { onClose: () => void; onSubmi
 /* ─── Dashboard Tab ─── */
 function DashboardTab({ data, formatVnd, systemHealth, onTabChange, onCreateTenant, onExportReport }: { data: DashboardData; formatVnd: (n: number) => string; systemHealth: { name: string; status: string; color: string }[]; onTabChange: (tab: Tab) => void; onCreateTenant: () => void; onExportReport: () => void }) {
     const cards = [
-        { label: 'Tổng Tenants', value: data.totalTenants, icon: '🏢', color: '#818cf8', bg: 'linear-gradient(135deg,#312e81,#4338ca)' },
-        { label: 'Đang hoạt động', value: data.activeTenants, icon: '✅', color: '#34d399', bg: 'linear-gradient(135deg,#064e3b,#059669)' },
-        { label: 'Doanh thu', value: formatVnd(data.totalRevenue || 0) + '₫', icon: '💰', color: '#fbbf24', bg: 'linear-gradient(135deg,#78350f,#d97706)' },
-        { label: 'MRR', value: formatVnd(data.mrr || 0) + '₫', icon: '📈', color: '#60a5fa', bg: 'linear-gradient(135deg,#1e3a5f,#2563eb)' },
-        { label: 'Chờ thanh toán', value: data.pendingPayments || 0, icon: '⏳', color: '#f87171', bg: 'linear-gradient(135deg,#7f1d1d,#dc2626)' },
+        { label: 'Tổng Tenants', value: data.totalTenants, icon: '🏢', chip: 'bg-indigo-50 text-indigo-600' },
+        { label: 'Đang hoạt động', value: data.activeTenants, icon: '✅', chip: 'bg-emerald-50 text-emerald-600' },
+        { label: 'Doanh thu', value: formatVnd(data.totalRevenue || 0) + '₫', icon: '💰', chip: 'bg-amber-50 text-amber-600' },
+        { label: 'MRR', value: formatVnd(data.mrr || 0) + '₫', icon: '📈', chip: 'bg-blue-50 text-blue-600' },
+        { label: 'Chờ thanh toán', value: data.pendingPayments || 0, icon: '⏳', chip: 'bg-red-50 text-red-600' },
     ];
     const activeRate = data.totalTenants > 0 ? Math.round((data.activeTenants / data.totalTenants) * 100) : 0;
     const recentTenants = (data.tenants || []).slice(0, 5);
 
+    const quickActions = [
+        { label: '➕ Tạo Tenant mới', cls: 'bg-blue-600 text-white hover:bg-blue-700', action: onCreateTenant },
+        { label: '💳 Xem thanh toán chờ', cls: 'bg-amber-50 text-amber-700 hover:bg-amber-100', action: () => onTabChange('payments') },
+        { label: '🔐 Quản lý vai trò', cls: 'bg-violet-50 text-violet-700 hover:bg-violet-100', action: () => onTabChange('rbac') },
+        { label: '📊 Xuất báo cáo', cls: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100', action: onExportReport },
+    ];
+
+    const avatarColors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-red-500', 'bg-violet-500'];
+    const planPill = (plan: string) => plan === 'enterprise' ? 'bg-violet-50 text-violet-700' : plan === 'pro' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600';
+    const statusPill = (status: string) => status === 'active' ? 'bg-emerald-50 text-emerald-700' : status === 'trial' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600';
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div className="flex flex-col gap-5">
             {/* KPI Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
+            <div className="grid grid-cols-5 gap-3.5">
                 {cards.map((c, i) => (
-                    <div key={i} style={{ background: c.bg, borderRadius: 16, padding: '20px 18px', position: 'relative', overflow: 'hidden', cursor: 'pointer', transition: 'transform .2s' }}
-                        onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-3px)')}
-                        onMouseLeave={e => (e.currentTarget.style.transform = 'none')}>
-                        <div style={{ position: 'absolute', top: -10, right: -10, fontSize: 64, opacity: 0.08 }}>{c.icon}</div>
-                        <div style={{ fontSize: 24, marginBottom: 6 }}>{c.icon}</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }}>{c.value}</div>
-                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,.65)', marginTop: 4, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.8 }}>{c.label}</div>
+                    <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-3 ${c.chip}`}>{c.icon}</div>
+                        <div className="text-[22px] font-bold text-slate-900 tracking-tight">{c.value}</div>
+                        <div className="text-xs text-slate-500 mt-1 font-medium uppercase tracking-wide">{c.label}</div>
                     </div>
                 ))}
             </div>
 
             {/* Middle Row: Health + Activity Rate */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+            <div className="grid grid-cols-3 gap-4">
                 {/* System Health */}
-                <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, border: '1px solid #334155' }}>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>💚 Sức khỏe hệ thống</h3>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                    <h3 className="text-[15px] font-bold text-slate-900 m-0 mb-4 flex items-center gap-2">💚 Sức khỏe hệ thống</h3>
                     {(systemHealth.length > 0 ? systemHealth : [
                         { name: 'Cơ sở dữ liệu', status: 'Đang kiểm tra...', color: '#94a3b8' },
                         { name: 'Máy chủ API', status: 'Đang kiểm tra...', color: '#94a3b8' },
                         { name: 'WebSocket', status: 'Đang kiểm tra...', color: '#94a3b8' },
                         { name: 'Cách ly Tenant', status: 'Đang kiểm tra...', color: '#94a3b8' },
                     ]).map((s, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < 3 ? '1px solid #334155' : 'none' }}>
-                            <span style={{ fontSize: 13, color: '#cbd5e1' }}>{s.name}</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: s.color, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
+                        <div key={i} className={`flex justify-between items-center py-2 ${i < 3 ? 'border-b border-slate-100' : ''}`}>
+                            <span className="text-[13px] text-slate-600">{s.name}</span>
+                            <span className="text-xs font-semibold flex items-center gap-1" style={{ color: s.color }}>
+                                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: s.color }} />
                                 {s.status}
                             </span>
                         </div>
@@ -391,34 +743,27 @@ function DashboardTab({ data, formatVnd, systemHealth, onTabChange, onCreateTena
                 </div>
 
                 {/* Activation Rate Gauge */}
-                <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, border: '1px solid #334155', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', margin: '0 0 16px' }}>📊 Tỷ lệ hoạt động</h3>
-                    <div style={{ position: 'relative', width: 120, height: 120 }}>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 flex flex-col items-center justify-center">
+                    <h3 className="text-[15px] font-bold text-slate-900 m-0 mb-4">📊 Tỷ lệ hoạt động</h3>
+                    <div className="relative w-[120px] h-[120px]">
                         <svg width="120" height="120" viewBox="0 0 120 120">
-                            <circle cx="60" cy="60" r="50" fill="none" stroke="#334155" strokeWidth="10" />
-                            <circle cx="60" cy="60" r="50" fill="none" stroke="#818cf8" strokeWidth="10"
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#e2e8f0" strokeWidth="10" />
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="#3b82f6" strokeWidth="10"
                                 strokeDasharray={`${activeRate * 3.14} 314`} strokeLinecap="round"
                                 transform="rotate(-90 60 60)" style={{ transition: 'stroke-dasharray .8s ease' }} />
                         </svg>
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontSize: 28, fontWeight: 800, color: '#f1f5f9' }}>{activeRate}%</span>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-[28px] font-bold text-slate-900">{activeRate}%</span>
                         </div>
                     </div>
-                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>{data.activeTenants}/{data.totalTenants} tenants</div>
+                    <div className="text-xs text-slate-500 mt-2">{data.activeTenants}/{data.totalTenants} tenants</div>
                 </div>
 
                 {/* Quick Actions */}
-                <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, border: '1px solid #334155' }}>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', margin: '0 0 16px' }}>⚡ Thao tác nhanh</h3>
-                    {[
-                        { label: '➕ Tạo Tenant mới', bg: '#4338ca', action: onCreateTenant },
-                        { label: '💳 Xem thanh toán chờ', bg: '#d97706', action: () => onTabChange('payments') },
-                        { label: '🔐 Quản lý vai trò', bg: '#7c3aed', action: () => onTabChange('rbac') },
-                        { label: '📊 Xuất báo cáo', bg: '#059669', action: onExportReport },
-                    ].map((a, i) => (
-                        <button key={i} onClick={a.action} style={{ width: '100%', padding: '10px 14px', marginBottom: 8, background: a.bg, color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'opacity .2s' }}
-                            onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-                            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                    <h3 className="text-[15px] font-bold text-slate-900 m-0 mb-4">⚡ Thao tác nhanh</h3>
+                    {quickActions.map((a, i) => (
+                        <button key={i} onClick={a.action} className={`w-full px-3.5 py-2.5 mb-2 rounded-md text-[13px] font-semibold text-left transition-colors ${a.cls}`}>
                             {a.label}
                         </button>
                     ))}
@@ -426,33 +771,33 @@ function DashboardTab({ data, formatVnd, systemHealth, onTabChange, onCreateTena
             </div>
 
             {/* Bottom: Recent Tenants */}
-            <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, border: '1px solid #334155' }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', margin: '0 0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                <h3 className="text-[15px] font-bold text-slate-900 m-0 mb-4 flex items-center justify-between">
                     🏢 Tenants gần đây
-                    <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 500, cursor: 'pointer' }}>Xem tất cả →</span>
+                    <span className="text-xs text-indigo-600 font-medium cursor-pointer">Xem tất cả →</span>
                 </h3>
                 {recentTenants.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div className="flex flex-col gap-2">
                         {recentTenants.map((t, i) => (
-                            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 10, background: i % 2 === 0 ? '#0f172a' : 'transparent' }}>
-                                <div style={{ width: 36, height: 36, borderRadius: 10, background: ['#4338ca','#059669','#d97706','#dc2626','#7c3aed'][i % 5], display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 14 }}>
+                            <div key={t.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg ${i % 2 === 0 ? 'bg-slate-50' : 'bg-transparent'}`}>
+                                <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white text-sm ${avatarColors[i % 5]}`}>
                                     {t.name.charAt(0).toUpperCase()}
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>{t.name}</div>
-                                    <div style={{ fontSize: 12, color: '#64748b' }}>{t.slug} • {t.users_count || 0} users</div>
+                                <div className="flex-1">
+                                    <div className="text-sm font-semibold text-slate-900">{t.name}</div>
+                                    <div className="text-xs text-slate-400">{t.slug} • {t.users_count || 0} users</div>
                                 </div>
-                                <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, color: '#fff', background: t.plan === 'enterprise' ? '#7c3aed' : t.plan === 'pro' ? '#2563eb' : '#475569' }}>
+                                <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${planPill(t.plan)}`}>
                                     {t.plan === 'enterprise' ? 'Doanh nghiệp' : t.plan === 'pro' ? 'Chuyên nghiệp' : 'Miễn phí'}
                                 </span>
-                                <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, color: '#fff', background: t.status === 'active' ? '#059669' : '#dc2626' }}>
+                                <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${statusPill(t.status)}`}>
                                     {t.status === 'active' ? '● Hoạt động' : t.status === 'trial' ? '◐ Dùng thử' : t.status === 'suspended' ? '⊘ Tạm ngưng' : t.status}
                                 </span>
                             </div>
                         ))}
                     </div>
                 ) : (
-                    <div style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>Chưa có tenant nào</div>
+                    <div className="text-center py-8 text-slate-400">Chưa có tenant nào</div>
                 )}
             </div>
         </div>
@@ -460,45 +805,66 @@ function DashboardTab({ data, formatVnd, systemHealth, onTabChange, onCreateTena
 }
 
 /* ─── Tenants Tab ─── */
-function TenantsTab({ tenants, formatDate, onCreateTenant }: { tenants: DashboardData['tenants']; formatDate: (s: string) => string; onCreateTenant: () => void }) {
+function TenantsTab({ tenants, plans, formatDate, onCreateTenant, onEdit, onSetStatus, onResetPassword, onCapabilities }: {
+    tenants: DashboardData['tenants'];
+    plans: Plan[];
+    formatDate: (s: string) => string;
+    onCreateTenant: () => void;
+    onEdit: (tenant: Tenant) => void;
+    onSetStatus: (id: number, status: 'trial' | 'active' | 'suspended' | 'cancelled') => void;
+    onResetPassword: (id: number) => void;
+    onCapabilities: (tenant: Tenant) => void;
+}) {
     if (!tenants.length) return (
-        <div style={styles.empty}>
+        <div className="text-center py-16 text-slate-500 text-[15px]">
             <div>Chưa có tenant nào.</div>
-            <button onClick={onCreateTenant} style={{ marginTop: 16, padding: '10px 20px', background: 'linear-gradient(135deg,#4338ca,#6366f1)', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>➕ Tạo Tenant đầu tiên</button>
+            <button onClick={onCreateTenant} className="mt-4 px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors">➕ Tạo Tenant đầu tiên</button>
         </div>
     );
-    const colors = ['#4338ca','#059669','#d97706','#dc2626','#7c3aed','#0891b2','#be185d'];
+    const avatarColors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-red-500', 'bg-violet-500', 'bg-cyan-600', 'bg-pink-600'];
+    const planLabel = (code: string) => plans.find(p => p.code === code)?.name
+        || (code === 'enterprise' ? 'Doanh nghiệp' : code === 'pro' ? 'Chuyên nghiệp' : 'Miễn phí');
+    const planPill = (plan: string) => plan === 'enterprise' ? 'bg-violet-50 text-violet-700' : plan === 'pro' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600';
+    const statusPill = (status: string) => status === 'active' ? 'bg-emerald-50 text-emerald-700' : status === 'trial' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600';
+    const statusDot = (status: string) => status === 'active' ? 'bg-emerald-500' : status === 'trial' ? 'bg-amber-500' : 'bg-red-500';
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 14, color: '#94a3b8' }}>{tenants.length} tenant(s) trong hệ thống</span>
-                <button onClick={onCreateTenant} style={{ padding: '8px 16px', background: 'linear-gradient(135deg,#4338ca,#6366f1)', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>➕ Tạo Tenant</button>
+        <div className="flex flex-col gap-2.5">
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-sm text-slate-500">{tenants.length} tenant(s) trong hệ thống</span>
+                <button onClick={onCreateTenant} className="px-4 py-2 bg-blue-600 text-white rounded-md text-[13px] font-semibold hover:bg-blue-700 transition-colors">➕ Tạo Tenant</button>
             </div>
             {tenants.map((t, i) => (
-                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', background: '#1e293b', borderRadius: 14, border: '1px solid #334155', transition: 'border-color .2s' }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#4338ca')}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#334155')}>
-                    <div style={{ width: 44, height: 44, borderRadius: 12, background: colors[i % colors.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 18, flexShrink: 0 }}>
+                <div key={t.id} className="flex items-center gap-4 px-5 py-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-blue-300 transition-colors">
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-white text-lg flex-shrink-0 ${avatarColors[i % avatarColors.length]}`}>
                         {t.name.charAt(0).toUpperCase()}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9' }}>{t.name}</span>
-                            <code style={{ background: '#334155', padding: '2px 8px', borderRadius: 4, fontSize: 11, color: '#818cf8' }}>{t.slug}</code>
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[15px] font-bold text-slate-900">{t.name}</span>
+                            <code className="bg-slate-100 px-2 py-0.5 rounded text-[11px] text-indigo-600">{t.slug}</code>
                         </div>
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 4, display: 'flex', gap: 16 }}>
+                        <div className="text-xs text-slate-400 mt-1 flex gap-4">
                             <span>👥 {t.users_count || 0} users</span>
                             <span>📅 {formatDate(t.created_at)}</span>
                         </div>
                     </div>
-                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700, color: '#fff', background: t.plan === 'enterprise' ? '#7c3aed' : t.plan === 'pro' ? '#2563eb' : '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        {t.plan === 'enterprise' ? 'Doanh nghiệp' : t.plan === 'pro' ? 'Chuyên nghiệp' : 'Miễn phí'}
+                    <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide ${planPill(t.plan)}`}>
+                        {planLabel(t.plan)}
                     </span>
-                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, color: '#fff', background: t.status === 'active' ? '#059669' : t.status === 'trial' ? '#d97706' : '#dc2626', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.status === 'active' ? '#6ee7b7' : t.status === 'trial' ? '#fbbf24' : '#fca5a5' }} />
+                    <span className={`px-3 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1.5 ${statusPill(t.status)}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${statusDot(t.status)}`} />
                         {t.status === 'active' ? 'Hoạt động' : t.status === 'trial' ? 'Dùng thử' : t.status === 'suspended' ? 'Tạm ngưng' : t.status}
                     </span>
-                    <button style={{ padding: '6px 12px', background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>⋯</button>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={() => onEdit(t)} className="px-3 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-md text-xs font-semibold hover:bg-slate-50 transition-colors">✏️ Sửa</button>
+                        <button onClick={() => onCapabilities(t)} className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-md text-xs font-semibold hover:bg-indigo-50 transition-colors">🖨️ Năng lực</button>
+                        {(t.status === 'active' || t.status === 'trial') ? (
+                            <button onClick={() => onSetStatus(t.id, 'suspended')} className="px-3 py-1.5 bg-white text-red-600 border border-red-200 rounded-md text-xs font-semibold hover:bg-red-50 transition-colors">⊘ Tạm ngưng</button>
+                        ) : (
+                            <button onClick={() => onSetStatus(t.id, 'active')} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-xs font-semibold hover:bg-emerald-100 transition-colors">● Kích hoạt</button>
+                        )}
+                        <button onClick={() => onResetPassword(t.id)} className="px-3 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-md text-xs font-semibold hover:bg-slate-50 transition-colors">🔑 Reset MK</button>
+                    </div>
                 </div>
             ))}
         </div>
@@ -507,37 +873,36 @@ function TenantsTab({ tenants, formatDate, onCreateTenant }: { tenants: Dashboar
 
 /* ─── Plans Tab ─── */
 function PlansTab({ plans, formatVnd }: { plans: Plan[]; formatVnd: (n: number) => string }) {
-    if (!plans.length) return <div style={styles.empty}>Chưa có gói dịch vụ nào.</div>;
-    const gradients = ['linear-gradient(135deg,#1e293b,#334155)', 'linear-gradient(135deg,#312e81,#4338ca)', 'linear-gradient(135deg,#7c2d12,#ea580c)'];
+    if (!plans.length) return <div className="text-center py-16 text-slate-500 text-[15px]">Chưa có gói dịch vụ nào.</div>;
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(plans.length, 3)}, 1fr)`, gap: 20, alignItems: 'stretch' }}>
+        <div className="grid gap-5 items-stretch" style={{ gridTemplateColumns: `repeat(${Math.min(plans.length, 3)}, 1fr)` }}>
             {plans.map((plan, idx) => {
                 const isPro = idx === 1;
-                const features = plan.features ? (typeof plan.features === 'string' ? plan.features.split(',') : Object.keys(plan.features as any)) : [];
+                const features = Array.isArray(plan.features)
+                    ? plan.features
+                    : (typeof plan.features === 'string' && plan.features ? plan.features.split(',') : []);
                 return (
-                    <div key={plan.id} style={{ background: gradients[idx % 3], borderRadius: 20, padding: '28px 24px', border: isPro ? '2px solid #818cf8' : '1px solid #334155', position: 'relative', display: 'flex', flexDirection: 'column', transition: 'transform .2s' }}
-                        onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-4px)')}
-                        onMouseLeave={e => (e.currentTarget.style.transform = 'none')}>
-                        {isPro && <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#818cf8,#c084fc)', color: '#fff', padding: '4px 16px', borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>Phổ biến nhất</div>}
-                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 600 }}>{plan.code}</div>
-                        <h3 style={{ fontSize: 22, fontWeight: 800, color: '#fff', margin: '8px 0 4px' }}>{plan.name}</h3>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, margin: '12px 0' }}>
-                            <span style={{ fontSize: 36, fontWeight: 900, color: '#fff' }}>{formatVnd(plan.price_monthly)}</span>
-                            <span style={{ fontSize: 14, color: 'rgba(255,255,255,.5)' }}>₫/tháng</span>
+                    <div key={plan.id} className={`bg-white rounded-xl shadow-sm p-7 relative flex flex-col transition-colors ${isPro ? 'border-2 border-blue-500' : 'border border-slate-200'}`}>
+                        {isPro && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase">Phổ biến nhất</div>}
+                        <div className="text-xs text-slate-400 uppercase tracking-widest font-semibold">{plan.code}</div>
+                        <h3 className="text-[22px] font-bold text-slate-900 mt-2 mb-1">{plan.name}</h3>
+                        <div className="flex items-baseline gap-1 my-3">
+                            <span className="text-4xl font-extrabold text-slate-900">{formatVnd(plan.price_monthly)}</span>
+                            <span className="text-sm text-slate-400">₫/tháng</span>
                         </div>
-                        <div style={{ fontSize: 13, color: 'rgba(255,255,255,.4)', marginBottom: 16 }}>hoặc {formatVnd(plan.price_yearly)}₫/năm (tiết kiệm {Math.round((1 - plan.price_yearly / (plan.price_monthly * 12)) * 100)}%)</div>
-                        <div style={{ borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: 16, flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#e2e8f0' }}>
-                                <span style={{ color: '#34d399' }}>✓</span> Tối đa <strong style={{ color: '#fff' }}>{plan.max_users}</strong> người dùng
+                        <div className="text-[13px] text-slate-400 mb-4">hoặc {formatVnd(plan.price_yearly)}₫/năm (tiết kiệm {Math.round((1 - plan.price_yearly / (plan.price_monthly * 12)) * 100)}%)</div>
+                        <div className="border-t border-slate-100 pt-4 flex-1 flex flex-col gap-2.5">
+                            <div className="flex items-center gap-2 text-[13px] text-slate-700">
+                                <span className="text-emerald-600">✓</span> Tối đa <strong className="text-slate-900">{plan.max_users}</strong> người dùng
                             </div>
                             {features.slice(0, 5).map((f, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#cbd5e1' }}>
-                                    <span style={{ color: '#34d399' }}>✓</span> {String(f).trim()}
+                                <div key={i} className="flex items-center gap-2 text-[13px] text-slate-600">
+                                    <span className="text-emerald-600">✓</span> {String(f).trim()}
                                 </div>
                             ))}
                         </div>
-                        <div style={{ marginTop: 16 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: plan.is_active ? '#34d399' : '#f87171' }}>
+                        <div className="mt-4">
+                            <span className={`text-xs font-semibold ${plan.is_active ? 'text-emerald-600' : 'text-red-500'}`}>
                                 {plan.is_active ? '● Đang hoạt động' : '○ Tạm tắt'}
                             </span>
                         </div>
@@ -556,41 +921,39 @@ function PaymentsTab({ payments, formatVnd, formatDate, onConfirm }: {
     onConfirm: (id: number) => void;
 }) {
     if (!payments.length) {
-        return <div style={styles.empty}>Chưa có thanh toán nào.</div>;
+        return <div className="text-center py-16 text-slate-500 text-[15px]">Chưa có thanh toán nào.</div>;
     }
+    const statusPill = (status: string) => status === 'paid' ? 'bg-emerald-50 text-emerald-700' : status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600';
     return (
-        <div style={styles.tableWrapper}>
-            <table style={styles.table}>
+        <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl shadow-sm">
+            <table className="w-full border-collapse text-sm">
                 <thead>
-                    <tr>
-                        <th style={styles.th}>ID</th>
-                        <th style={styles.th}>Tenant</th>
-                        <th style={styles.th}>Số tiền</th>
-                        <th style={styles.th}>Phương thức</th>
-                        <th style={styles.th}>Trạng thái</th>
-                        <th style={styles.th}>Ngày tạo</th>
-                        <th style={styles.th}>Hành động</th>
+                    <tr className="bg-slate-50">
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">ID</th>
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">Tenant</th>
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">Số tiền</th>
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">Phương thức</th>
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">Trạng thái</th>
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">Ngày tạo</th>
+                        <th className="px-4 py-3 text-left text-slate-500 font-semibold text-[13px] whitespace-nowrap border-b border-slate-200">Hành động</th>
                     </tr>
                 </thead>
                 <tbody>
                     {payments.map(p => (
-                        <tr key={p.id} style={styles.tr}>
-                            <td style={styles.td}>{p.id}</td>
-                            <td style={styles.td}>{p.tenant_name || `Tenant #${p.tenant_id}`}</td>
-                            <td style={{ ...styles.td, fontWeight: 600, color: '#fbbf24' }}>{formatVnd(p.amount)}₫</td>
-                            <td style={styles.td}>{p.payment_method}</td>
-                            <td style={styles.td}>
-                                <span style={{
-                                    ...styles.badge,
-                                    background: p.status === 'paid' ? '#059669' : p.status === 'pending' ? '#d97706' : '#dc2626'
-                                }}>
+                        <tr key={p.id} className="border-b border-slate-100">
+                            <td className="px-4 py-3 text-slate-700">{p.id}</td>
+                            <td className="px-4 py-3 text-slate-700">{p.tenant_name || `Tenant #${p.tenant_id}`}</td>
+                            <td className="px-4 py-3 font-semibold text-amber-600">{formatVnd(p.amount)}₫</td>
+                            <td className="px-4 py-3 text-slate-700">{p.payment_method}</td>
+                            <td className="px-4 py-3">
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold inline-block ${statusPill(p.status)}`}>
                                     {p.status === 'paid' ? '✅ Đã TT' : p.status === 'pending' ? '⏳ Chờ' : p.status}
                                 </span>
                             </td>
-                            <td style={styles.td}>{formatDate(p.created_at)}</td>
-                            <td style={styles.td}>
+                            <td className="px-4 py-3 text-slate-700">{formatDate(p.created_at)}</td>
+                            <td className="px-4 py-3">
                                 {p.status === 'pending' && (
-                                    <button onClick={() => onConfirm(p.id)} style={styles.confirmBtn}>
+                                    <button onClick={() => onConfirm(p.id)} className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition-colors">
                                         ✓ Xác nhận
                                     </button>
                                 )}
@@ -672,18 +1035,19 @@ const ROLE_LABELS: Record<string, { label: string; icon: string; color: string }
     viewer: { label: 'Chỉ xem', icon: '👁️', color: '#64748b' },
 };
 
+// Soft pastel classes per action for light-theme permission badges.
 const ACTION_COLORS: Record<string, string> = {
-    view: '#334155',
-    create: '#1e3a5f',
-    edit: '#1e3a5f',
-    delete: '#4c1d1d',
-    approve: '#14452f',
-    import: '#1e3a5f',
-    export: '#1e3a5f',
-    assign: '#312e81',
-    adjust: '#1e3a5f',
-    reply: '#1e3a5f',
-    tenant: '#312e81',
+    view: 'bg-slate-100 text-slate-600 border-slate-200',
+    create: 'bg-blue-50 text-blue-600 border-blue-100',
+    edit: 'bg-blue-50 text-blue-600 border-blue-100',
+    delete: 'bg-red-50 text-red-600 border-red-100',
+    approve: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    import: 'bg-blue-50 text-blue-600 border-blue-100',
+    export: 'bg-blue-50 text-blue-600 border-blue-100',
+    assign: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    adjust: 'bg-blue-50 text-blue-600 border-blue-100',
+    reply: 'bg-blue-50 text-blue-600 border-blue-100',
+    tenant: 'bg-indigo-50 text-indigo-600 border-indigo-100',
 };
 
 function RbacTab({ roles, authFetch, onRefresh }: { roles: RbacRole[]; authFetch: (url: string, opts?: any) => Promise<Response>; onRefresh: () => void }) {
@@ -789,79 +1153,74 @@ function RbacTab({ roles, authFetch, onRefresh }: { roles: RbacRole[]; authFetch
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-3">
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 14, color: '#94a3b8' }}>{roles.length} vai tr\u00f2 trong h\u1ec7 th\u1ed1ng</span>
-                <button onClick={() => setShowCreate(true)} style={{ padding: '8px 16px', background: 'linear-gradient(135deg,#4338ca,#6366f1)', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>\u2795 T\u1ea1o vai tr\u00f2 m\u1edbi</button>
+            <div className="flex justify-between items-center mb-1">
+                <span className="text-sm text-slate-500">{roles.length} vai trò trong hệ thống</span>
+                <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-[13px] font-semibold hover:bg-blue-700 transition-colors">➕ Tạo vai trò mới</button>
             </div>
 
             {/* Create Role Inline Form */}
             {showCreate && (
-                <div style={{ background: '#0f172a', borderRadius: 14, padding: 20, border: '1px solid #4338ca', marginBottom: 4 }}>
-                    <h4 style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', margin: '0 0 14px' }}>\ud83d\udee0\ufe0f T\u1ea1o vai tr\u00f2 m\u1edbi</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 10, marginBottom: 12 }}>
-                        <input value={newRole.name} onChange={e => setNewRole(p => ({ ...p, name: e.target.value }))} placeholder="M\u00e3 vai tr\u00f2 (VD: sale_lead)" style={{ padding: '8px 12px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 13, outline: 'none' }} />
-                        <input value={newRole.displayName} onChange={e => setNewRole(p => ({ ...p, displayName: e.target.value }))} placeholder="T\u00ean hi\u1ec3n th\u1ecb" style={{ padding: '8px 12px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 13, outline: 'none' }} />
-                        <input value={newRole.description} onChange={e => setNewRole(p => ({ ...p, description: e.target.value }))} placeholder="M\u00f4 t\u1ea3 (tu\u1ef3 ch\u1ecdn)" style={{ padding: '8px 12px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: 13, outline: 'none' }} />
+                <div className="bg-white border border-blue-200 rounded-xl shadow-sm p-5 mb-1">
+                    <h4 className="text-sm font-bold text-slate-900 m-0 mb-3.5">🛠️ Tạo vai trò mới</h4>
+                    <div className="grid gap-2.5 mb-3" style={{ gridTemplateColumns: '1fr 1fr 2fr' }}>
+                        <input value={newRole.name} onChange={e => setNewRole(p => ({ ...p, name: e.target.value }))} placeholder="Mã vai trò (VD: sale_lead)" className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-slate-900 text-[13px] outline-none focus:border-blue-400 transition-colors" />
+                        <input value={newRole.displayName} onChange={e => setNewRole(p => ({ ...p, displayName: e.target.value }))} placeholder="Tên hiển thị" className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-slate-900 text-[13px] outline-none focus:border-blue-400 transition-colors" />
+                        <input value={newRole.description} onChange={e => setNewRole(p => ({ ...p, description: e.target.value }))} placeholder="Mô tả (tuỳ chọn)" className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-slate-900 text-[13px] outline-none focus:border-blue-400 transition-colors" />
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setShowCreate(false)} style={{ padding: '7px 16px', background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>H\u1ee7y</button>
-                        <button onClick={handleCreate} disabled={creating} style={{ padding: '7px 16px', background: '#4338ca', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: creating ? 'wait' : 'pointer', opacity: creating ? .7 : 1 }}>{creating ? '\u0110ang t\u1ea1o...' : '\u2705 T\u1ea1o'}</button>
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowCreate(false)} className="px-4 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-md text-[13px] font-semibold hover:bg-slate-50 transition-colors">Hủy</button>
+                        <button onClick={handleCreate} disabled={creating} className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-[13px] font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-wait">{creating ? 'Đang tạo...' : '✅ Tạo'}</button>
                     </div>
                 </div>
             )}
 
             {/* Roles List */}
             {roles.map(role => {
-                const roleInfo = ROLE_LABELS[role.name] || { label: role.description || role.name, icon: '\ud83d\udd11', color: '#94a3b8' };
+                const roleInfo = ROLE_LABELS[role.name] || { label: role.description || role.name, icon: '🔑', color: '#94a3b8' };
                 const isExpanded = expandedRole === role.id;
                 const isEditing = editingRole === role.id;
                 const permGroups = role.permissions ? groupPermsByModule(role.permissions) : {};
 
                 return (
-                    <div key={role.id} style={{ ...styles.roleCard, borderColor: isEditing ? '#6366f1' : isExpanded ? roleInfo.color + '60' : '#334155' }}>
+                    <div key={role.id} className={`bg-white rounded-xl shadow-sm p-5 transition-colors ${isEditing ? 'border-2 border-blue-500' : 'border border-slate-200'}`}>
                         <div
                             onClick={() => { if (!isEditing) setExpandedRole(isExpanded ? null : role.id); }}
-                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: isEditing ? 'default' : 'pointer' }}
+                            className={`flex justify-between items-center ${isEditing ? 'cursor-default' : 'cursor-pointer'}`}
                         >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span style={{ fontSize: 22 }}>{roleInfo.icon}</span>
+                            <div className="flex items-center gap-2.5">
+                                <span className="text-[22px]">{roleInfo.icon}</span>
                                 <div>
-                                    <span style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>{roleInfo.label}</span>
-                                    <code style={{ marginLeft: 8, fontSize: 11, color: '#64748b', background: '#1e293b', padding: '2px 6px', borderRadius: 4 }}>{role.name}</code>
-                                    {role.is_system && <span style={{ ...styles.badge, background: '#7c3aed', marginLeft: 8, fontSize: 10 }}>H\u1ec7 th\u1ed1ng</span>}
+                                    <span className="text-base font-bold text-slate-900">{roleInfo.label}</span>
+                                    <code className="ml-2 text-[11px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{role.name}</code>
+                                    {role.is_system && <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-700">Hệ thống</span>}
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 13, color: '#94a3b8' }}>\ud83d\udd11 {role.permissions?.length || 0} quy\u1ec1n</span>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[13px] text-slate-500">🔑 {role.permissions?.length || 0} quyền</span>
                                 {!isEditing && (
-                                    <button onClick={e => { e.stopPropagation(); startEdit(role); }} style={{ padding: '4px 10px', background: '#334155', color: '#93c5fd', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }} title="S\u1eeda quy\u1ec1n">\u270f\ufe0f S\u1eeda</button>
+                                    <button onClick={e => { e.stopPropagation(); startEdit(role); }} className="px-2.5 py-1 bg-white text-blue-600 border border-blue-200 rounded-md text-[11px] font-semibold hover:bg-blue-50 transition-colors" title="Sửa quyền">✏️ Sửa</button>
                                 )}
                                 {!role.is_system && !isEditing && (
-                                    <button onClick={e => { e.stopPropagation(); deleteRole(role.id, roleInfo.label); }} style={{ padding: '4px 10px', background: '#4c1d1d', color: '#fca5a5', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }} title="X\u00f3a vai tr\u00f2">\ud83d\uddd1\ufe0f</button>
+                                    <button onClick={e => { e.stopPropagation(); deleteRole(role.id, roleInfo.label); }} className="px-2.5 py-1 bg-white text-red-600 border border-red-200 rounded-md text-[11px] font-semibold hover:bg-red-50 transition-colors" title="Xóa vai trò">🗑️</button>
                                 )}
-                                {!isEditing && <span style={{ color: '#64748b', fontSize: 18, transition: 'transform .2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>\u25b8</span>}
+                                {!isEditing && <span className="text-slate-400 text-lg transition-transform" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▸</span>}
                             </div>
                         </div>
-                        {role.description && <p style={{ fontSize: 13, color: '#94a3b8', margin: '6px 0 0' }}>{role.description}</p>}
+                        {role.description && <p className="text-[13px] text-slate-500 mt-1.5 mb-0">{role.description}</p>}
 
                         {/* VIEW MODE */}
                         {isExpanded && !isEditing && role.permissions && role.permissions.length > 0 && (
-                            <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <div className="mt-4 flex flex-col gap-3">
                                 {Object.entries(permGroups).map(([mod, perms]) => (
                                     <div key={mod}>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                        <div className="text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">
                                             {MODULE_LABELS[mod] || mod}
                                         </div>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        <div className="flex flex-wrap gap-1.5">
                                             {perms.map((p, i) => (
-                                                <span key={i} style={{
-                                                    background: ACTION_COLORS[p.action] || '#334155',
-                                                    color: p.action === 'delete' ? '#fca5a5' : p.action === 'approve' ? '#6ee7b7' : '#93c5fd',
-                                                    padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-                                                    border: `1px solid ${p.action === 'delete' ? '#7f1d1d' : '#334155'}`,
-                                                }}>
+                                                <span key={i} className={`px-2.5 py-1 rounded-md text-xs font-medium border ${ACTION_COLORS[p.action] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                                                     {PERM_LABELS[p.key] || p.key}
                                                 </span>
                                             ))}
@@ -873,23 +1232,23 @@ function RbacTab({ roles, authFetch, onRefresh }: { roles: RbacRole[]; authFetch
 
                         {/* EDIT MODE — checkbox grid */}
                         {isEditing && (
-                            <div style={{ marginTop: 16 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>\u270f\ufe0f Ch\u1ecdn quy\u1ec1n cho vai tr\u00f2 n\u00e0y <span style={{ color: '#64748b' }}>({editPerms.size}/{allPermKeys.length})</span></div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                            <div className="mt-4">
+                                <div className="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1.5">✏️ Chọn quyền cho vai trò này <span className="text-slate-400">({editPerms.size}/{allPermKeys.length})</span></div>
+                                <div className="flex flex-col gap-3.5">
                                     {Object.entries(allPermGroups).map(([mod, perms]) => {
                                         const allChecked = perms.every(p => editPerms.has(p.key));
                                         const someChecked = perms.some(p => editPerms.has(p.key));
                                         return (
-                                            <div key={mod} style={{ background: '#0f172a', borderRadius: 10, padding: '10px 14px', border: '1px solid #1e293b' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
-                                                    <input type="checkbox" checked={allChecked} ref={el => { if (el) el.indeterminate = someChecked && !allChecked; }} onChange={() => toggleModule(mod, perms)} style={{ accentColor: '#6366f1', width: 16, height: 16 }} />
-                                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{MODULE_LABELS[mod] || mod}</span>
+                                            <div key={mod} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                                <label className="flex items-center gap-2 cursor-pointer mb-2">
+                                                    <input type="checkbox" checked={allChecked} ref={el => { if (el) el.indeterminate = someChecked && !allChecked; }} onChange={() => toggleModule(mod, perms)} className="w-4 h-4 accent-blue-600" />
+                                                    <span className="text-[13px] font-bold text-slate-700">{MODULE_LABELS[mod] || mod}</span>
                                                 </label>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 24 }}>
+                                                <div className="flex flex-wrap gap-1.5 pl-6">
                                                     {perms.map(p => (
-                                                        <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '3px 8px', borderRadius: 6, background: editPerms.has(p.key) ? '#1e3a5f' : '#1e293b', border: `1px solid ${editPerms.has(p.key) ? '#3b82f6' : '#334155'}`, transition: 'all .15s' }}>
-                                                            <input type="checkbox" checked={editPerms.has(p.key)} onChange={() => togglePerm(p.key)} style={{ accentColor: '#6366f1', width: 14, height: 14 }} />
-                                                            <span style={{ fontSize: 12, color: editPerms.has(p.key) ? '#93c5fd' : '#64748b' }}>{PERM_LABELS[p.key] || p.key}</span>
+                                                        <label key={p.key} className={`flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md border transition-colors ${editPerms.has(p.key) ? 'bg-blue-50 border-blue-300' : 'bg-white border-slate-200'}`}>
+                                                            <input type="checkbox" checked={editPerms.has(p.key)} onChange={() => togglePerm(p.key)} className="w-3.5 h-3.5 accent-blue-600" />
+                                                            <span className={`text-xs ${editPerms.has(p.key) ? 'text-blue-600' : 'text-slate-500'}`}>{PERM_LABELS[p.key] || p.key}</span>
                                                         </label>
                                                     ))}
                                                 </div>
@@ -897,9 +1256,9 @@ function RbacTab({ roles, authFetch, onRefresh }: { roles: RbacRole[]; authFetch
                                         );
                                     })}
                                 </div>
-                                <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
-                                    <button onClick={cancelEdit} style={{ padding: '8px 18px', background: '#334155', color: '#cbd5e1', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>H\u1ee7y</button>
-                                    <button onClick={() => savePerms(role.id)} disabled={saving} style={{ padding: '8px 18px', background: 'linear-gradient(135deg,#4338ca,#6366f1)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: saving ? 'wait' : 'pointer', opacity: saving ? .7 : 1 }}>{saving ? '\u0110ang l\u01b0u...' : '\u2705 L\u01b0u quy\u1ec1n'}</button>
+                                <div className="flex gap-2 mt-3.5 justify-end">
+                                    <button onClick={cancelEdit} className="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded-md text-[13px] font-semibold hover:bg-slate-50 transition-colors">Hủy</button>
+                                    <button onClick={() => savePerms(role.id)} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-md text-[13px] font-semibold hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-wait">{saving ? 'Đang lưu...' : '✅ Lưu quyền'}</button>
                                 </div>
                             </div>
                         )}
@@ -909,210 +1268,3 @@ function RbacTab({ roles, authFetch, onRefresh }: { roles: RbacRole[]; authFetch
         </div>
     );
 }
-
-/* ─── Styles ─── */
-const styles: Record<string, React.CSSProperties> = {
-    container: {
-        padding: '24px 32px',
-        maxWidth: 1200,
-        margin: '0 auto',
-        fontFamily: "'Inter', -apple-system, sans-serif",
-    },
-    header: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: 24,
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: 800,
-        margin: 0,
-    },
-    subtitle: {
-        fontSize: 14,
-        color: '#94a3b8',
-        margin: '4px 0 0',
-    },
-    userBadge: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: 4,
-    },
-    roleBadge: {
-        background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
-        color: '#fff',
-        padding: '4px 12px',
-        borderRadius: 20,
-        fontSize: 12,
-        fontWeight: 700,
-        letterSpacing: 0.5,
-    },
-    tabBar: {
-        display: 'flex',
-        gap: 4,
-        background: '#1e293b',
-        padding: 4,
-        borderRadius: 12,
-        marginBottom: 24,
-    },
-    tab: {
-        padding: '10px 20px',
-        border: 'none',
-        borderRadius: 10,
-        background: 'transparent',
-        color: '#94a3b8',
-        fontSize: 14,
-        fontWeight: 500,
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-    },
-    tabActive: {
-        background: '#334155',
-        color: '#f1f5f9',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-    },
-    content: {
-        minHeight: 400,
-    },
-    loading: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-        padding: 60,
-        color: '#94a3b8',
-    },
-    spinner: {
-        width: 24,
-        height: 24,
-        border: '3px solid #334155',
-        borderTop: '3px solid #818cf8',
-        borderRadius: '50%',
-        // Issue #12 fix: Use a real CSS animation via a <style> tag (added at bottom)
-    },
-    error: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 16,
-        padding: 40,
-        color: '#f87171',
-        background: '#1e1e2e',
-        borderRadius: 12,
-    },
-    retryBtn: {
-        padding: '6px 16px',
-        background: '#334155',
-        color: '#f1f5f9',
-        border: 'none',
-        borderRadius: 8,
-        cursor: 'pointer',
-        fontSize: 13,
-    },
-    accessDenied: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '60vh',
-        textAlign: 'center',
-    },
-    cardGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-        gap: 16,
-    },
-    statCard: {
-        background: '#1e293b',
-        borderRadius: 12,
-        padding: '20px 24px',
-        transition: 'transform 0.2s, box-shadow 0.2s',
-    },
-    tableWrapper: {
-        overflowX: 'auto',
-        borderRadius: 12,
-        border: '1px solid #1e293b',
-    },
-    table: {
-        width: '100%',
-        borderCollapse: 'collapse',
-        fontSize: 14,
-    },
-    th: {
-        padding: '12px 16px',
-        textAlign: 'left',
-        background: '#1e293b',
-        color: '#94a3b8',
-        fontWeight: 600,
-        fontSize: 13,
-        borderBottom: '1px solid #334155',
-        whiteSpace: 'nowrap',
-    },
-    td: {
-        padding: '12px 16px',
-        borderBottom: '1px solid #1e293b',
-        color: '#cbd5e1',
-    },
-    tr: {
-        transition: 'background 0.15s',
-    },
-    badge: {
-        padding: '3px 10px',
-        borderRadius: 20,
-        fontSize: 12,
-        fontWeight: 600,
-        color: '#fff',
-        display: 'inline-block',
-    },
-    code: {
-        background: '#334155',
-        padding: '2px 8px',
-        borderRadius: 4,
-        fontSize: 13,
-        color: '#818cf8',
-    },
-    planGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-        gap: 16,
-    },
-    planCard: {
-        background: '#1e293b',
-        borderRadius: 16,
-        padding: 24,
-        border: '1px solid #334155',
-        transition: 'transform 0.2s, border-color 0.2s',
-    },
-    confirmBtn: {
-        padding: '4px 12px',
-        background: '#059669',
-        color: '#fff',
-        border: 'none',
-        borderRadius: 6,
-        cursor: 'pointer',
-        fontSize: 12,
-        fontWeight: 600,
-    },
-    roleCard: {
-        background: '#1e293b',
-        borderRadius: 12,
-        padding: '16px 20px',
-        border: '1px solid #334155',
-    },
-    permBadge: {
-        background: '#334155',
-        color: '#818cf8',
-        padding: '3px 10px',
-        borderRadius: 6,
-        fontSize: 12,
-        fontFamily: 'monospace',
-    },
-    empty: {
-        textAlign: 'center',
-        padding: 60,
-        color: '#64748b',
-        fontSize: 15,
-    },
-};

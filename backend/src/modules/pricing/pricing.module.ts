@@ -71,10 +71,12 @@ import { OffsetController } from './controllers/offset.controller';
 import { EngineOffsetService } from './offset-engine/engine-offset.service';
 import { ConfigStore } from './offset-engine/config-store.service';
 import { PricingMutationInterceptor } from './pricing-mutation.interceptor';
+import { CapabilityModule } from '../../quote/capability.module';
 
 @Module({
   imports: [
     MulterModule.register({}),
+    CapabilityModule,
     TypeOrmModule.forFeature([
       Material, Unit, PaperSize,
       Printer, PrintType,

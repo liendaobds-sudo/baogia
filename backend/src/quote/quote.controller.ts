@@ -75,9 +75,11 @@ export class QuoteController {
     @Get('capabilities')
     async getCapabilities(@Query('unitId') unitId?: string) {
         const resolvedUnitId = unitId?.trim() || DEFAULT_UNIT_ID;
+        // enabledMethods phân giải theo TENANT hiện hành (Req 4.6, 3.2 — bỏ qua unitId client).
+        // Thiếu tenant context → baseline. flags giữ nguồn unitId cũ cho tương thích hiển thị.
         const [flags, enabledMethods] = await Promise.all([
             this.capabilityService.listFlags(resolvedUnitId),
-            this.capabilityService.getEnabledMethods(resolvedUnitId),
+            this.capabilityService.resolveEnabledMethods(),
         ]);
 
         return {
@@ -139,9 +141,8 @@ export class QuoteController {
         const product = await this.resolveProductRef(productCode);
         const resolvedUnitId = unitId?.trim() || DEFAULT_UNIT_ID;
 
-        const enabledMethods = await this.capabilityService.getEnabledMethods(
-            resolvedUnitId,
-        );
+        // Phân giải theo TENANT hiện hành (bỏ qua unitId client — Req 4.6, 3.2).
+        const enabledMethods = await this.capabilityService.resolveEnabledMethods();
         // Spec tối thiểu để hỏi `appliesTo` (plugin chỉ xét quoteType ở bước này).
         const probeSpec: Specification = { quantity: 1 };
 
@@ -181,14 +182,12 @@ export class QuoteController {
             dto.quoteType,
         );
 
-        // Chặn truy cập phương pháp không khả dụng TRƯỚC khi gọi plugin (Req 4.7, 2.4).
-        const isEnabled = await this.capabilityService.isEnabled(
-            resolvedUnitId,
-            dto.methodId,
-        );
-        if (!isEnabled) {
+        // Chặn truy cập phương pháp không khả dụng TRƯỚC khi gọi plugin (Req 4.7, 4.6).
+        // Phân giải theo TENANT hiện hành (bỏ qua unitId client — Req 3.2); thiếu context → baseline.
+        const enabledMethods = await this.capabilityService.resolveEnabledMethods();
+        if (!enabledMethods.includes(dto.methodId)) {
             throw new ForbiddenException(
-                `Phương_Pháp_In '${dto.methodId}' không khả dụng cho Đơn_Vị '${resolvedUnitId}'.`,
+                `Phương pháp in '${dto.methodId}' không khả dụng cho đơn vị của bạn.`,
             );
         }
 
@@ -232,9 +231,8 @@ export class QuoteController {
         );
 
         // Tập ứng viên: chỉ phương pháp KHẢ DỤNG và ĐÃ ĐĂNG KÝ registry (Req 4.7).
-        const enabledMethods = await this.capabilityService.getEnabledMethods(
-            resolvedUnitId,
-        );
+        // Phân giải theo TENANT hiện hành (bỏ qua unitId client — Req 4.6, 3.2).
+        const enabledMethods = await this.capabilityService.resolveEnabledMethods();
         const registered = this.methodRegistry.listMethodIds();
         let candidateMethods = enabledMethods.filter((m) =>
             registered.includes(m),

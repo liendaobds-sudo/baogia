@@ -47,5 +47,16 @@ DO $$ DECLARE t text; tbls text[] := ARRAY[/* dùng cùng danh sách Pha B */]; 
 ```
 Và đổi `.env` về `DB_USERNAME=postgres` để app chạy lại ngay (superuser bypass RLS).
 
+## Ghi chú đặc biệt — `method_capabilities` (tenant-method-capability)
+Bảng này KHÔNG đi theo policy chung. Lý do: hàng BASELINE (`tenant_id IS NULL`, `unit_id='default'`)
+là mặc định nền, PHẢI đọc được bởi MỌI tenant (CapabilityService kế thừa baseline khi tenant
+chưa cấu hình). Do đó Pha B tách riêng khối cho bảng này:
+- KHÔNG `SET NOT NULL` trên `tenant_id`, KHÔNG gắn trigger auto-set (giữ hàng baseline NULL).
+- Policy đọc (`USING`): `bypass` OR `tenant_id IS NULL` OR `tenant_id = current`.
+- Policy ghi (`WITH CHECK`): `bypass` OR `tenant_id = current` → tenant chỉ ghi hàng của mình;
+  ghi/sửa baseline chỉ qua `app.bypass='on'` (super-admin).
+Kiểm nhanh: `BEGIN; SELECT set_config('app.current_tenant','2',true); SELECT * FROM method_capabilities; COMMIT;`
+→ kỳ vọng thấy hàng baseline (tenant_id NULL) + hàng của tenant 2, KHÔNG thấy hàng tenant khác.
+
 ## Ghi chú parity giá
 Engine giá / payload builder KHÔNG đổi. Sau bước 6 chạy lại bộ test giá (quote-flow, pricing-advanced, vat) xác nhận `grand_total` không đổi (Property 4).

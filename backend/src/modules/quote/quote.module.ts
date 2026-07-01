@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { PricingModule } from '../pricing/pricing.module';
-import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
     QuoteRule,
@@ -37,15 +36,13 @@ import { QuickPriceController } from './quick-price.controller';
 // REMOVED: PricingProxyController — PricingController in PricingModule handles all routes
 // REMOVED: PricingBridgeService — PHP server no longer needed (calculator migrated to NestJS)
 import { PricingApiService } from './pricing-api.service';
+import { CapabilityModule } from '../../quote/capability.module';
 
 
 @Module({
     imports: [ PricingModule,
-        // HTTP client (kept for legacy compat — PricingApiService now calls PricingFacade locally)
-        HttpModule.register({
-            timeout: 10000,
-            maxRedirects: 3,
-        }),
+        CapabilityModule,
+        // PricingApiService gọi PricingFacade nội-process — KHÔNG còn HTTP client.
         TypeOrmModule.forFeature([
             QuoteRule, QuickPrice, PricingConfig,
             // Keep these for read-only use by QuoteParserService (material resolution)

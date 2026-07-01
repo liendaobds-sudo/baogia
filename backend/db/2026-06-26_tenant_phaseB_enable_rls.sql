@@ -35,20 +35,25 @@ DECLARE
   org_tables text[] := ARRAY[
     'accessories','ai_conversations','ai_suggestions','appointments','audit_logs',
     'binding_types','canned_responses','channels','contacts','conversation_participants',
-    'conversations','customer_interactions','customer_price_groups','customers','follow_ups',
-    'ink_costs','internal_notes','inventory_slip_items','inventory_slips','kb_chunks',
+    'conversations','customer_interactions','customer_price_groups','customers','daily_stats',
+    'follow_ups','ink_costs','internal_notes','inventory_slip_items','inventory_slips','kb_chunks',
     'kb_documents','large_format_pricing','material_categories','material_types','materials',
-    'messages','method_capabilities','notifications','offset_cfg_ep_kim','offset_cfg_fixed_size',
+    'messages','notifications','offset_cfg_ep_kim','offset_cfg_fixed_size',
     'offset_cfg_gia_cong','offset_cfg_kem','offset_cfg_kho_in','offset_cfg_vat_tu_be_mat',
     'offset_machine_config','paper_sizes','plate_pricing','pricing_config','pricing_tiers',
     'print_types','printers','processing_options','processing_pricing','product_ai_fields',
-    'product_categories','product_quote_configs','production_costs','products','quick_prices',
+    'product_categories','product_quote_configs','production_cost_configs','production_costs','products','quick_prices',
     'quote_items','quote_rules','quote_versions','quotes','setup_fees','site_settings',
     'unified_product_categories','unified_products','units','waste_rules','webhook_settings',
     'zalo_accounts'
   ];
 BEGIN
   FOREACH t IN ARRAY org_tables LOOP
+    -- Bỏ qua bảng KHÔNG tồn tại trong deployment này (tránh vỡ cả transaction chỉ vì 1 bảng vắng).
+    IF to_regclass('public.' || quote_ident(t)) IS NULL THEN
+      RAISE NOTICE '[phaseB] bỏ qua bảng không tồn tại: %', t;
+      CONTINUE;
+    END IF;
     -- 1) Khoá NOT NULL (đã backfill ở Pha A)
     EXECUTE format('ALTER TABLE %I ALTER COLUMN tenant_id SET NOT NULL', t);
     -- 2) Trigger auto-set tenant_id khi INSERT
@@ -66,6 +71,37 @@ BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
   END LOOP;
+END $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- method_capabilities — RLS ĐẶC BIỆT (tenant-method-capability, Task 7).
+--
+-- KHÁC bảng org-scoped thường:
+--   • Hàng BASELINE (tenant_id IS NULL, unit_id='default') = mặc định nền, PHẢI đọc
+--     được bởi MỌI tenant (CapabilityService kế thừa baseline khi tenant chưa cấu hình).
+--     → KHÔNG SET NOT NULL, KHÔNG gắn trigger auto-set (sẽ phá hàng baseline).
+--   • Hàng THEO TENANT (tenant_id = <id>) chỉ tenant đó thấy.
+--
+-- Policy đọc (USING): bypass HOẶC tenant_id IS NULL (baseline) HOẶC tenant_id = current.
+-- Policy ghi (WITH CHECK): bypass (super-admin toggle mọi tenant + ghi baseline) HOẶC
+--   tenant_id = current (tenant chỉ ghi hàng của chính mình). Ghi baseline (tenant_id NULL)
+--   CHỈ qua bypass → tenant thường không thể sửa mặc định nền.
+-- ─────────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF to_regclass('public.method_capabilities') IS NULL THEN
+    RAISE NOTICE '[phaseB] bỏ qua method_capabilities (không tồn tại)';
+  ELSE
+    DROP POLICY IF EXISTS tenant_isolation ON method_capabilities;
+    CREATE POLICY tenant_isolation ON method_capabilities
+      USING (current_setting('app.bypass', true) = 'on'
+             OR tenant_id IS NULL
+             OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int)
+      WITH CHECK (current_setting('app.bypass', true) = 'on'
+             OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int);
+    ALTER TABLE method_capabilities ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE method_capabilities FORCE ROW LEVEL SECURITY;
+  END IF;
 END $$;
 
 COMMIT;

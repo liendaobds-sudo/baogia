@@ -51,10 +51,11 @@ function makePlugin(methodId: MethodId, applies: boolean): MethodPlugin {
     };
 }
 
-/** CapabilityService giả lập: chỉ cần `getEnabledMethods` cho endpoint /quote/methods. */
+/** CapabilityService giả lập: endpoint /quote-tool/methods dùng resolveEnabledMethods (theo tenant). */
 function fakeCapabilityService(enabledMethods: MethodId[]) {
     return {
         getEnabledMethods: async () => [...enabledMethods],
+        resolveEnabledMethods: async () => [...enabledMethods],
     } as any;
 }
 

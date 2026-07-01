@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
+import { tenantRlsEnabled } from '../../common/tenant/tenant-background';
 
 @Injectable()
 @WebSocketGateway({
@@ -64,9 +65,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
             // Store user info on socket
             (client as any).userId = payload.sub;
             (client as any).userRole = payload.role;
+            (client as any).tenantId = payload.tenantId;
 
             // Join user-specific room
             client.join(`user:${payload.sub}`);
+
+            // Join tenant-specific room (Task 9: tenant realtime isolation).
+            // Hành vi cũ không đổi: emit vẫn broadcast toàn cục khi flag TẮT; room này
+            // chỉ được dùng làm đích khi TENANT_RLS_ENABLED bật + emit có tenantId.
+            if (payload.tenantId != null) {
+                client.join(`tenant:${payload.tenantId}`);
+            }
 
             // Track connection (Redis optional)
             try {
@@ -131,6 +140,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // ===== Emit methods (called by services) =====
 
     /**
+     * Task 9: Chọn ĐÍCH phát cho các broadcast nghiệp vụ.
+     * - Flag TENANT_RLS_ENABLED BẬT + có tenantId → phát tới room `tenant:<id>` (cô lập).
+     * - Ngược lại (mặc định) → phát toàn cục `this.server` (hành vi byte-for-byte như cũ).
+     */
+    private businessTarget(tenantId?: number): { emit: (event: string, ...args: any[]) => any } {
+        if (tenantRlsEnabled() && tenantId != null) {
+            return this.server.to(`tenant:${tenantId}`);
+        }
+        return this.server;
+    }
+
+    /**
      * Emit new message to all users in the conversation room
      */
     emitNewMessage(conversationId: string, message: any) {
@@ -143,15 +164,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     /**
      * Emit conversation update to all connected agents
      */
-    emitConversationUpdated(conversation: any) {
-        this.server.emit('conversation_updated', { conversation });
+    emitConversationUpdated(conversation: any, tenantId?: number) {
+        this.businessTarget(tenantId).emit('conversation_updated', { conversation });
     }
 
     /**
      * Emit new conversation to all connected agents
      */
-    emitNewConversation(conversation: any) {
-        this.server.emit('new_conversation', { conversation });
+    emitNewConversation(conversation: any, tenantId?: number) {
+        this.businessTarget(tenantId).emit('new_conversation', { conversation });
     }
 
     /**
@@ -205,26 +226,26 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     /**
      * Feature 6: Emit SLA warning before deadline
      */
-    emitSlaWarning(conversationId: string, minutesLeft: number) {
-        this.server.emit('sla_warning', { conversationId, minutesLeft });
+    emitSlaWarning(conversationId: string, minutesLeft: number, tenantId?: number) {
+        this.businessTarget(tenantId).emit('sla_warning', { conversationId, minutesLeft });
     }
 
     /**
      * Feature 7: Emit dashboard KPI update to all agents
      */
-    emitDashboardUpdate(kpi: any) {
-        this.server.emit('dashboard_update', kpi);
+    emitDashboardUpdate(kpi: any, tenantId?: number) {
+        this.businessTarget(tenantId).emit('dashboard_update', kpi);
     }
 
     /**
      * Feature 1: Emit auto-reply notification
      */
-    emitAutoReply(conversationId: string, message: any) {
+    emitAutoReply(conversationId: string, message: any, tenantId?: number) {
         this.server.to(`conversation:${conversationId}`).emit('auto_reply_sent', {
             conversationId,
             message,
         });
-        this.server.emit('conversation_updated', {
+        this.businessTarget(tenantId).emit('conversation_updated', {
             conversation: { id: conversationId, lastAutoReply: new Date() },
         });
     }

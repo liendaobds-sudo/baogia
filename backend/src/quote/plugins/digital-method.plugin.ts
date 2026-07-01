@@ -28,9 +28,7 @@ import {
     ProductRef,
     Specification,
 } from '../types/method-plugin.types';
-
-/** Các `quoteType` mà phương pháp In_Nhanh phục vụ (qua facade digital). */
-const DIGITAL_QUOTE_TYPES = ['loose', 'bound', 'large_format'] as const;
+import { DIGITAL_QUOTE_TYPES } from '../method-mapping';
 
 /** Parse một giá trị code/số về number; trả `undefined` nếu không phải số hợp lệ. */
 function toNumber(value: unknown): number | undefined {

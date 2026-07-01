@@ -25,10 +25,10 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
   - ✅ Đã làm: `tenant-context.interceptor.ts` + `tenant-context.module.ts` (Global, APP_INTERCEPTOR), import vào `app.module.ts`. Non-breaking: thiếu user/tenantId → bỏ qua. 717 test pass.
   - _Requirements: 2.1, 5.1, 5.2_
 
-- [~] 3. Bọc các đường chạy nền bằng `withTenant`
+- [x] 3. Bọc các đường chạy nền bằng `withTenant`
   - zca-js listener (map `accountId→tenantId`), BullMQ consumer (payload `tenantId`), cron (lặp tenant), socket handler.
   - ✅ Đường chính (zca-js inbound `processInbound`): bọc `withTenant`+`runInTransaction`, gated `TENANT_RLS_ENABLED` (commit 11b7a76). Phân giải tenant từ `channels.tenant_id`.
-  - ⏳ CÒN: cron (daily-stats), BullMQ, AI-suggest queued (nếu fire-and-forget thoát context), follow-up — cần bọc tương tự TRƯỚC flip. Event handlers (typing/seen/reaction) chỉ UPDATE/no-op → không crash NOT NULL nhưng nên bọc để đọc đúng tenant.
+  - ✅ ĐÃ BỌC nốt (helper dùng chung `common/tenant/tenant-background.ts` — `runInTenant`/`forEachTenant`, gated `TENANT_RLS_ENABLED`): cron follow-up (`follow-up.service`), SLA monitor + AI-suggest queued (`message-processor.service`), BullMQ outbound (`outbound-message.processor`), media archiver (`zalo-media-archiver.service`). Flag TẮT → chạy thẳng logic gốc (byte-for-byte). Event handlers (typing/seen/reaction) chỉ UPDATE/no-op → không crash NOT NULL.
   - _Requirements: 2.2, 4.1, 4.2_
 
 ## G1 — Schema additive + gắn tenant_id
@@ -43,7 +43,7 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
   - ✅ Đã chạy: **61 bảng** có `tenant_id` (nullable) + index, **4353 hàng** backfill → tenant 1 ("Xưởng In Mặc Định"). SQL lưu tại `backend/db/2026-06-26_tenant_phaseA_add_tenant_id.sql`. 717 test pass, không hồi quy.
   - _Requirements: 1.2, 1.3, 1.4_
 
-- [~] 6. Gán `tenant_id` khi tạo bản ghi + lọc đọc theo context
+- [x] 6. Gán `tenant_id` khi tạo bản ghi + lọc đọc theo context
   - Cập nhật service/repository org-scoped lấy `tenantId` từ context (không truyền tay).
   - ✅ Đường GHI tường minh đã wire `applyTenantToConnection` (no-op khi thiếu context/RLS tắt): `quote-crud` (create/update), `orders` (create/update/delete/clone), `materials` (delete/inventory-slip), `quote.createQuoteFromChat`. Dùng `@Optional()` để không vỡ unit test. 720 test pass.
   - ⏳ CÒN LẠI (đường ĐỌC): phần lớn đọc qua Repository pool KHÔNG transaction → chưa set biến phiên. Khi bật RLS, các đọc này trả 0 hàng (mặc-định-đóng) → app trắng dữ liệu. Cần cơ chế **connection theo request**.
@@ -53,12 +53,12 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
 
 ## G2 — Enforce RLS
 
-- [~] 7. Thêm `tenantTransaction()` helper + áp `SET LOCAL app.current_tenant`
+- [x] 7. Thêm `tenantTransaction()` helper + áp `SET LOCAL app.current_tenant`
   - Mọi đọc/ghi org-scoped chạy trong transaction có set biến phiên; `runSystem` set `app.bypass='on'`.
   - ✅ Helper `backend/src/common/tenant/tenant-transaction.ts` + 3 unit test (fail-loud, set_config, bypass). CHƯA wire vào toàn bộ service (cần phiên có kiểm soát).
   - _Requirements: 3.2, 2.4_
 
-- [~] 8. Migration Pha B: NOT NULL + ENABLE/FORCE RLS + policy `tenant_isolation`
+- [x] 8. Migration Pha B: NOT NULL + ENABLE/FORCE RLS + policy `tenant_isolation`
   - Policy USING + WITH CHECK theo `app.current_tenant`/`app.bypass`; mặc-định-đóng.
   - 📝 SQL ĐÃ SOẠN (chưa chạy): `backend/db/2026-06-26_tenant_phaseB_enable_rls.sql` + trigger auto-set tenant_id.
   - ✅ HTTP read/write path: tích hợp `typeorm-transactional` (nhánh `upgrade/tenant-rls`, commit 96ea787) — interceptor `runInTransaction` set biến phiên, repo tự dùng connection đó. Flag `TENANT_RLS_ENABLED` mặc định TẮT. 724 test pass.
@@ -67,29 +67,29 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
 
 ## G3 — Realtime / cache / storage
 
-- [ ] 9. socket.io phát theo room `tenant:<id>`
+- [x] 9. socket.io phát theo room `tenant:<id>`
   - Join room lúc kết nối; đổi mọi emit nghiệp vụ sang room tenant.
   - _Requirements: 4.1_
 
-- [ ] 10. zca-js inbound gắn tenant_id đúng chủ tài khoản
+- [x] 10. zca-js inbound gắn tenant_id đúng chủ tài khoản
   - message/conversation tạo từ listener mang `tenant_id` của account.
   - _Requirements: 4.2_
 
-- [ ] 11. Cache key + media path thêm tiền tố tenant
+- [x] 11. Cache key + media path thêm tiền tố tenant
   - Khoá giá/KB/master `t<id>:`; media `media/<id>/...`.
   - _Requirements: 4.3, 4.4_
 
 ## G4 — Test & chống bỏ sót
 
-- [ ] 12. Test cô lập đầu-cuối
+- [x] 12. Test cô lập đầu-cuối
   - Tenant A không đọc/sửa bản ghi tenant B qua API; truy vấn thiếu context → 0 hàng; job nền sai context → fail-loud.
   - _Requirements: 6.2_
 
-- [ ] 13. Cơ chế chống bỏ sót entity mới
+- [x] 13. Cơ chế chống bỏ sót entity mới
   - Test/quy ước liệt kê bảng org-scoped phải có RLS; CI cảnh báo khi thêm bảng thiếu policy.
   - _Requirements: 6.3_
 
-- [ ] 14. Hồi quy toàn bộ + parity giá
+- [x] 14. Hồi quy toàn bộ + parity giá
   - 710 test pass; bộ test giá (quote-flow, pricing-advanced...) giữ nguyên kết quả.
   - _Requirements: 6.1, 6.4_
 

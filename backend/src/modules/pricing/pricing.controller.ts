@@ -7,11 +7,14 @@
  * Response format matches PHP exactly: { success: true, data: ... }
  */
 
-import { Controller, Post, Get, Body, Query, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Logger, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PricingService } from './pricing.service';
 import { PricingFacadeService } from './services/pricing-facade.service';
+import { CapabilityService } from '../../quote/capability.service';
+import { assertQuoteTypeEnabled } from '../../quote/assert-method-enabled';
 
 @Controller('pricing')
 export class PricingController {
@@ -19,6 +22,7 @@ export class PricingController {
 
     constructor(
         private readonly pricingFacade: PricingFacadeService,
+        private readonly capability: CapabilityService,
     ) { }
 
     // ════════════════════════════════════════════════
@@ -26,7 +30,12 @@ export class PricingController {
     // ════════════════════════════════════════════════
 
     @Post('calculate')
+    @UseGuards(AuthGuard('jwt'))
     async calculatePrice(@Body() input: Record<string, unknown>) {
+        // Enforce Cờ_Năng_Lực theo tenant: loại digital → phương pháp 'digital'.
+        // Mặc định 'loose' (đồng bộ facade) khi thiếu type; loại lạ → 400; method tắt → 403.
+        const quoteType = (input.type as string) || (input.product_type as string) || 'loose';
+        await assertQuoteTypeEnabled(this.capability, quoteType);
         return this.pricingFacade.calculatePrice(input);
     }
 
@@ -35,12 +44,13 @@ export class PricingController {
     // ════════════════════════════════════════════════
 
     @Get('master-data')
+    @UseGuards(AuthGuard('jwt'))
     async getMasterData(@Query('type') type?: string, @Query('scope') scope?: string) {
         return this.pricingFacade.getMasterData(type, scope);
     }
 
     // ════════════════════════════════════════════════
-    // GET /api/v1/pricing/health
+    // GET /api/v1/pricing/health — public (monitoring)
     // ════════════════════════════════════════════════
 
     @Get('health')
