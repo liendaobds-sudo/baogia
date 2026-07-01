@@ -47,8 +47,9 @@ Kế hoạch triển khai cô lập dữ liệu tenant theo 5 giai đoạn (G0�
   - Cập nhật service/repository org-scoped lấy `tenantId` từ context (không truyền tay).
   - ✅ Đường GHI tường minh đã wire `applyTenantToConnection` (no-op khi thiếu context/RLS tắt): `quote-crud` (create/update), `orders` (create/update/delete/clone), `materials` (delete/inventory-slip), `quote.createQuoteFromChat`. Dùng `@Optional()` để không vỡ unit test. 720 test pass.
   - ⏳ CÒN LẠI (đường ĐỌC): phần lớn đọc qua Repository pool KHÔNG transaction → chưa set biến phiên. Khi bật RLS, các đọc này trả 0 hàng (mặc-định-đóng) → app trắng dữ liệu. Cần cơ chế **connection theo request**.
-  - ✅ KHUNG đã viết: `TenantConnectionInterceptor` (mở 1 transaction/request, set `app.current_tenant`, gắn `EntityManager` vào context) + `tenantCtx.manager()` accessor. **Mặc định TẮT** qua `TENANT_RLS_ENABLED` (passthrough → không đổi hành vi). 722 test pass.
-  - ⏳ Bước cuối còn lại: service org-scoped đọc qua `this.tenantCtx.manager() ?? repo.manager` (adoption dần) — làm trong phiên flip cùng bật RLS.
+  - ✅ ĐÃ ĐỦ: `TenantConnectionInterceptor` mở 1 `runInTransaction`/request + set `app.current_tenant` trên connection CLS. Nhờ `typeorm-transactional` v0.5.0 **patch cả `dataSource.query`, `manager`, `createQueryBuilder`**, MỌI đọc (repo `.find()`, query builder, raw `dataSource.query`) TỰ đi qua đúng connection đó → RLS lọc đúng tenant, KHÔNG cần sửa từng service. Mặc định TẮT qua `TENANT_RLS_ENABLED`.
+  - ✅ ĐÃ KIỂM (dry-run runtime trên DB nháp + role NOSUPERUSER, 4/4 pass): trong `runInTransaction`+`set_config` → repo.find / dataSource.query / queryBuilder đều lọc đúng tenant; NGOÀI transaction → 0 hàng (mặc-định-đóng). Kết luận: KHÔNG còn "adoption dần" — read-path tự wire khi bật flag.
+  - ⚠️ Ngoại lệ cần nhớ: đường GHI dùng `createQueryRunner` thủ công (orders/materials/quote-crud/quote.createQuoteFromChat) KHÔNG dùng connection CLS → đã wire tay `applyTenantToConnection` (đã có). Đường nền (cron/BullMQ/zca-js) bọc `runInTenant`/`forEachTenant` (đã có).
   - _Requirements: 1.1, 2.1, 3.2, 3.3_
 
 ## G2 — Enforce RLS
