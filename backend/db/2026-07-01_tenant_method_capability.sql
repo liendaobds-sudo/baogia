@@ -26,4 +26,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_method_cap_tenant_method
     ON method_capabilities (tenant_id, method_id)
     WHERE tenant_id IS NOT NULL;
 
+-- KHÔI PHỤC BASELINE: Pha A (2026-06-26) TỪNG liệt kê method_capabilities trong danh sách
+-- org_tables và backfill hàng NULL về tenant 1, VÔ TÌNH biến hàng
+-- baseline (unit_id='default') thành tenant gốc → mất mặc-định-nền → tenant mới không kế thừa
+-- được → bị chặn toàn bộ báo giá. Nay Pha A đã bỏ bảng này; câu lệnh dưới đưa hàng
+-- `default` trở lại `tenant_id IS NULL`. Idempotent: chỉ đụng unit_id='default'.
+UPDATE method_capabilities SET tenant_id = NULL WHERE unit_id = 'default';
+
 COMMIT;

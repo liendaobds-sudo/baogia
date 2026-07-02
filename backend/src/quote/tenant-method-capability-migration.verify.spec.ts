@@ -35,10 +35,21 @@ describe('tenant-method-capability migration — an toàn & idempotent', () => {
         expect(norm).toContain('where tenant_id is not null');
     });
 
-    it('KHÔNG backfill / không đổi dữ liệu (tương thích ngược — tenant kế thừa baseline)', () => {
+    it('KHÔNG seed/xóa dữ liệu (không INSERT/DELETE — tenant kế thừa baseline)', () => {
         expect(/insert\s+into/i.test(sql)).toBe(false);
-        expect(/update\s+method_capabilities/i.test(sql)).toBe(false);
         expect(/delete\s+from/i.test(sql)).toBe(false);
+    });
+
+    it('KHÔI PHỤC baseline: UPDATE duy nhất là đưa unit_id=default về tenant_id NULL (KHÔNG backfill sang tenant cụ thể)', () => {
+        // Pha A từng backfill method_capabilities SET tenant_id = 1, phá baseline. Migration này
+        // sửa lại: chỉ được UPDATE về NULL cho hàng default; TUYỆT ĐỐI không SET tenant_id = <số>.
+        const updates = sql.match(/update\s+method_capabilities[^;]*/gi) || [];
+        expect(updates.length).toBe(1);
+        const upd = updates[0] ?? '';
+        expect(/set\s+tenant_id\s*=\s*null/i.test(upd)).toBe(true);
+        expect(/where\s+unit_id\s*=\s*'default'/i.test(upd)).toBe(true);
+        // Không được có backfill dạng SET tenant_id = <số nguyên>.
+        expect(/set\s+tenant_id\s*=\s*\d/i.test(sql)).toBe(false);
     });
 
     it('bọc trong transaction (BEGIN/COMMIT)', () => {

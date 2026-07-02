@@ -22,7 +22,6 @@ import { assertMethodEnabled } from '../../../quote/assert-method-enabled';
  * Engine cũ (machine/imposition) đã được gỡ sau khi 5 golden + 10 property test khớp (Req 21).
  */
 @Controller('pricing/offset')
-@UseGuards(AuthGuard('jwt'))
 export class OffsetController {
 
     constructor(
@@ -34,7 +33,10 @@ export class OffsetController {
 
     // ═══ Tính giá ═══
 
+    // JWT bắt buộc để có tenant context cho enforcement Cờ_Năng_Lực (Req 4.2).
+    // Các GET/config khác giữ nguyên guard (hoặc public) như bản gốc.
     @Post('calculate')
+    @UseGuards(AuthGuard('jwt'))
     async calculate(@Body() body: any) {
         // Enforce Cờ_Năng_Lực theo tenant: đường này luôn là phương pháp 'offset'.
         await assertMethodEnabled(this.capability, 'offset');
