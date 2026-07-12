@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { SiteSetting, SystemSetting, PricingConfig, SetupFee, ProductionCost } from '../../../entities';
+import { SiteSetting, SystemSetting, PricingConfig, SetupFee } from '../../../entities';
 
 @Injectable()
 export class SystemSettingsService {
@@ -10,7 +10,6 @@ export class SystemSettingsService {
         @InjectRepository(SystemSetting) private sysRepo: Repository<SystemSetting>,
         @InjectRepository(PricingConfig) private configRepo: Repository<PricingConfig>,
         @InjectRepository(SetupFee) private feeRepo: Repository<SetupFee>,
-        @InjectRepository(ProductionCost) private costRepo: Repository<ProductionCost>,
         @InjectDataSource() private dataSource: DataSource,
     ) { }
 
@@ -231,65 +230,6 @@ export class SystemSettingsService {
         };
     }
 
-    // ═════════════════════════════════════════
-    //  Production Costs — CRUD + calculate + generate tiers
-    // ═════════════════════════════════════════
-
-    async findAllCosts() {
-        const [data] = await this.dataSource.query('SELECT * FROM production_costs WHERE is_active = true ORDER BY id DESC LIMIT 1');
-        if (!data) {
-            return {
-                machine_name: 'Máy in chính', machine_value: 500000000, machine_depreciation_years: 5,
-                sheets_per_month: 100000, electricity_per_hour: 50000, sheets_per_hour: 2000,
-                production_staff_count: 3, avg_salary_monthly: 12000000,
-                rent_monthly: 20000000, utilities_monthly: 5000000, other_monthly: 5000000,
-                default_markup_percent: 30,
-            };
-        }
-        return data;
-    }
-
-    async saveCosts(data: Record<string, string | number>) {
-        if (!data.sheets_per_month || !data.default_markup_percent) {
-            throw new Error('sheets_per_month và default_markup_percent là bắt buộc');
-        }
-
-        const [existing] = await this.dataSource.query('SELECT id FROM production_costs WHERE is_active = true LIMIT 1');
-        const fields = {
-            machine_name: data.machine_name || 'Máy in chính',
-            machine_value: data.machine_value || 0,
-            machine_depreciation_years: data.machine_depreciation_years || 5,
-            sheets_per_month: data.sheets_per_month,
-            electricity_per_hour: data.electricity_per_hour || 0,
-            sheets_per_hour: data.sheets_per_hour || 1000,
-            production_staff_count: data.production_staff_count || 0,
-            avg_salary_monthly: data.avg_salary_monthly || 0,
-            rent_monthly: data.rent_monthly || 0,
-            utilities_monthly: data.utilities_monthly || 0,
-            other_monthly: data.other_monthly || 0,
-            default_markup_percent: data.default_markup_percent,
-        };
-
-        if (existing) {
-            const keys = Object.keys(fields);
-            const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
-            await this.dataSource.query(
-                `UPDATE production_costs SET ${sets}, updated_at = NOW() WHERE id = $${keys.length + 1}`,
-                [...Object.values(fields), existing.id],
-            );
-        } else {
-            const keys = Object.keys(fields);
-            const cols = keys.join(', ');
-            const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-            await this.dataSource.query(`INSERT INTO production_costs (${cols}) VALUES (${placeholders})`, Object.values(fields));
-        }
-    }
-
-    async updateCost(id: string, data: Partial<ProductionCost>) {
-        await this.costRepo.update(parseInt(id), data);
-        return this.costRepo.findOne({ where: { id: parseInt(id) } });
-    }
-
     // ─── Ink Costs ───
 
     async findAllInkCosts() {
@@ -306,151 +246,5 @@ export class SystemSettingsService {
                 description = excluded.description, updated_at = NOW()
             `, [item.print_type, item.print_type_name || item.print_type, item.ml_per_sheet || 0.5, item.price_per_ml || 500, item.description || '']);
         }
-    }
-
-    // ─── Calculate Cost Per Sheet ───
-
-    async calculateCostPerSheet(params: {
-        material_id?: string; paper_size?: string; print_type?: string;
-        sides?: number; quantity?: number;
-    }) {
-        const paperSize = params.paper_size || 'A3';
-        const printType = params.print_type || '4c';
-        const sides = params.sides || 1;
-        const quantity = params.quantity || 1000;
-
-        const config = await this.findAllCosts();
-        if (!config.sheets_per_month) throw new Error('Chưa cấu hình chi phí sản xuất');
-
-        // Ink cost
-        const [inkConfig] = await this.dataSource.query('SELECT * FROM ink_costs WHERE print_type = $1 LIMIT 1', [printType]).catch(() => [null]);
-
-        // Size factor
-        const sizeFactors: Record<string, number> = { A3: 1, A4: 0.5, A5: 0.25, A6: 0.125, B3: 1.1, B4: 0.55, B5: 0.275 };
-        const sizeFactor = sizeFactors[paperSize] ?? 1;
-
-        // Material cost
-        let materialCostPerSheet = 800 * sizeFactor;
-        if (params.material_id) {
-            const [mat] = await this.dataSource.query('SELECT cost_price, gsm FROM materials WHERE id = $1', [params.material_id]).catch(() => [null]);
-            if (mat) {
-                const gsm = mat.gsm || 150;
-                const a3Area = 0.125;
-                const sheetsPerKg = 1000 / (gsm * a3Area);
-                const costPerKg = mat.cost_price || 50000;
-                materialCostPerSheet = (costPerKg / sheetsPerKg) * sizeFactor;
-            }
-        }
-
-        const inkCostPerSheet = inkConfig ? (inkConfig.ml_per_sheet * inkConfig.price_per_ml * sizeFactor * sides) : 0;
-        const monthlyDepreciation = config.machine_value / (config.machine_depreciation_years * 12);
-        const electricityCost = config.electricity_per_hour / Math.max(1, config.sheets_per_hour);
-        let machineCostPerSheet = (monthlyDepreciation / Math.max(1, config.sheets_per_month)) + electricityCost;
-        let laborCostPerSheet = (config.production_staff_count * config.avg_salary_monthly) / Math.max(1, config.sheets_per_month);
-        const overheadCostPerSheet = (config.rent_monthly + config.utilities_monthly + config.other_monthly) / Math.max(1, config.sheets_per_month);
-
-        if (sides === 2) { machineCostPerSheet *= 1.5; laborCostPerSheet *= 1.3; }
-
-        const totalCost = materialCostPerSheet + inkCostPerSheet + machineCostPerSheet + laborCostPerSheet + overheadCostPerSheet;
-        const markup = config.default_markup_percent / 100;
-        const sellingPrice = Math.ceil(totalCost * (1 + markup) / 50) * 50;
-
-        return {
-            paper_size: paperSize, print_type: printType, sides, quantity,
-            breakdown: {
-                material: Math.round(materialCostPerSheet), ink: Math.round(inkCostPerSheet),
-                machine: Math.round(machineCostPerSheet), labor: Math.round(laborCostPerSheet),
-                overhead: Math.round(overheadCostPerSheet),
-            },
-            total_cost: Math.round(totalCost), markup_percent: config.default_markup_percent,
-            selling_price: sellingPrice,
-            total_order_cost: Math.round(totalCost * quantity),
-            total_order_price: Math.round(sellingPrice * quantity),
-            profit_per_sheet: Math.round(sellingPrice - totalCost),
-            profit_total: Math.round((sellingPrice - totalCost) * quantity),
-        };
-    }
-
-    // ─── Generate Pricing Tiers (bulk) ───
-
-    async generatePricingTiers(data: Record<string, unknown>) {
-        const materials = (data.materials || []) as number[];
-        const print_types = (data.print_types || []) as string[];
-        const sides = (data.sides || []) as number[];
-        const quantity_tiers = (data.quantity_tiers || []) as { quantity_from: number | string; quantity_to: number | string; discount_percent: number | string }[];
-        const markup_percent = data.markup_percent as number | string || 0;
-        const overwrite = !!data.overwrite;
-        let materialIds: number[] = materials;
-        const printTypes: string[] = print_types.length ? print_types : ['4c', '1c'];
-        const sidesArr: number[] = sides.length ? sides : [1, 2];
-        const quantityTiers = quantity_tiers.length ? quantity_tiers : [{ quantity_from: 1, quantity_to: 999999, discount_percent: 0 }];
-        const markupPercent = parseFloat(String(markup_percent || 30));
-
-        const config = await this.findAllCosts();
-        if (!config.sheets_per_month) throw new Error('Chưa cấu hình chi phí sản xuất');
-
-        if (materialIds.length === 0) {
-            const rows = await this.dataSource.query("SELECT id FROM materials WHERE category = 'printing'").catch(() => []);
-            materialIds = rows.map((r: { id: number }) => r.id);
-        }
-
-        if (materialIds.length === 0) return { generated: 0, errors: ['No materials found'] };
-
-        const placeholders = materialIds.map((_, i) => `$${i + 1}`).join(',');
-        const mats = await this.dataSource.query(
-            `SELECT m.*, ps.name as paper_size_name FROM materials m LEFT JOIN paper_sizes ps ON m.paper_size_id = ps.id WHERE m.id IN (${placeholders})`,
-            materialIds,
-        );
-
-        const sizeFactors: Record<string, number> = { A3: 1, A4: 0.5, A5: 0.25, A6: 0.125, B3: 1.1, B4: 0.55 };
-        let generated = 0;
-        const errors: string[] = [];
-
-        for (const material of mats) {
-            const pSize = material.paper_size_name || 'A3';
-            const materialCost = parseFloat(material.cost_price) || 800;
-            const sizeFactor = sizeFactors[pSize] ?? 1;
-
-            for (const printType of printTypes) {
-                const [inkConfig] = await this.dataSource.query('SELECT * FROM ink_costs WHERE print_type = $1 LIMIT 1', [printType]).catch(() => [null]);
-
-                for (const side of sidesArr) {
-                    const inkCost = inkConfig ? (inkConfig.ml_per_sheet * inkConfig.price_per_ml * sizeFactor * side) : 0;
-                    let machineCost = (config.machine_value / (config.machine_depreciation_years * 12) / Math.max(1, config.sheets_per_month))
-                        + (config.electricity_per_hour / Math.max(1, config.sheets_per_hour));
-                    let laborCost = (config.production_staff_count * config.avg_salary_monthly) / Math.max(1, config.sheets_per_month);
-                    const overheadCost = (config.rent_monthly + config.utilities_monthly + config.other_monthly) / Math.max(1, config.sheets_per_month);
-
-                    if (side === 2) { machineCost *= 1.5; laborCost *= 1.3; }
-
-                    const baseCost = materialCost + inkCost + machineCost + laborCost + overheadCost;
-                    const basePrice = baseCost * (1 + markupPercent / 100);
-
-                    for (const tier of quantityTiers) {
-                        const qFrom = parseInt(String(tier.quantity_from || 1));
-                        const qTo = parseInt(String(tier.quantity_to || 999999));
-                        const discount = parseFloat(String(tier.discount_percent || 0));
-                        const finalPrice = Math.ceil(basePrice * (1 - discount / 100) / 50) * 50;
-
-                        const tierName = `${material.name} / ${side} mặt / ${printType === '4c' ? '4 màu' : '1 màu'} / SL ${qFrom}-${qTo}`;
-
-                        try {
-                            const sql = overwrite
-                                ? `INSERT INTO pricing_tiers (material_id, name, paper_size, print_side, print_type, quantity_from, quantity_to, min_qty, max_qty, price_per_sheet)
-                                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT(material_id, paper_size, print_side, print_type, quantity_from) DO UPDATE SET price_per_sheet = excluded.price_per_sheet, updated_at = NOW()`
-                                : `INSERT INTO pricing_tiers (material_id, name, paper_size, print_side, print_type, quantity_from, quantity_to, min_qty, max_qty, price_per_sheet)
-                                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`;
-
-                            const result = await this.dataSource.query(sql, [material.id, tierName, pSize, side, printType, qFrom, qTo, qFrom, qTo, finalPrice]);
-                            if (result.affectedRows > 0) generated++;
-                        } catch (e: unknown) {
-                            errors.push(`Error for ${material.name}: ${e instanceof Error ? e.message : String(e)}`);
-                        }
-                    }
-                }
-            }
-        }
-
-        return { generated, errors };
     }
 }

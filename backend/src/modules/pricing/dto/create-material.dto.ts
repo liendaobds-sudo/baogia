@@ -17,6 +17,9 @@ export class CreateMaterialDto {
   @ApiPropertyOptional() @IsOptional() @IsString() category_tab?: string;
   @ApiPropertyOptional({ default: 'printing' }) @IsOptional() @IsString() category?: string;
   @ApiPropertyOptional({ description: 'ID khổ giấy chuẩn' }) @IsOptional() @Type(() => Number) @IsNumber() paper_size_id?: number;
+  @ApiPropertyOptional({ enum: ['parent', 'child'], description: "Vai trò khổ giấy offset: 'parent' = khổ nhập (có giá) | 'child' = khổ xả (giá dẫn xuất)" }) @IsOptional() @IsString() @IsIn(['parent', 'child']) sheet_role?: string;
+  @ApiPropertyOptional({ description: 'ID vật tư khổ NHẬP nguồn (chỉ khổ xả) — self-FK để dẫn giá' }) @IsOptional() @Type(() => Number) @IsNumber() parent_material_id?: number;
+  @ApiPropertyOptional({ description: 'Khổ xả tick trong màn vật tư cha (chỉ khi tạo/sửa khổ nhập). Mỗi phần tử {width,height} mm → sinh 1 vật tư con (mã tự sinh từ mã cha + khổ).', type: 'array' }) @IsOptional() child_sheets?: { width: number; height: number; name?: string }[];
   @ApiPropertyOptional({ description: 'ID đơn vị tính' }) @IsOptional() @Type(() => Number) @IsNumber() unit_id?: number;
   @ApiPropertyOptional({ default: 'tờ' }) @IsOptional() @IsString() unit?: string;
   @ApiPropertyOptional({ example: 210, description: 'Rộng (mm)' }) @IsOptional() @Type(() => Number) @IsNumber() width?: number;
@@ -54,6 +57,8 @@ export class UpdateMaterialDto {
   @ApiPropertyOptional() @IsOptional() @IsString() category_tab: string;
   @ApiPropertyOptional() @IsOptional() @IsString() category: string;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() paper_size_id: number;
+  @ApiPropertyOptional({ enum: ['parent', 'child'], description: "Vai trò khổ giấy offset: 'parent' (khổ nhập, có giá) | 'child' (khổ xả, dẫn giá từ cha)" }) @IsOptional() @IsString() @IsIn(['parent', 'child']) sheet_role?: string;
+  @ApiPropertyOptional({ description: 'ID vật tư khổ NHẬP nguồn (chỉ khổ xả) — self-FK về materials.id' }) @IsOptional() @Type(() => Number) @IsNumber() parent_material_id?: number;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() unit_id: number;
   @ApiPropertyOptional() @IsOptional() @IsString() unit: string;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsNumber() width: number;

@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { ConversationsService } from './conversations.service';
 import { FollowUpService } from './follow-up.service';
 import {
@@ -12,7 +13,7 @@ import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth, ApiResponse, 
 @ApiTags('Conversations (Hội thoại)')
 @ApiBearerAuth()
 @Controller('conversations')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class ConversationsController {
     constructor(
         private convService: ConversationsService,

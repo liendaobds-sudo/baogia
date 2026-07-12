@@ -439,14 +439,17 @@ Bạn BẮT BUỘC PHẢI THỰC HIỆN:
 
         if (quoteResult.total && quoteResult.total > 0) {
             text += `Sản phẩm: ${quoteResult.productType}\n`;
-            text += `Tổng: ${quoteResult.total.toLocaleString('vi-VN')}đ\n`;
+            text += `Tổng: ${quoteResult.total.toLocaleString('vi-VN')}đ (giá tham khảo, CHƯA gồm VAT)\n`;
             if (quoteResult.unitPrice) {
-                text += `Đơn giá: ${quoteResult.unitPrice.toLocaleString('vi-VN')}đ\n`;
+                text += `Đơn giá: ${quoteResult.unitPrice.toLocaleString('vi-VN')}đ (chưa gồm VAT)\n`;
             }
             text += 'Chi tiết:\n';
             for (const item of quoteResult.breakdown) {
                 text += `- ${item.item}: ${item.cost.toLocaleString('vi-VN')}đ ${item.missing ? '(thiếu định mức)' : ''}\n`;
             }
+            // §7 VAT: chatbot KHÔNG có nguồn VAT hợp lệ (VAT chỉ đến từ ô báo giá / thông tin khách).
+            // Nêu rõ giá là chưa gồm VAT để nhân viên chốt VAT ở bước báo giá chi tiết.
+            text += 'Lưu ý: đây là giá tham khảo CHƯA bao gồm VAT. VAT (nếu có) sẽ được áp ở bước báo giá chi tiết theo thông tin khách hàng.\n';
         } else if (quoteResult.missingFields && quoteResult.missingFields.length > 0) {
             text += `Thiếu thông tin: ${quoteResult.missingFields.join(', ')}\n`;
             if (quoteResult.question) {

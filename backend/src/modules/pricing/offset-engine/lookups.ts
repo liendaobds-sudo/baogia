@@ -10,6 +10,7 @@ import {
     GiaCongTier,
     LoaiKem,
     OffsetPricingError,
+    numParam,
 } from './pricing-data';
 
 /**
@@ -97,10 +98,10 @@ export function chiPhiGiaCong(code: string, sl: number, d: PricingData): number 
         return 0;
     }
     const rate = pickRate(sl, rec.tiers as GiaCongTier[], d.tyLe.mocSoLuong);
-    const moq = d.tyLe.params[rec.moqParam] ?? d.tyLe.params.MOQ_GiaCong;
+    const moq = numParam(d.tyLe.params, rec.moqParam) ?? d.tyLe.params.MOQ_GiaCong;
     if (rec.billingMode === 'minCharge') {
         if (sl < moq) {
-            const minVal = rec.minChargeParam ? d.tyLe.params[rec.minChargeParam] : 0;
+            const minVal = rec.minChargeParam ? numParam(d.tyLe.params, rec.minChargeParam) : 0;
             return minVal ?? 0;
         }
         return rate * sl;
@@ -115,9 +116,9 @@ export function chiPhiEpKim(viTri: string, sl: number, d: PricingData): number {
     if (!viTri || viTri === 'Không') return 0;
     const row = d.epKim.rows.find((r) => r.viTri === viTri);
     if (!row) throw new OffsetPricingError(`Vị trí ép kim không tồn tại: ${viTri}`);
-    const m1 = d.tyLe.params.EpKim_Moc1 || 100;
-    const m2 = d.tyLe.params.EpKim_Moc2 || 500;
-    const m3 = d.tyLe.params.EpKim_Moc3 || 1000;
+    const m1 = numParam(d.tyLe.params, 'EpKim_Moc1') || 100;
+    const m2 = numParam(d.tyLe.params, 'EpKim_Moc2') || 500;
+    const m3 = numParam(d.tyLe.params, 'EpKim_Moc3') || 1000;
     if (sl < m1) return row.duoi100; // trọn gói, KHÔNG nhân SL
     if (sl < m2) return row.tu100_499 * sl;
     if (sl < m3) return row.tu500_999 * sl;
@@ -237,7 +238,7 @@ export function soConKhoTinh(
         marginLeft: rec?.marginLeft, marginRight: rec?.marginRight,
         marginTop: rec?.marginTop, marginBottom: rec?.marginBottom,
     };
-    const imp = imposeFromKhoIn(kho, itemW, itemH, d.tyLe.params.Gap_Cm || 0.3);
+    const imp = imposeFromKhoIn(kho, itemW, itemH, numParam(d.tyLe.params, 'Gap_Cm') || 0.3);
     return {
         soConBaiIn: imp.soConBaiIn > 0 ? imp.soConBaiIn : tableBaiIn,
         soConToLon: imp.soConToLon > 0 ? imp.soConToLon : tableToLon,

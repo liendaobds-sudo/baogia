@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useEffect, useState, useCallback } from 'react';
 
 import { API_URL as API } from '@/lib/api';
+import { resolveLandingPath } from '@/lib/scope/landing';
 
 interface DashboardData {
     totalTenants: number;
@@ -250,6 +251,48 @@ export default function SuperAdminPage() {
         } catch { alert('Lỗi kết nối'); }
     };
 
+    // Truy cập (impersonate) vào một tenant: lấy token 5 phút của admin tenant, SAO LƯU
+    // phiên super-admin vào key riêng (imp_sa_*) rồi cài token tenant + hard-navigate để
+    // auth-context đọc lại localStorage. Gỡ zh_refresh_token trong phiên tenant (token
+    // impersonation không có refresh) — hết hạn thì authFetch tự đăng xuất. Thoát qua
+    // banner sẽ khôi phục phiên super-admin.
+    const impersonateTenant = async (tenant: Tenant) => {
+        if (!confirm(`Truy cập vào tenant "${tenant.name}"?\nBạn sẽ đăng nhập với quyền quản trị của tenant này (phiên 5 phút). Phiên super-admin sẽ được khôi phục khi bạn thoát.`)) return;
+        try {
+            const res = await authFetch(`${API}/super-admin/impersonate/${tenant.id}`, { method: 'POST' });
+            const json = await res.json();
+            const token: string | undefined = json.token || json.data?.token;
+            if (!token) { alert(json.error || json.message || 'Không truy cập được tenant'); return; }
+
+            // Nạp hồ sơ user tenant bằng token mới (cần fullName/permissions cho UI).
+            const meRes = await fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+            const meJson = await meRes.json().catch(() => ({}));
+            const tenantUser = meJson?.data;
+            if (!tenantUser) { alert('Không nạp được hồ sơ tenant'); return; }
+
+            // Sao lưu phiên super-admin (chỉ khi CHƯA ở trong phiên impersonation).
+            if (!localStorage.getItem('imp_sa_token')) {
+                localStorage.setItem('imp_sa_token', localStorage.getItem('zh_token') || '');
+                localStorage.setItem('imp_sa_user', localStorage.getItem('zh_user') || '');
+                const saRefresh = localStorage.getItem('zh_refresh_token');
+                if (saRefresh) localStorage.setItem('imp_sa_refresh', saRefresh);
+            }
+            localStorage.setItem('imp_tenant_name', tenant.name);
+
+            // Cài phiên tenant. Gỡ refresh token để không refresh nhầm về super-admin.
+            localStorage.setItem('zh_token', token);
+            localStorage.setItem('zh_user', JSON.stringify(tenantUser));
+            localStorage.removeItem('zh_refresh_token');
+
+            // Chọn trang đích theo Trục_Ứng_Dụng của tenant: CSKH tắt → landing /pricing
+            // (Dashboard thuộc trục CSKH, sẽ bị ẩn menu). CSKH bật → /dashboard như thường.
+            const landing = await resolveLandingPath(token, '/dashboard');
+
+            // Hard-navigate → AuthProvider re-mount đọc token mới.
+            window.location.href = landing;
+        } catch { alert('Lỗi kết nối'); }
+    };
+
     const exportReport = () => {
         const rows = [
             ['Chỉ số', 'Giá trị'],
@@ -343,7 +386,7 @@ export default function SuperAdminPage() {
                     ) : (
                         <>
                             {activeTab === 'dashboard' && dashboard && <DashboardTab data={dashboard} formatVnd={formatVnd} systemHealth={systemHealth} onTabChange={handleTabChange} onCreateTenant={() => setShowCreateTenant(true)} onExportReport={exportReport} />}
-                            {activeTab === 'tenants' && <TenantsTab tenants={tenants} plans={plans} formatDate={formatDate} onCreateTenant={() => setShowCreateTenant(true)} onEdit={setEditingTenant} onSetStatus={setTenantStatus} onResetPassword={resetTenantAdminPassword} onCapabilities={setCapsTenant} />}
+                            {activeTab === 'tenants' && <TenantsTab tenants={tenants} plans={plans} formatDate={formatDate} onCreateTenant={() => setShowCreateTenant(true)} onEdit={setEditingTenant} onSetStatus={setTenantStatus} onResetPassword={resetTenantAdminPassword} onCapabilities={setCapsTenant} onImpersonate={impersonateTenant} />}
                             {activeTab === 'plans' && <PlansTab plans={plans} formatVnd={formatVnd} />}
                             {activeTab === 'payments' && <PaymentsTab payments={payments} formatVnd={formatVnd} formatDate={formatDate} onConfirm={confirmPayment} />}
                             {activeTab === 'rbac' && <RbacTab roles={roles} authFetch={authFetch} onRefresh={() => fetchData('rbac')} />}
@@ -419,18 +462,28 @@ function CapabilitiesModal({ tenant, authFetch, onClose }: {
     const [error, setError] = useState<string | null>(null);
     const [enabledMethods, setEnabledMethods] = useState<string[]>([]);
     const [source, setSource] = useState<'explicit' | 'inherited'>('inherited');
+    const [cskhEnabled, setCskhEnabled] = useState(true);
+    const [appSource, setAppSource] = useState<'explicit' | 'inherited'>('inherited');
 
     const load = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await authFetch(`${API}/super-admin/tenants/${tenant.id}/capabilities`);
-            const json = await res.json();
-            if (json.success) {
-                setEnabledMethods(json.data.enabledMethods || []);
-                setSource(json.data.source || 'inherited');
+            const [capRes, appRes] = await Promise.all([
+                authFetch(`${API}/super-admin/tenants/${tenant.id}/capabilities`),
+                authFetch(`${API}/super-admin/tenants/${tenant.id}/app-scope`),
+            ]);
+            const capJson = await capRes.json();
+            if (capJson.success) {
+                setEnabledMethods(capJson.data.enabledMethods || []);
+                setSource(capJson.data.source || 'inherited');
             } else {
-                setError(json.error || 'Lỗi tải năng lực');
+                setError(capJson.error || 'Lỗi tải năng lực');
+            }
+            const appJson = await appRes.json();
+            if (appJson.success) {
+                setCskhEnabled(appJson.data.cskh ?? true);
+                setAppSource(appJson.data.source || 'inherited');
             }
         } catch {
             setError('Lỗi kết nối');
@@ -475,6 +528,29 @@ function CapabilitiesModal({ tenant, authFetch, onClose }: {
 
     const ALL_METHODS = ['digital', 'offset'];
 
+    const toggleCskh = async () => {
+        const next = !cskhEnabled;
+        setSaving('cskh');
+        setError(null);
+        try {
+            const res = await authFetch(`${API}/super-admin/tenants/${tenant.id}/app-scope/cskh`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: next }),
+            });
+            if (res.ok) {
+                await load();
+            } else {
+                const json = await res.json().catch(() => ({}));
+                setError(json.message || json.error || 'Lỗi cập nhật phạm vi');
+            }
+        } catch {
+            setError('Lỗi kết nối');
+        } finally {
+            setSaving(null);
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]" onClick={onClose}>
             <div onClick={e => e.stopPropagation()} className="bg-white border border-slate-200 rounded-xl shadow-xl p-7 w-[440px]">
@@ -513,14 +589,42 @@ function CapabilitiesModal({ tenant, authFetch, onClose }: {
                                             onClick={() => toggle(methodId)}
                                             disabled={busy}
                                             aria-pressed={on}
-                                            className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-60 disabled:cursor-wait ${on ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                            className={`flex items-center w-12 h-6 px-0.5 p-0 border-0 appearance-none rounded-full transition-colors disabled:opacity-60 disabled:cursor-wait ${on ? 'bg-emerald-500 justify-end' : 'bg-slate-300 justify-start'}`}
                                             title={on ? 'Đang bật — nhấn để tắt' : 'Đang tắt — nhấn để bật'}
                                         >
-                                            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                                            <span className="block w-5 h-5 shrink-0 bg-white rounded-full shadow" />
                                         </button>
                                     </div>
                                 );
                             })}
+                        </div>
+
+                        {/* Phạm vi ứng dụng (Trục) — Báo giá luôn bật; CSKH bật/tắt được. */}
+                        <div className="mt-6 mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Phạm vi ứng dụng</div>
+                        <div className={`rounded-md px-3 py-2 mb-3 text-[13px] ${appSource === 'explicit' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-50 text-slate-600'}`}>
+                            {appSource === 'explicit'
+                                ? '⚙️ Cấu hình riêng cho tenant này.'
+                                : '↩️ Đang kế thừa mặc định (CSKH bật). Thay đổi sẽ tạo cấu hình riêng.'}
+                        </div>
+                        <div className="flex flex-col gap-2.5">
+                            <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg opacity-70">
+                                <span className="text-sm font-semibold text-slate-800">📄 Báo giá (lõi — luôn bật)</span>
+                                <div className="flex items-center justify-end w-12 h-6 px-0.5 rounded-full bg-emerald-500" title="Trục lõi — không thể tắt">
+                                    <span className="block w-5 h-5 shrink-0 bg-white rounded-full shadow" />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                <span className="text-sm font-semibold text-slate-800">💬 CSKH (inbox, chatbot, KB)</span>
+                                <button
+                                    onClick={toggleCskh}
+                                    disabled={saving === 'cskh'}
+                                    aria-pressed={cskhEnabled}
+                                    className={`flex items-center ${cskhEnabled ? 'justify-end' : 'justify-start'} w-12 h-6 px-0.5 p-0 border-0 appearance-none rounded-full transition-colors disabled:opacity-60 disabled:cursor-wait ${cskhEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                    title={cskhEnabled ? 'Đang bật — nhấn để tắt' : 'Đang tắt — nhấn để bật'}
+                                >
+                                    <span className="block w-5 h-5 shrink-0 bg-white rounded-full shadow transition-transform" />
+                                </button>
+                            </div>
                         </div>
                     </>
                 )}
@@ -805,7 +909,7 @@ function DashboardTab({ data, formatVnd, systemHealth, onTabChange, onCreateTena
 }
 
 /* ─── Tenants Tab ─── */
-function TenantsTab({ tenants, plans, formatDate, onCreateTenant, onEdit, onSetStatus, onResetPassword, onCapabilities }: {
+function TenantsTab({ tenants, plans, formatDate, onCreateTenant, onEdit, onSetStatus, onResetPassword, onCapabilities, onImpersonate }: {
     tenants: DashboardData['tenants'];
     plans: Plan[];
     formatDate: (s: string) => string;
@@ -814,6 +918,7 @@ function TenantsTab({ tenants, plans, formatDate, onCreateTenant, onEdit, onSetS
     onSetStatus: (id: number, status: 'trial' | 'active' | 'suspended' | 'cancelled') => void;
     onResetPassword: (id: number) => void;
     onCapabilities: (tenant: Tenant) => void;
+    onImpersonate: (tenant: Tenant) => void;
 }) {
     if (!tenants.length) return (
         <div className="text-center py-16 text-slate-500 text-[15px]">
@@ -856,6 +961,9 @@ function TenantsTab({ tenants, plans, formatDate, onCreateTenant, onEdit, onSetS
                         {t.status === 'active' ? 'Hoạt động' : t.status === 'trial' ? 'Dùng thử' : t.status === 'suspended' ? 'Tạm ngưng' : t.status}
                     </span>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {t.status !== 'suspended' && (
+                            <button onClick={() => onImpersonate(t)} className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition-colors">→ Truy cập</button>
+                        )}
                         <button onClick={() => onEdit(t)} className="px-3 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-md text-xs font-semibold hover:bg-slate-50 transition-colors">✏️ Sửa</button>
                         <button onClick={() => onCapabilities(t)} className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-md text-xs font-semibold hover:bg-indigo-50 transition-colors">🖨️ Năng lực</button>
                         {(t.status === 'active' || t.status === 'trial') ? (

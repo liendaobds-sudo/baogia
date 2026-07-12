@@ -4,6 +4,7 @@ import { DataTable, ColumnDef } from '../../_components/DataTable';
 import { DeleteConfirm } from '../../_components/CrudModal';
 import { FinishingModal, type Tier } from './_components/FinishingModal';
 import { api } from '../../_components/apiClient';
+import { useMethodVisibility } from '@/lib/scope/use-method-visibility';
 
 interface ProcessingOption {
     id: number;
@@ -31,6 +32,10 @@ export default function FinishingsPage() {
     const [editItem, setEditItem] = useState<ProcessingOption | null>(null);
     const [deleteItem, setDeleteItem] = useState<ProcessingOption | null>(null);
     const [tab, setTab] = useState<'all' | 'digital' | 'offset'>('all');
+    // Cờ hiển thị theo Phương_Pháp_In khả dụng của tenant (Req 2.2): chỉ tách tab
+    // digital/offset khi CẢ HAI cùng bật; nếu chỉ 1 phương pháp thì ẩn thanh tab và
+    // ép lọc về đúng phương pháp đó — không để lọt tab của phương pháp không khả dụng.
+    const { showOffset, bothMethods, loaded: methodsLoaded } = useMethodVisibility();
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -133,7 +138,7 @@ export default function FinishingsPage() {
         <div className="flex flex-col h-full bg-slate-50/50 p-6">
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cấu Hình Gia Công</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cấu hình gia công</h1>
                     <p className="text-slate-500 text-sm mt-1">Danh mục thành phẩm sau in (cán màng, bế, ép kim…). <strong>In Nhanh</strong> dùng đơn giá gốc; bật <strong>"Dùng cho In Offset"</strong> để cấu hình luôn bảng bậc thang Offset ngay trong mục này.</p>
                 </div>
                 <button onClick={() => { setEditItem(null); setModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center gap-2">
@@ -147,19 +152,33 @@ export default function FinishingsPage() {
                     const isOffset = (p: ProcessingOption) => !!p.scope_offset;
                     const nDigital = data.filter(isDigital).length;
                     const nOffset = data.filter(isOffset).length;
-                    const filtered = tab === 'digital' ? data.filter(isDigital) : tab === 'offset' ? data.filter(isOffset) : data;
+
+                    // Tenant chỉ bật digital (offset tắt): ẩn hẳn thanh tab + mọi dòng
+                    // Offset; chỉ hiện danh mục gia công In Nhanh. Ngược lại khi chỉ bật
+                    // offset thì tương tự cho digital. Chỉ khi CẢ HAI bật mới hiện 3 tab.
+                    const effTab = methodsLoaded && !bothMethods
+                        ? (showOffset ? 'offset' : 'digital')
+                        : tab;
+                    const baseData = methodsLoaded && !bothMethods
+                        ? (showOffset ? data.filter(isOffset) : data.filter(isDigital))
+                        : data;
+                    const filtered = effTab === 'digital' ? baseData.filter(isDigital)
+                        : effTab === 'offset' ? baseData.filter(isOffset)
+                        : baseData;
                     return (
                         <>
-                            <div className="flex gap-1 mb-3">
-                                {([['all', `Tất cả (${data.length})`], ['digital', `In Nhanh (${nDigital})`], ['offset', `In Offset (${nOffset})`]] as [typeof tab, string][]).map(([id, label]) => (
-                                    <button key={id} onClick={() => setTab(id)}
-                                        className={`px-4 py-2 text-sm font-semibold rounded-lg border transition-colors ${tab === id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
+                            {bothMethods && (
+                                <div className="flex gap-1 mb-3">
+                                    {([['all', `Tất cả (${data.length})`], ['digital', `In Nhanh (${nDigital})`], ['offset', `In Offset (${nOffset})`]] as [typeof tab, string][]).map(([id, label]) => (
+                                        <button key={id} onClick={() => setTab(id)}
+                                            className={`px-4 py-2 text-sm font-semibold rounded-lg border transition-colors ${tab === id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                             <div className="flex-1 min-h-0">
-                                <DataTable columns={columnsFor(tab)} data={filtered} isLoading={loading} stickyActions />
+                                <DataTable columns={columnsFor(effTab)} data={filtered} isLoading={loading} stickyActions />
                             </div>
                         </>
                     );

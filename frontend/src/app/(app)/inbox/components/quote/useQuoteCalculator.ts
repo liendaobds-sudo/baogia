@@ -156,7 +156,8 @@ export function useQuoteCalculator(
     formData: Record<string, string>,
     masterData: MasterData,
     selectedAccessories: Array<{ id: number; name: string; qty: number; price: number }>,
-    selectedProcessing: Array<{ id: number; name: string; price: number; qty?: number; unit?: string; section?: 'cover' | 'inner' }> = []
+    selectedProcessing: Array<{ id: number; name: string; price: number; qty?: number; unit?: string; section?: 'cover' | 'inner' }> = [],
+    vatRate: number = 0,
 ) {
     const [quoteResult, setQuoteResult] = useState<import('./types').QuoteResult | null>(null);
     const [isCalculating, setIsCalculating] = useState(false);
@@ -188,6 +189,9 @@ export function useQuoteCalculator(
             const payload = buildPricingPayload(normalized);
             // Gắn mã sản phẩm để backend kiểm tra whitelist (đồng bộ với báo giá thủ công).
             if (selectedTemplate.code) (payload as any).product_code = selectedTemplate.code;
+            // VAT cấp báo giá mini: đi theo ô VAT trên form mini (mặc định company-info), gửi % xuống
+            // facade. KHÔNG lấy VAT từ pricing_config. Thiếu/0 ⇒ facade coi như không áp VAT.
+            (payload as any).vat_rate = Number.isFinite(vatRate) && vatRate > 0 ? vatRate : 0;
 
             const res = await fetch(`${API}/quote/pricing-calc`, {
                 method: 'POST',

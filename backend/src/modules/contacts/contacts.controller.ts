@@ -1,12 +1,13 @@
 import { Controller, Get, Param, Query, Put, Body, UseGuards, Res } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { Contact, Conversation, Message } from '../../entities';
 import { Response } from 'express';
 
 @Controller('contacts')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class ContactsController {
     constructor(
         @InjectRepository(Contact) private contactRepo: Repository<Contact>,

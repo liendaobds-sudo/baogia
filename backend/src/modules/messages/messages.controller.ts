@@ -1,10 +1,11 @@
 import { Controller, Post, Get, Delete, Param, Query, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { MessagesService } from './messages.service';
 import { MessageProcessorService } from './message-processor.service';
 
 @Controller('conversations')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class MessagesController {
     constructor(
         private messagesService: MessagesService,

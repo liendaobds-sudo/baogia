@@ -9,6 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { ChannelsService } from './channels.service';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { Channel } from '../../entities';
 
 // ─── Mock helpers ───
@@ -31,6 +32,8 @@ describe('ChannelsService', () => {
             providers: [
                 ChannelsService,
                 { provide: getRepositoryToken(Channel), useValue: channelsRepo },
+                // Ngoài context (unit test) → get() undefined → không lọc tenant.
+                { provide: TenantContextService, useValue: { get: () => undefined } },
             ],
         }).compile();
 
@@ -42,15 +45,17 @@ describe('ChannelsService', () => {
     // ================================================================
 
     describe('findAll', () => {
-        it('should return all channels ordered by createdAt DESC', async () => {
-            const channels = [{ id: 'ch-1', name: 'Zalo' }];
+        it('should return channels ordered by createdAt DESC, secret masked', async () => {
+            const channels = [{ id: 'ch-1', name: 'Zalo', webhookSecret: 's3cret' }];
             channelsRepo.find.mockResolvedValue(channels);
 
             const result = await service.findAll();
-            expect(result.data).toEqual(channels);
-            expect(channelsRepo.find).toHaveBeenCalledWith({
-                order: { createdAt: 'DESC' },
-            });
+            // webhookSecret bị loại, thay bằng hasWebhookSecret; không lộ secret.
+            expect(result.data[0]).toMatchObject({ id: 'ch-1', name: 'Zalo', hasWebhookSecret: true });
+            expect((result.data[0] as any).webhookSecret).toBeUndefined();
+            expect(channelsRepo.find).toHaveBeenCalledWith(
+                expect.objectContaining({ order: { createdAt: 'DESC' } }),
+            );
         });
     });
 
@@ -85,7 +90,7 @@ describe('ChannelsService', () => {
             const data = { name: 'FB Page' };
             const result = await service.create(data);
 
-            expect(channelsRepo.create).toHaveBeenCalledWith(data);
+            expect(channelsRepo.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'FB Page' }));
             expect(channelsRepo.save).toHaveBeenCalled();
             expect(result.id).toBe('ch-1');
             expect(result.name).toBe('FB Page');

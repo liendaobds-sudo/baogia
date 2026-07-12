@@ -23,10 +23,10 @@ const SAMPLE_PRICING_RESULT = {
     total: 52800,            // GIA VON
     cost_subtotal: 52800,
     selling_subtotal: 79200, // markup 50%
-    vat_rate: 8,
-    vat_amount: 6336,
-    grand_total: 85536,      // GIA BAN (markup + VAT)
-    grand_total_per_item: 86,
+    vat_rate: 0,
+    vat_amount: 0,
+    grand_total: 79200,      // GIA BAN (markup, CHƯA VAT — VAT chỉ áp ở báo giá theo mục khách hàng)
+    grand_total_per_item: 79,
     breakdown: { items_per_sheet: 23, sheets_needed: 44, total_sheets: 48, price_per_sheet: 1000 },
     processing_details: [],
 };
@@ -68,15 +68,15 @@ function looseParsed(extra: Record<string, any> = {}) {
 
 describe('Quote FLOW — chatbot/mini, du lieu mau', () => {
 
-    it('B1: calculateFromParsed tra GIA BAN (grand_total 85.536), khong phai gia von (52.800)', async () => {
+    it('B1: calculateFromParsed tra GIA BAN (grand_total 79.200, chưa VAT), khong phai gia von (52.800)', async () => {
         const { svc } = buildQuoteService();
         const res = await svc.calculateFromParsed(looseParsed());
 
         expect(res.requiresManualQuote).toBeFalsy();
         expect(res.source).toBe('pricing');
-        expect(res.total).toBe(85536);   // grand_total, KHONG phai 52.800
+        expect(res.total).toBe(79200);   // grand_total (giá bán, chưa VAT), KHONG phai 52.800
         expect(res.total).not.toBe(52800);
-        expect(res.unitPrice).toBe(86);   // grand_total_per_item
+        expect(res.unitPrice).toBe(79);   // grand_total_per_item
     });
 
     it('Cache HIT: 2 lan goi input GIONG HET -> engine chi tinh 1 lan', async () => {

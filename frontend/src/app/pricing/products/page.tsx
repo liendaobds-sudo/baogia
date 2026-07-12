@@ -37,6 +37,14 @@ export default function ProductsPage() {
     const [catEdit, setCatEdit] = useState<Category | null>(null);
     const [catForm, setCatForm] = useState({ code: '', name_vi: '', icon: '', is_active: true });
 
+    // Đóng Category modal bằng ESC (đồng bộ UX với các modal khác).
+    useEffect(() => {
+        if (!catModalOpen) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCatModalOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [catModalOpen]);
+
     // Batch selection
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
     const [batchModalOpen, setBatchModalOpen] = useState(false);
@@ -104,14 +112,9 @@ export default function ProductsPage() {
             <input type="checkbox" className="w-4 h-4 rounded text-indigo-600 cursor-pointer" checked={selectedIds.has(p.id)} onChange={e => { e.stopPropagation(); setSelectedIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }} onClick={e => e.stopPropagation()} />
         )},
         { header: 'Sản phẩm', cell: (p) => (
-            <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 text-sm font-bold shrink-0">
-                    {p.icon ? <i className={`fas ${p.icon}`} /> : p.name_vi[0]}
-                </div>
-                <div className="min-w-0">
-                    <div className="font-semibold text-slate-800 truncate">{p.name_vi}</div>
-                    <div className="text-xs text-slate-400">{p.code}</div>
-                </div>
+            <div className="min-w-0">
+                <div className="font-semibold text-slate-800 truncate">{p.name_vi}</div>
+                <div className="text-xs text-slate-400">{p.code}</div>
             </div>
         )},
         { header: 'Danh mục', cell: (p) => {
@@ -142,7 +145,7 @@ export default function ProductsPage() {
             {/* Header */}
             <div className="mb-4 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Danh mục Sản phẩm</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Danh mục sản phẩm</h1>
                     <p className="text-slate-500 text-sm mt-1">Quản lý sản phẩm mẫu (dùng cho dropdown báo giá), danh mục và AI. Ràng buộc theo sản phẩm ở mục “Ràng buộc Báo giá”.</p>
                 </div>
                 <button onClick={() => { setEditItem(null); setModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-sm transition-colors flex items-center gap-2">

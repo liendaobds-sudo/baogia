@@ -1,12 +1,14 @@
 import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { PermissionsGuard, Permissions } from '../../auth/permissions.guard';
 import { OffsetMasterDataService } from '../services/offset-master-data.service';
 import { EngineOffsetService, OffsetEngineInput } from '../offset-engine/engine-offset.service';
 import { ConfigStore } from '../offset-engine/config-store.service';
 import { TUI_NEST_OPTIONS, buildTuiOptions } from '../offset-engine/products/tui-giay';
-import { flatDielineSize, generateDieline, nestOnSheet, nestRectOnSheet, SUPPORTED_BOX_TYPES, BoxType, DEFAULT_NESTING_CONFIG } from '../dieline';
+import { flatDielineSize, generateDieline, nestOnSheet, nestRectOnSheet, marginsToNestOverrides, SUPPORTED_BOX_TYPES, BoxType, DEFAULT_NESTING_CONFIG } from '../dieline';
 import { buildFlatShape, FlatShape } from '../dieline';
 import { docKichThuocCm } from '../offset-engine/lookups';
+import { resolveMarginConfig } from '../offset-engine/imposition';
 import { computeBoundingBox } from '../dieline/utils';
 import { buildPanelFillPaths, buildDielineFill } from '../dieline/panel-fill';
 import { CapabilityService } from '../../../quote/capability.service';
@@ -21,6 +23,10 @@ import { assertMethodEnabled } from '../../../quote/assert-method-enabled';
  * Engine tính giá DUY NHẤT là `EngineOffset` (mô hình bù hao theo công đoạn, dữ liệu cấu hình DB/JSON, đã khớp golden).
  * Engine cũ (machine/imposition) đã được gỡ sau khi 5 golden + 10 property test khớp (Req 21).
  */
+// Yêu cầu đăng nhập cho MỌI route (đóng các GET cấu hình vốn public trước đây).
+// PermissionsGuard active toàn controller; route mutation gắn @Permissions('pricing.edit'),
+// route tính giá/đọc (calculate/dieline/GET) không gắn → chỉ cần jwt.
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('pricing/offset')
 export class OffsetController {
 
@@ -148,9 +154,11 @@ export class OffsetController {
             .map((k) => {
                 const sm = docKichThuocCm(k.khoIn);
                 if (!sm || sm.w <= 0 || sm.h <= 0) return null;
+                // Nhíp/lề/gutter theo TỪNG khổ (khớp engine giá) → preview ≡ giá, không còn hằng số cứng.
+                const overrides = { nestingMode: nestMode, ...marginsToNestOverrides(resolveMarginConfig(k, d.tyLe.params)) };
                 const nest = isBox
-                    ? nestOnSheet(params, sm.w * 10, sm.h * 10, { nestingMode: nestMode })
-                    : nestRectOnSheet(bbox.width, bbox.height, sm.w * 10, sm.h * 10, { nestingMode: nestMode });
+                    ? nestOnSheet(params, sm.w * 10, sm.h * 10, overrides)
+                    : nestRectOnSheet(bbox.width, bbox.height, sm.w * 10, sm.h * 10, overrides);
                 return {
                     khoIn: k.khoIn,
                     khoGiayLon: k.khoGiayLon,
@@ -234,6 +242,7 @@ export class OffsetController {
     /** Seed lại cấu hình mặc định (idempotent) + làm mới cache engine. */
     @Post('pricebook/seed')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async seedPricebook() {
         const res = await this.configStore.seedDefaults();
         await this.engineNew.refreshFromConfigStore();
@@ -249,6 +258,7 @@ export class OffsetController {
 
     @Post('cfg/kho-in')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async upsertKhoIn(@Body() body: any) {
         await this.configStore.upsertKhoIn(body);
         await this.afterWrite();
@@ -256,6 +266,7 @@ export class OffsetController {
     }
     @Delete('cfg/kho-in/:khoIn')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteKhoIn(@Param('khoIn') khoIn: string) {
         await this.configStore.deleteKhoIn(khoIn);
         await this.afterWrite();
@@ -264,6 +275,7 @@ export class OffsetController {
 
     @Post('cfg/vat-tu-be-mat')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async upsertVatTuBeMat(@Body() body: any) {
         await this.configStore.upsertVatTuBeMat(body);
         await this.afterWrite();
@@ -271,6 +283,7 @@ export class OffsetController {
     }
     @Delete('cfg/vat-tu-be-mat/:ten')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteVatTuBeMat(@Param('ten') ten: string) {
         await this.configStore.deleteVatTuBeMat(ten);
         await this.afterWrite();
@@ -279,6 +292,7 @@ export class OffsetController {
 
     @Post('cfg/ep-kim')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async upsertEpKim(@Body() body: any) {
         await this.configStore.upsertEpKim(body);
         await this.afterWrite();
@@ -286,6 +300,7 @@ export class OffsetController {
     }
     @Delete('cfg/ep-kim/:viTri')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteEpKim(@Param('viTri') viTri: string) {
         await this.configStore.deleteEpKim(viTri);
         await this.afterWrite();
@@ -294,6 +309,7 @@ export class OffsetController {
 
     @Post('cfg/fixed-size')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async upsertFixedSize(@Body() body: { nhom: 'to_roi' | 'bi_thu_folder'; [k: string]: any }) {
         await this.configStore.upsertFixedSize(body.nhom, body);
         await this.afterWrite();
@@ -301,6 +317,7 @@ export class OffsetController {
     }
     @Delete('cfg/fixed-size/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteFixedSize(@Param('id') id: string) {
         await this.configStore.deleteFixedSize(parseInt(id, 10));
         await this.afterWrite();
@@ -309,6 +326,7 @@ export class OffsetController {
 
     @Post('cfg/kem')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async upsertKem(@Body() body: { bang: 'kemNho' | 'kemLon'; soKem: number; donGia: number }) {
         await this.configStore.upsertKem(body.bang, Number(body.soKem), Number(body.donGia));
         await this.afterWrite();
@@ -316,6 +334,7 @@ export class OffsetController {
     }
     @Delete('cfg/kem/:bang/:soKem')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteKem(@Param('bang') bang: 'kemNho' | 'kemLon', @Param('soKem') soKem: string) {
         await this.configStore.deleteKem(bang, parseInt(soKem, 10));
         await this.afterWrite();
@@ -359,6 +378,7 @@ export class OffsetController {
 
     @Post('cfg/waste-stages')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async saveWasteStages(@Body() body: { stages: { code: string; basis?: 'sheet' | 'piece'; makeready?: number; tiers?: { from: number; percent: number }[] }[] }) {
         const out: Record<string, { basis?: 'sheet' | 'piece'; makeready: number; tiers: { from: number; rate: number }[] }> = {};
         const byCode = new Map(OffsetController.STAGES.map((s) => [s.code, s]));
@@ -380,6 +400,7 @@ export class OffsetController {
 
     @Post('cfg/param')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async upsertParam(@Body() body: { key: string; value: number }) {
         await this.configStore.upsertParam(body.key, Number(body.value));
         await this.afterWrite();
@@ -388,6 +409,7 @@ export class OffsetController {
 
     @Delete('cfg/param/:key')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteParam(@Param('key') key: string) {
         await this.configStore.deleteParam(key);
         await this.afterWrite();
@@ -429,6 +451,7 @@ export class OffsetController {
 
     @Post('cfg/fees')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async saveFees(@Body() body: { fees?: { code: string; ten?: string; giaTri: number }[]; chietKhauDefault?: number; chietKhauMax?: number; mocSoLuong?: number[]; epKimMoc?: { m1?: number; m2?: number; m3?: number } }) {
         const valid = new Set(OffsetController.FEE_CODES.map((f) => f.code));
         for (const f of body?.fees || []) {
@@ -468,6 +491,7 @@ export class OffsetController {
 
     @Post('cfg/product-config')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async saveProductConfig(@Body() body: { config?: Record<string, any> }) {
         const valid = new Set(OffsetController.PRODUCT_TYPES);
         const strArr = (v: any): string[] | undefined =>
@@ -511,6 +535,7 @@ export class OffsetController {
 
     @Post('cfg/hao-hut')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async saveHaoHutCurve(@Body() body: { rows: { mocSoLuong: number; percent: number }[] }) {
         await this.configStore.saveHaoHutCurve(body?.rows || []);
         await this.afterWrite();
@@ -528,6 +553,7 @@ export class OffsetController {
 
     @Post('machines')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async createMachine(@Body() body: any) {
         const data = await this.masterData.createMachine(body);
         return { success: true, data };
@@ -535,6 +561,7 @@ export class OffsetController {
 
     @Patch('machines/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async updateMachine(@Param('id') id: string, @Body() body: any) {
         const data = await this.masterData.updateMachine(parseInt(id), body);
         return { success: true, data };
@@ -542,6 +569,7 @@ export class OffsetController {
 
     @Delete('machines/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteMachine(@Param('id') id: string) {
         await this.masterData.deleteMachine(parseInt(id));
         return { success: true };
@@ -558,6 +586,7 @@ export class OffsetController {
 
     @Post('plates')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async createPlatePricing(@Body() body: any) {
         const data = await this.masterData.createPlatePricing(body);
         return { success: true, data };
@@ -565,6 +594,7 @@ export class OffsetController {
 
     @Patch('plates/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async updatePlatePricing(@Param('id') id: string, @Body() body: any) {
         const data = await this.masterData.updatePlatePricing(parseInt(id), body);
         return { success: true, data };
@@ -572,6 +602,7 @@ export class OffsetController {
 
     @Delete('plates/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deletePlatePricing(@Param('id') id: string) {
         await this.masterData.deletePlatePricing(parseInt(id));
         return { success: true };
@@ -588,6 +619,7 @@ export class OffsetController {
 
     @Post('waste-rules')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async createWasteRule(@Body() body: any) {
         const data = await this.masterData.createWasteRule(body);
         return { success: true, data };
@@ -595,6 +627,7 @@ export class OffsetController {
 
     @Patch('waste-rules/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async updateWasteRule(@Param('id') id: string, @Body() body: any) {
         const data = await this.masterData.updateWasteRule(parseInt(id), body);
         return { success: true, data };

@@ -3,7 +3,8 @@
  * Làm kẽm = đơn giá × số bộ × số màu; XLBM chỉ khi có cán; số con/tờ lấy từ kho_in.
  */
 import { PricingData, QuoteLine, QuoteResult, OffsetPricingError } from '../pricing-data';
-import { giaGiay, timKhoIn, pickRate, chiPhiEpKim, docKichThuocCm, imposeFromKhoIn } from '../lookups';
+import { giaGiay, timKhoIn, pickRate, chiPhiEpKim, docKichThuocCm } from '../lookups';
+import { resolveSoCon } from '../imposition-selector';
 import { tongHopKetQua } from '../totals';
 import { buildWaste, stageCostAt, extraProcessingLines } from './_waste-stages';
 
@@ -42,17 +43,21 @@ export function tinhSpKhac(input: SpKhacInput, d: PricingData): QuoteResult {
 
     const sl = input.soLuong;
     const soMat = input.soMatIn;
-    // Mặc định: số con tĩnh từ khổ in. Nếu có kích thước → tính động (ưu tiên).
-    let soCon = kho.soConToLon;
-    let soConBaiIn = kho.soConBaiIn;
+    // Số con qua nguồn imposition thống nhất (selector). Mặc định 'legacy' tái lập hành vi cũ:
+    // có kích thước → dàn khuôn hình học (ưu tiên); thiếu/quá khổ → fallback số con tĩnh của khổ in.
+    const hasDims = !!(input.rong && input.cao && input.rong > 0 && input.cao > 0);
+    const imposition = resolveSoCon({
+        itemWcm: hasDims ? input.rong : undefined,
+        itemHcm: hasDims ? input.cao : undefined,
+        kho,
+        data: d,
+        fallbackToLon: kho.soConToLon,
+        fallbackBaiIn: kho.soConBaiIn,
+    });
+    const soCon = imposition.soConToLon;
+    const soConBaiIn = imposition.soConBaiIn;
     let itemW: number | undefined, itemH: number | undefined;
-    if (input.rong && input.cao && input.rong > 0 && input.cao > 0) {
-        const imp = imposeFromKhoIn(kho, input.rong, input.cao, d.tyLe.params.Gap_Cm || 0.3);
-        if (imp.soConToLon > 0 && imp.soConBaiIn > 0) {
-            soCon = imp.soConToLon; soConBaiIn = imp.soConBaiIn;
-            itemW = input.rong; itemH = input.cao;
-        }
-    }
+    if (hasDims) { itemW = input.rong; itemH = input.cao; }
     // (A3) Chặn chia-0: khổ chưa cấu hình số con (so_con rỗng) + không nhập kích thước → báo lỗi rõ.
     if (!(soCon > 0) || !(soConBaiIn > 0)) {
         throw new OffsetPricingError('Khổ in chưa cấu hình số con/tờ. Hãy nhập kích thước sản phẩm (rộng × cao) hoặc bổ sung "số con" cho khổ in.');
@@ -142,6 +147,10 @@ export function tinhSpKhac(input: SpKhacInput, d: PricingData): QuoteResult {
     res.meta = {
         khoBinh: kho.khoIn, khoGiayLon: kho.khoGiayLon, soConBaiIn, soConToLon: soCon, soToLon: sheetsGross, luotIn,
         soKem: input.soMau, loaiKem: kho.loaiKem, sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
+        impositionSource: imposition.source,
     };
+    if (imposition.shadow) res.meta.shadow = imposition.shadow;
+    if (imposition.positions) res.meta.positions = imposition.positions;
+    if (imposition.marginConfig) res.meta.marginConfig = imposition.marginConfig;
     return res;
 }

@@ -42,7 +42,8 @@ export class WebhookController {
             return { status: 'ignored', reason: 'channel_not_found' };
         }
 
-        // 2. Verify signature (skip in dev mode if no secret)
+        // 2. Verify signature. Production: secret is BẮT BUỘC — thiếu ⇒ từ chối (fail-closed),
+        // tránh giả mạo webhook bơm tin nhắn khi ai đó quên cấu hình secret. Dev: cho qua để test.
         const adapter = getChannelAdapter(channel.type);
         if (channel.webhookSecret) {
             const isValid = adapter.verifyWebhook(body, signature, channel.webhookSecret);
@@ -50,6 +51,9 @@ export class WebhookController {
                 this.logger.warn(`⚠️ Invalid webhook signature for channel ${channelId}`);
                 return { status: 'rejected', reason: 'invalid_signature' };
             }
+        } else if (process.env.NODE_ENV === 'production') {
+            this.logger.warn(`⚠️ Webhook rejected: channel ${channelId} has no webhookSecret (required in production)`);
+            return { status: 'rejected', reason: 'missing_secret' };
         }
 
         // 3. Parse message

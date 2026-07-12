@@ -9,6 +9,7 @@ import {
     PrintType, Unit
 } from '../../entities';
 import { PricingApiService } from './pricing-api.service';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 
 describe('QuoteService - createQuoteFromChat', () => {
     let service: QuoteService;
@@ -166,7 +167,7 @@ describe('QuoteService - createQuoteFromChat', () => {
 
     it('should rollback and rethrow error if any SQL operation fails', async () => {
         const quoteData = { product: 'Flyer', quantity: 1000, price: 500 };
-        const customerInfo = { name: 'Error Guy', phone: 'err123' };
+        const customerInfo = { name: 'Error Guy', phone: '0901234567' };
 
         mockDataSource.query.mockResolvedValue([]);
 
@@ -182,5 +183,92 @@ describe('QuoteService - createQuoteFromChat', () => {
         expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
         expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
         expect(mockQueryRunner.release).toHaveBeenCalled();
+    });
+});
+
+describe('QuoteService - getCacheKey tenant isolation', () => {
+    let service: QuoteService;
+    let tenantCtx: TenantContextService;
+    const ORIGINAL_FLAG = process.env.TENANT_RLS_ENABLED;
+
+    const buildParsed = (): any => ({
+        product: 'Namecard',
+        type: 'loose',
+        quantity: 200,
+        material: { id: 5 },
+        size: { width: 90, height: 55 },
+        printSides: 2,
+    });
+
+    // Truy cập private getCacheKey để kiểm tra hành vi đóng khoá cache.
+    const cacheKey = (parsed: any): string => (service as any).getCacheKey(parsed);
+
+    beforeEach(async () => {
+        const mockRepo = { find: jest.fn().mockResolvedValue([]) };
+        const mockDataSource = { query: jest.fn(), options: { type: 'postgres' } };
+
+        const module: TestingModule = await Test.createTestingModule({
+            providers: [
+                QuoteService,
+                { provide: getRepositoryToken(Material), useValue: mockRepo },
+                { provide: getRepositoryToken(PaperSize), useValue: mockRepo },
+                { provide: getRepositoryToken(ProcessingPricing), useValue: mockRepo },
+                { provide: getRepositoryToken(ProductCategory), useValue: mockRepo },
+                { provide: getRepositoryToken(Product), useValue: mockRepo },
+                { provide: getRepositoryToken(ProductQuoteConfig), useValue: mockRepo },
+                { provide: getRepositoryToken(ProductAiField), useValue: mockRepo },
+                { provide: getRepositoryToken(PrintType), useValue: mockRepo },
+                { provide: getRepositoryToken(Unit), useValue: mockRepo },
+                { provide: PricingApiService, useValue: { isHealthy: jest.fn().mockResolvedValue(true) } },
+                { provide: getDataSourceToken(), useValue: mockDataSource },
+                { provide: DataSource, useValue: mockDataSource },
+                TenantContextService,
+            ],
+        }).compile();
+
+        service = module.get<QuoteService>(QuoteService);
+        tenantCtx = module.get<TenantContextService>(TenantContextService);
+    });
+
+    afterEach(() => {
+        if (ORIGINAL_FLAG === undefined) delete process.env.TENANT_RLS_ENABLED;
+        else process.env.TENANT_RLS_ENABLED = ORIGINAL_FLAG;
+        jest.clearAllMocks();
+    });
+
+    it('flag OFF → key has NO tenant prefix (byte-for-byte plain md5)', () => {
+        delete process.env.TENANT_RLS_ENABLED;
+        const key = tenantCtx.withTenant(7, () => cacheKey(buildParsed())) as string;
+        // md5 hex = 32 ký tự, không có tiền tố `t<id>:`
+        expect(key).toMatch(/^[a-f0-9]{32}$/);
+        expect(key).not.toContain(':');
+    });
+
+    it('flag ON + tenantId → key prefixed with t<id>:', () => {
+        process.env.TENANT_RLS_ENABLED = 'true';
+        const key = tenantCtx.withTenant(7, () => cacheKey(buildParsed())) as string;
+        expect(key).toMatch(/^t7:[a-f0-9]{32}$/);
+    });
+
+    it('flag ON + no tenant context → key unchanged (no prefix)', () => {
+        process.env.TENANT_RLS_ENABLED = 'true';
+        const key = cacheKey(buildParsed());
+        expect(key).toMatch(/^[a-f0-9]{32}$/);
+        expect(key).not.toContain(':');
+    });
+
+    it('flag ON → two tenants with identical params get DIFFERENT keys', () => {
+        process.env.TENANT_RLS_ENABLED = 'true';
+        const keyA = tenantCtx.withTenant(1, () => cacheKey(buildParsed())) as string;
+        const keyB = tenantCtx.withTenant(2, () => cacheKey(buildParsed())) as string;
+        expect(keyA).not.toEqual(keyB);
+        expect(keyA).toBe('t1:' + keyB.slice('t2:'.length));
+    });
+
+    it('flag ON → same tenant + same params get the SAME key (cache hit preserved)', () => {
+        process.env.TENANT_RLS_ENABLED = 'true';
+        const k1 = tenantCtx.withTenant(3, () => cacheKey(buildParsed())) as string;
+        const k2 = tenantCtx.withTenant(3, () => cacheKey(buildParsed())) as string;
+        expect(k1).toEqual(k2);
     });
 });

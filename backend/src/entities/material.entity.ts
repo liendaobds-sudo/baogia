@@ -44,6 +44,20 @@ export class Material {
     @Column({ name: 'paper_size_id', nullable: true })
     paperSizeId: number;
 
+    // ── Vai trò khổ giấy offset (self-ref khổ nhập ↔ khổ xả) ──
+    // 'parent' = khổ NHẬP (tờ lớn, có unit_price); 'child' = khổ XẢ (bài in, giá dẫn xuất từ cha);
+    // null = vật tư thường (không phải giấy khổ offset).
+    @Column({ name: 'sheet_role', length: 10, nullable: true })
+    sheetRole: string;
+
+    // FK self-ref → vật tư khổ NHẬP nguồn. Chỉ khổ xả (sheet_role='child') set. ON DELETE SET NULL.
+    @ManyToOne(() => Material, { nullable: true, onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'parent_material_id' })
+    parentMaterial: Material;
+
+    @Column({ name: 'parent_material_id', type: 'int', nullable: true })
+    parentMaterialId: number;
+
     // ── FK: Đơn vị (like Kprint unit_id) ──
     @ManyToOne(() => Unit, { nullable: true })
     @JoinColumn({ name: 'unit_id' })

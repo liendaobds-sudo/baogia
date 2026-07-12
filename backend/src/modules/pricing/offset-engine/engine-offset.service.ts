@@ -3,6 +3,7 @@ import { PricingData, QuoteResult, OffsetPricingError } from './pricing-data';
 import { chuanHoaKho } from './lookups';
 import { loadDefaultPricingData } from './default-data';
 import { ConfigStore } from './config-store.service';
+import { tenantRlsEnabled } from '../../../common/tenant/tenant-background';
 import { tinhToRoi, ToRoiInput } from './products/to-roi';
 import { tinhBiThuFolder, BiThuFolderInput } from './products/bi-thu-folder';
 import { tinhSpKhac, SpKhacInput } from './products/sp-khac';
@@ -41,7 +42,15 @@ export class EngineOffsetService implements OnModuleInit {
     async onModuleInit(): Promise<void> {
         if (!this.configStore) return;
         try {
-            await this.configStore.seedDefaults();
+            // Sau khi bật RLS (TENANT_RLS_ENABLED): KHÔNG seed lúc boot. Lý do:
+            //  1) seedDefaults() chạy NGOÀI tenant context (onModuleInit) → INSERT vào materials/
+            //     paper_sizes (đã SET NOT NULL tenant_id) sẽ vỡ vì trigger không có app.current_tenant.
+            //  2) ALTER TABLE trong seed cần quyền OWNER — app role NOSUPERUSER bị từ chối.
+            // Dữ liệu offset đã seed 1 lần (lúc còn superuser); seed/DDL mới thuộc maintenance
+            // window chạy bằng owner role (xem TENANT-RLS-RUNBOOK). Vẫn nạp PricingData như thường.
+            if (!tenantRlsEnabled()) {
+                await this.configStore.seedDefaults();
+            }
             await this.refreshFromConfigStore();
         } catch (err) {
             this.logger.warn(`Không nạp được cấu hình offset từ DB, dùng mặc định JSON: ${(err as Error)?.message}`);

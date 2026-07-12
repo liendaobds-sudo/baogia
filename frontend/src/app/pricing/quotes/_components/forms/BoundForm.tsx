@@ -19,7 +19,7 @@ export function BoundForm({ state }: { state: QuoteState }) {
         bQuantity, setBQuantity, bPageCount, setBPageCount, bBindingType, setBBindingType,
         bCoverMaterialName, setBCoverMaterialName, bCoverMaterialId, setBCoverMaterialId, bCoverPaperSizeId, setBCoverPaperSizeId, bCoverPrintType, setBCoverPrintType, bCoverPrintSide, setBCoverPrintSide, bCoverProc, setBCoverProc,
         bInnerMaterialName, setBInnerMaterialName, bInnerMaterialId, setBInnerMaterialId, bInnerPaperSizeId, setBInnerPaperSizeId, bInnerPrintType, setBInnerPrintType, bInnerPrintSide, setBInnerPrintSide, bInnerProc, setBInnerProc,
-        pricingResult, optimizedSizes,
+        pricingResult, lastPricingPayload, optimizedSizes,
         addItem, productName
     } = state;
 
@@ -33,6 +33,12 @@ export function BoundForm({ state }: { state: QuoteState }) {
                     // Scope-filtered materials (scope_bound=1) — CHỈ vật liệu sản phẩm cho phép
                     const boundMats = allMats.filter(m => (m.scopeBound || m.scope_bound == 1) && allowedMaterialIds.includes(String(m.id)));
                     const distinctNames = [...new Set(boundMats.map(m => m.name))];
+                    // Tên giấy "chưa có định mức": KHÔNG vật tư nào cùng tên có has_pricing_tier.
+                    // Gắn hậu tố cảnh báo vào option; backend vẫn chặn tính giá (hasAnyTier).
+                    const noTierNames = new Set(
+                        distinctNames.filter(name => !boundMats.some(m => m.name === name && m.has_pricing_tier)),
+                    );
+                    const nameOption = (name: string) => ({ id: name, label: noTierNames.has(name) ? `${name} ⚠ (chưa có định mức)` : name });
                     
                     // Paper sizes for selected cover material
                     const coverMatsForName = boundMats.filter(m => m.name === bCoverMaterialName);
@@ -160,8 +166,8 @@ export function BoundForm({ state }: { state: QuoteState }) {
                                         <label className="block text-[9px] uppercase font-semibold text-slate-500 mb-1">Giấy in bìa</label>
                                         <SearchableSelect 
                                             value={bCoverMaterialName} 
-                                            onChange={val => onCoverNameChange(val.toString())} 
-                                            options={distinctNames.map(name => ({ id: name, label: name }))}
+                                            onChange={val => onCoverNameChange(val.toString())}
+                                            options={distinctNames.map(nameOption)}
                                             placeholder="-- Chọn giấy bìa --"
                                         />
                                     </div>
@@ -250,8 +256,8 @@ export function BoundForm({ state }: { state: QuoteState }) {
                                         <label className="block text-[9px] uppercase font-semibold text-slate-500 mb-1">Giấy in ruột</label>
                                         <SearchableSelect 
                                             value={bInnerMaterialName} 
-                                            onChange={val => onInnerNameChange(val.toString())} 
-                                            options={distinctNames.map(name => ({ id: name, label: name }))}
+                                            onChange={val => onInnerNameChange(val.toString())}
+                                            options={distinctNames.map(nameOption)}
                                             placeholder="-- Chọn giấy ruột --"
                                         />
                                     </div>
@@ -361,11 +367,11 @@ export function BoundForm({ state }: { state: QuoteState }) {
                                     <div className="flex justify-between items-end mb-1">
                                         <span className="text-slate-800 font-extrabold text-sm uppercase">Thành tiền:</span>
                                         <span className="font-black text-2xl text-indigo-600 leading-none tracking-tight">
-                                            {pricingResult && (pricingResult as any).type === 'bound' ? formatCurrency((pricingResult as any).total) : '0 ₫'}
+                                            {pricingResult && (pricingResult as any).type === 'bound' ? formatCurrency((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) : '0 ₫'}
                                         </span>
                                     </div>
                                     <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide">
-                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'bound' ? formatCurrency((pricingResult as any).price_per_item) : '-'}</span> / cuốn
+                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'bound' ? formatCurrency((pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item) : '-'}</span> / cuốn
                                     </div>
                                     <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-md border border-amber-200 font-medium flex items-center gap-1.5">
                                         <span>💡</span> Chưa bao gồm VAT & phí giao hàng — xem tổng cuối tại sidebar trái
@@ -384,10 +390,11 @@ export function BoundForm({ state }: { state: QuoteState }) {
                                                 name: fileName || 'Sản phẩm Cuốn',
                                                 type: 'bound',
                                                 quantity: bQuantity,
-                                                total: (pricingResult as any).total,
-                                                unitPrice: (pricingResult as any).price_per_item,
+                                                total: (pricingResult as any).selling_subtotal ?? (pricingResult as any).total,
+                                                unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
                                                 details: pricingResult,
-                                                configParams: { bQuantity, bPageCount, bBindingType }
+                                                configParams: { bQuantity, bPageCount, bBindingType },
+                                                pricingPayload: lastPricingPayload ?? undefined,
                                             });
                                             setFileName('');
                                         }}

@@ -239,7 +239,7 @@ export default function OffsetProductsPage() {
 
             <div className="mb-4 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cấu Hình Loại Offset</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cấu hình loại offset</h1>
                     <p className="text-slate-500 text-sm mt-1">Whitelist tài nguyên + mặc định + ẩn/khoá field cho từng loại; form báo giá tự áp.{' '}
                         <Link href="/pricing/settings/offset-fees" className="text-indigo-600 underline">Phí & chiết khấu</Link></p>
                 </div>

@@ -1,8 +1,9 @@
 "use client";
-import React from 'react';
+import React, { useEffect } from 'react';
 
 interface PaperSize { id: number; name: string; width: number; height: number; }
 interface UnitOpt { id: number; symbol: string; name: string; }
+interface ChildSheet { width: number; height: number; name?: string; }
 
 interface MaterialEditModalProps {
     isOpen: boolean;
@@ -16,6 +17,14 @@ interface MaterialEditModalProps {
 }
 
 export default function MaterialEditModal({ isOpen, onClose, onSave, form, setForm, editItem, paperSizes, units }: MaterialEditModalProps) {
+    // Close on Escape key
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     return (
@@ -98,8 +107,45 @@ export default function MaterialEditModal({ isOpen, onClose, onSave, form, setFo
                         )}
                     </div>
 
+                    {/* Khổ xả (bài in) — chỉ vật tư tờ + bật In Offset. Tick khổ con cắt từ tờ nhập này;
+                        mỗi khổ → 1 vật tư con thật (self-FK về cha), giá dẫn xuất từ giá tờ nhập (không nhập tay). */}
+                    {form.materialFormat !== 'roll' && (!!form.scopeOffset || !!form.scope_offset) && (
+                        <div className="bg-purple-50/50 p-4 rounded-lg border border-purple-200">
+                            <div className="flex items-center justify-between mb-3 border-b border-purple-200 pb-2">
+                                <h4 className="text-sm font-bold text-slate-800">Khổ xả / bài in (cắt từ tờ nhập này)</h4>
+                                <button
+                                    type="button"
+                                    onClick={() => setForm(f => ({ ...f, child_sheets: [...(Array.isArray(f.child_sheets) ? f.child_sheets as ChildSheet[] : []), { width: 0, height: 0 }] }))}
+                                    className="text-xs font-semibold text-purple-700 bg-white border border-purple-300 rounded-lg px-3 py-1.5 hover:bg-purple-100"
+                                >+ Thêm khổ xả</button>
+                            </div>
+                            <p className="text-xs text-slate-500 mb-3">Mỗi khổ xả thành một vật tư con; giá tự chia từ giá tờ nhập theo số bài in cắt được. Mã tự sinh từ mã cha + kích thước.</p>
+                            {(Array.isArray(form.child_sheets) ? form.child_sheets as ChildSheet[] : []).length === 0 ? (
+                                <div className="text-xs text-slate-400 italic">Chưa có khổ xả. Bấm "+ Thêm khổ xả" nếu tờ nhập này được cắt thành bài in nhỏ hơn.</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {(form.child_sheets as ChildSheet[]).map((cs, i) => (
+                                        <div key={i} className="flex gap-2 items-center">
+                                            <input type="number" placeholder="Rộng (mm)" className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(cs.width || '')}
+                                                onChange={e => setForm(f => { const arr = [...(f.child_sheets as ChildSheet[])]; arr[i] = { ...arr[i], width: Number(e.target.value) }; return { ...f, child_sheets: arr }; })} />
+                                            <span className="text-slate-400">×</span>
+                                            <input type="number" placeholder="Cao (mm)" className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(cs.height || '')}
+                                                onChange={e => setForm(f => { const arr = [...(f.child_sheets as ChildSheet[])]; arr[i] = { ...arr[i], height: Number(e.target.value) }; return { ...f, child_sheets: arr }; })} />
+                                            <input type="text" placeholder="Tên (tùy chọn)" className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(cs.name || '')}
+                                                onChange={e => setForm(f => { const arr = [...(f.child_sheets as ChildSheet[])]; arr[i] = { ...arr[i], name: e.target.value }; return { ...f, child_sheets: arr }; })} />
+                                            <button type="button" onClick={() => setForm(f => ({ ...f, child_sheets: (f.child_sheets as ChildSheet[]).filter((_, j) => j !== i) }))}
+                                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Xóa khổ xả">
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div><label className="block text-xs font-bold text-slate-600 mb-1">Giá vốn (VND)</label><input type="number" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(form.costPrice || form.cost_price || form.unitPrice || 0)} onChange={e => setForm(f => ({ ...f, costPrice: Number(e.target.value), cost_price: Number(e.target.value) }))} /></div>
+                        <div><label className="block text-xs font-bold text-slate-600 mb-1">Giá vốn (VND)</label><input type="number" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(form.costPrice || form.cost_price || form.unitPrice || form.unit_price || 0)} onChange={e => setForm(f => ({ ...f, costPrice: Number(e.target.value), cost_price: Number(e.target.value), unitPrice: Number(e.target.value), unit_price: Number(e.target.value) }))} /></div>
                         <div><label className="block text-xs font-bold text-slate-600 mb-1">Phí lên máy (Setup Fee)</label><input type="number" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(form.setupFee || 0)} onChange={e => setForm(f => ({ ...f, setupFee: Number(e.target.value) }))} /></div>
                         <div><label className="block text-xs font-bold text-slate-600 mb-1">% Hao hụt vật tư</label><input type="number" step="0.5" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg text-amber-700" value={String(form.wastePercent || '')} onChange={e => setForm(f => ({ ...f, wastePercent: Number(e.target.value) }))} placeholder="Ví dụ: 3.5%" /></div>
                         <div><label className="block text-xs font-bold text-slate-600 mb-1">Tồn kho tối thiểu</label><input type="number" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value={String(form.min_stock || form.minStock || 0)} onChange={e => setForm(f => ({ ...f, minStock: Number(e.target.value), min_stock: Number(e.target.value) }))} /></div>

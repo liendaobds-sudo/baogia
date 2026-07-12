@@ -25,6 +25,7 @@ export interface DenialRequestLike {
 export interface DenialUserLike {
     id?: string;
     role?: string;
+    tenantId?: number | null;
 }
 
 /** Payload truyền cho `AuditService.log(...)`. Không chứa bí mật. */
@@ -39,6 +40,7 @@ export interface DenialLogPayload {
         route: string;
     };
     ipAddress?: string;
+    tenantId?: number | null;
 }
 
 /**
@@ -69,5 +71,9 @@ export function buildDenialLog(
             route,
         },
         ipAddress: req?.ip,
+        // Guard chạy TRƯỚC TenantContextInterceptor nên tenant context chưa được set khi
+        // ghi denial. Lấy thẳng tenantId từ user (JWT) để INSERT không vi phạm NOT NULL
+        // audit_logs.tenant_id sau khi bật RLS. undefined → AuditService dùng context như cũ.
+        tenantId: user?.tenantId ?? undefined,
     };
 }

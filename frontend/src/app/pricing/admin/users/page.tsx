@@ -63,13 +63,13 @@ export default function UsersPage() {
     return (
         <div className="flex flex-col h-full bg-slate-50/50 p-6">
             <div className="mb-6 flex justify-between items-center">
-                <div><h1 className="text-2xl font-black text-slate-800 tracking-tight">Quản Lý Người Dùng</h1><p className="text-slate-500 text-sm mt-1">Quản lý tài khoản và phân quyền người dùng.</p></div>
+                <div><h1 className="text-2xl font-black text-slate-800 tracking-tight">Quản lý người dùng</h1><p className="text-slate-500 text-sm mt-1">Quản lý tài khoản và phân quyền người dùng.</p></div>
                 <button onClick={() => { setEditItem(null); setModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center gap-2">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>Thêm Người Dùng
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>Thêm người dùng
                 </button>
             </div>
             <div className="flex-1 min-h-0"><DataTable columns={columns} data={data} isLoading={loading} /></div>
-            <CrudModal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditItem(null); }} onSave={handleSave} title="Người Dùng" fields={FIELDS} initialData={editItem} isEdit={!!editItem} />
+            <CrudModal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditItem(null); }} onSave={handleSave} title="Người dùng" fields={FIELDS} initialData={editItem} isEdit={!!editItem} />
             <DeleteConfirm isOpen={!!deleteItem} onClose={() => setDeleteItem(null)} onConfirm={handleDelete} itemName={deleteItem?.username || ''} />
         </div>
     );

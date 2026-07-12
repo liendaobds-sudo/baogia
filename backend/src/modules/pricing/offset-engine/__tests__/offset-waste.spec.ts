@@ -10,6 +10,8 @@ import { wasteRate, buildWaste, effectiveBasis } from '../products/_waste-stages
  * Bù hao theo công đoạn cho 4 sản phẩm còn lại + bảng mốc riêng + basis đổi được.
  */
 const D = makePricingData();
+// VAT BẮT BUỘC truyền tường minh vào engine (mô phỏng % nhập ở thông tin khách hàng).
+// Engine KHÔNG còn tự lấy VAT từ cấu hình; ở đây dùng đúng giá trị config cũ để giữ bất biến.
 const VAT = D.tyLe.params.TyLe_VAT;
 
 const noDoubleCount = (r: QuoteResult) => {
@@ -24,27 +26,28 @@ describe('Offset — bù hao theo công đoạn (4 sản phẩm)', () => {
             type: 'to_roi', kichThuoc: '14.8cm x 20.5cm (tờ rơi, gấp giấy Coucher)',
             materialCode: 'C150', soMatIn: 2, soLuong: 5000, kemType: 'Kẽm lớn', soKemIn: 4,
             vatTuBeMat: 'Màng bóng 2m', khuon: true, be: true, thanhPhamGap: 'may', catXen: true, dongGoi: true, thietKe: 0,
+            vatRate: VAT,
         }, D));
     });
     it('bì thư', () => {
         noDoubleCount(tinhBiThuFolder({
             type: 'bi_thu_folder', kichThuoc: 'Bì thư 22 x 12 x nắp 3cm', materialCode: 'C150', soMatIn: 1,
             soLuong: 2000, kemType: 'Kẽm nhỏ', soKemIn: 4, vatTuBeMat: 'Không', khuon: true, be: true,
-            thanhPhamDan: 'tc', dongGoi: true, thietKe: 0,
+            thanhPhamDan: 'tc', dongGoi: true, thietKe: 0, vatRate: VAT,
         }, D));
     });
     it('sp khác', () => {
         noDoubleCount(tinhSpKhac({
             type: 'sp_khac', khoIn: '36cm x 79cm', materialCode: 'C150', soMatIn: 1, soLuong: 5000,
             soBoKem: 2, soMau: 4, vatTuBeMat: 'Màng bóng 1m', khuon: 0, be: true, thanhPham: 'khong',
-            catXen: true, dongGoi: true, epKimViTri: '1 vị trí', thietKe: 0,
+            catXen: true, dongGoi: true, epKimViTri: '1 vị trí', thietKe: 0, vatRate: VAT,
         }, D));
     });
     it('túi giấy', () => {
         noDoubleCount(tinhTuiGiay({
             type: 'tui_giay', soLuong: 3000, cao: 20, rong: 15, hong: 6, mi: 3, materialCode: 'C300',
             baiIn: '43 x 65cm', soKem: 4, vatTuBeMat: 'Không', dayXach: { loai: '2', donGia: 500 },
-            thungCaton: { sl: 10, donGia: 20000 }, dongGoi: true, thietKe: 0,
+            thungCaton: { sl: 10, donGia: 20000 }, dongGoi: true, thietKe: 0, vatRate: VAT,
         }, D));
     });
 });

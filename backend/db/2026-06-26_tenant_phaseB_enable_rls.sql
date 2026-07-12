@@ -113,4 +113,33 @@ BEGIN
   END IF;
 END $$;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- tenant_app_scopes — RLS ĐẶC BIỆT (tenant-app-scope, Task 7).
+--
+-- Giống method_capabilities: hàng BASELINE (tenant_id IS NULL) = mặc-định-nền, PHẢI đọc
+-- được bởi MỌI tenant (AppScopeService kế thừa baseline khi tenant chưa cấu hình).
+-- → KHÔNG SET NOT NULL, KHÔNG trigger auto-set. TÁCH đọc/ghi để tenant UPDATE không đụng
+--   baseline (tránh "row violates row-level security policy" — xem ghi chú mc_read/mc_write).
+-- ─────────────────────────────────────────────────────────────────────────────
+DO $$
+BEGIN
+  IF to_regclass('public.tenant_app_scopes') IS NULL THEN
+    RAISE NOTICE '[phaseB] bỏ qua tenant_app_scopes (không tồn tại)';
+  ELSE
+    DROP POLICY IF EXISTS app_scope_read ON tenant_app_scopes;
+    DROP POLICY IF EXISTS app_scope_write ON tenant_app_scopes;
+    CREATE POLICY app_scope_read ON tenant_app_scopes FOR SELECT
+      USING (current_setting('app.bypass', true) = 'on'
+             OR tenant_id IS NULL
+             OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int);
+    CREATE POLICY app_scope_write ON tenant_app_scopes FOR ALL
+      USING (current_setting('app.bypass', true) = 'on'
+             OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int)
+      WITH CHECK (current_setting('app.bypass', true) = 'on'
+             OR tenant_id = nullif(current_setting('app.current_tenant', true), '')::int);
+    ALTER TABLE tenant_app_scopes ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE tenant_app_scopes FORCE ROW LEVEL SECURITY;
+  END IF;
+END $$;
+
 COMMIT;

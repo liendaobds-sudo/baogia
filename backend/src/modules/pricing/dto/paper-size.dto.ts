@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, IsBoolean, IsNotEmpty } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsBoolean, IsNotEmpty, Min } from 'class-validator';
 
 // Field theo TÊN PROPERTY của entity PaperSize (camelCase). Khớp payload frontend +
 // TypeORM map đúng cột (widthMm→width, ...). Gồm cả field offset.
@@ -23,6 +23,8 @@ export class CreatePaperSizeDto {
   @IsOptional() @IsNumber() soConBaiIn?: number;
   @IsOptional() @IsNumber() soConToLon?: number;
   @IsOptional() @IsString() loaiKem?: string;
+  @IsOptional() @IsNumber() @Min(0) gripperCm?: number;
+  @IsOptional() @IsNumber() @Min(0) gutterCm?: number;
 }
 
 export class UpdatePaperSizeDto {
@@ -46,4 +48,6 @@ export class UpdatePaperSizeDto {
   @IsOptional() @IsNumber() soConBaiIn?: number;
   @IsOptional() @IsNumber() soConToLon?: number;
   @IsOptional() @IsString() loaiKem?: string;
+  @IsOptional() @IsNumber() @Min(0) gripperCm?: number;
+  @IsOptional() @IsNumber() @Min(0) gutterCm?: number;
 }

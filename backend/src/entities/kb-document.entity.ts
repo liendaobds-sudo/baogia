@@ -39,6 +39,12 @@ export class KbDocument {
     @Column({ type: 'simple-json', default: '[]' })
     tags: string[];
 
+    // Cô lập theo tenant (org-scoped). NULL = bản dùng chung/nền tảng (seed) — mọi tenant đọc được.
+    // Cột do migration Pha A thêm; ánh xạ ở đây để service lọc tenant ở tầng ứng dụng
+    // (lưới an toàn khi RLS chưa flip).
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     @Column({ default: 1 })
     version: number;
 

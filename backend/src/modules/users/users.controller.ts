@@ -28,25 +28,25 @@ export class UsersController {
 
     @Get(':id')
     @Roles(UserRole.ADMIN, UserRole.SUPERVISOR)
-    findOne(@Param('id') id: string) {
-        return this.usersService.findOne(id);
+    findOne(@Param('id') id: string, @Req() req: any) {
+        return this.usersService.findOne(id, req.user.tenantId);
     }
 
     @Post()
     @Roles(UserRole.ADMIN)
-    create(@Body() dto: CreateUserDto) {
-        return this.usersService.create(dto);
+    create(@Body() dto: CreateUserDto, @Req() req: any) {
+        return this.usersService.create(dto, req.user.tenantId);
     }
 
     @Put(':id')
     @Roles(UserRole.ADMIN)
-    update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-        return this.usersService.update(id, dto);
+    update(@Param('id') id: string, @Body() dto: UpdateUserDto, @Req() req: any) {
+        return this.usersService.update(id, dto, req.user.tenantId);
     }
 
     @Delete(':id')
     @Roles(UserRole.ADMIN)
-    remove(@Param('id') id: string) {
-        return this.usersService.remove(id);
+    remove(@Param('id') id: string, @Req() req: any) {
+        return this.usersService.remove(id, req.user.tenantId);
     }
 }

@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, IsNull, MoreThanOrEqual } from 'typeorm';
 import { PricingTier, Material, PaperSize, PrintType, Unit, Product, ProductCategory } from '../../entities';
 import { BoundCalculatorService } from './services/bound-calculator.service';
+import { weightedAvgCost } from './lib/cost-helpers';
 
 // ─── Types ─────────────────────────────────────
 
@@ -347,11 +348,7 @@ export class PricingService {
         oldCost: number, oldQty: number,
         newPrice: number, newQty: number,
     ): number {
-        const totalQty = oldQty + newQty;
-        if (totalQty <= 0) return newPrice;
-
-        const totalValue = (oldCost * oldQty) + (newPrice * newQty);
-        return Math.round((totalValue / totalQty) * 100) / 100;
+        return weightedAvgCost(oldCost, oldQty, newPrice, newQty);
     }
 
     // ═══════════════════════════════════════════════
@@ -414,6 +411,17 @@ export class PricingService {
         if (fb3) return fb3.pricePerSheet;
 
         return 0;
+    }
+
+    /**
+     * Vật tư có BẤT KỲ định mức giá nào (`pricing_tiers`) không.
+     * Dùng để CHẶN báo giá khi vật tư chưa cấu hình định mức — `getPricingTierByMaterial`
+     * trả 0 cả khi thiếu tier lẫn khi tier = 0 hợp lệ, không phân biệt được; hàm này tách
+     * riêng "có tier hay không" để caller (loose/bound) chặn đúng thay vì âm thầm tính giá 0.
+     */
+    async hasAnyTier(materialId: number): Promise<boolean> {
+        const row = await this.tierRepo.findOne({ where: { materialId } });
+        return row != null;
     }
 
     /**

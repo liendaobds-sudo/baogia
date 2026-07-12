@@ -4,16 +4,18 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Quote } from './quote.entity';
 
 /**
  * QuoteItem entity — maps to `quote_items` table in erp_print DB.
- * 
+ *
  * DB does NOT have `unit_price`, `subtotal`, or `specifications` columns.
  * Spec data goes into `processing_details` (TEXT, JSON string).
  */
 @Entity('quote_items')
+@Index('idx_quote_items_quote_id', ['quoteId'])
 export class QuoteItem {
   @PrimaryGeneratedColumn()
   id: number;

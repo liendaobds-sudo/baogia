@@ -28,11 +28,10 @@ const FROZEN_ROUTES = [
   '/settings/api-docs',
   '/settings/webhooks',
   '/settings/product-configs',
-  '/super-admin',
 ] as const;
 
 /** Các route thuộc Tính_Năng_Lõi — guard KHÔNG được chặn. */
-const CORE_ROUTES = ['/inbox', '/contacts', '/quotes', '/pricing-create'] as const;
+const CORE_ROUTES = ['/inbox', '/contacts', '/quotes', '/pricing-create', '/super-admin'] as const;
 
 describe('isFrozenRoute — artefact thật scope-registry.json (Req 4.6)', () => {
   it.each(FROZEN_ROUTES)(
@@ -48,7 +47,8 @@ describe('isFrozenRoute — artefact thật scope-registry.json (Req 4.6)', () =
 
   it('khớp cả route con của một tính năng đóng băng', () => {
     expect(isFrozenRoute(registry, '/settings/api-keys/new')).toBe(true);
-    expect(isFrozenRoute(registry, '/super-admin/tenants')).toBe(true);
+    // /super-admin đã bật lại thành Lõi → route con KHÔNG bị chặn.
+    expect(isFrozenRoute(registry, '/super-admin/tenants')).toBe(false);
   });
 
   it('an toàn với input rỗng / không hợp lệ', () => {

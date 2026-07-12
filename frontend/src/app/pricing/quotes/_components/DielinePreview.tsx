@@ -27,7 +27,10 @@ interface DielineData {
     config: { margin: { top: number; right: number; bottom: number; left: number }; gripperMargin: number };
 }
 
-interface Props { boxType?: string; rong?: number; hong?: number; cao?: number; thickness?: number; mi?: number; handleHoles?: boolean; mieng?: string; itemW?: number; itemH?: number; flatShape?: string; envFlapShape?: string; envStyle?: string; selectedKhoIn?: string; onSelectSheet?: (khoIn: string) => void; }
+interface Props { boxType?: string; rong?: number; hong?: number; cao?: number; thickness?: number; mi?: number; handleHoles?: boolean; mieng?: string; itemW?: number; itemH?: number; flatShape?: string; envFlapShape?: string; envStyle?: string; selectedKhoIn?: string; onSelectSheet?: (khoIn: string) => void;
+    /** Số con / KHỔ BÀI IN do Imposition_Service (engine giá) tính cho khổ đang chọn — nguồn sự thật duy nhất.
+     *  Khi có, preview hiển thị con số NÀY (parity giá ≡ preview, Req 2.3/10.2) thay vì đếm lại từ nesting. */
+    engineSoConBaiIn?: number; }
 
 type Tab = '2d' | 'nest';
 
@@ -106,7 +109,7 @@ function chainToSvgD(chain: Seg[]): string {
     return d;
 }
 
-export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi, handleHoles, mieng, itemW, itemH, flatShape, envFlapShape, envStyle, selectedKhoIn, onSelectSheet }: Props) {
+export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi, handleHoles, mieng, itemW, itemH, flatShape, envFlapShape, envStyle, selectedKhoIn, onSelectSheet, engineSoConBaiIn }: Props) {
     const [data, setData] = useState<DielineData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -161,6 +164,19 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
 
     const sheet = data?.sheets?.[sheetIdx];
 
+    /**
+     * Số con/tờ HIỂN THỊ cho một khổ. Với khổ ĐANG CHỌN (i === sheetIdx) — cũng là khổ engine
+     * dùng để tính giá — ưu tiên `engineSoConBaiIn` (Imposition_Service, số con/khổ bài in) để preview
+     * khớp cơ sở giá (Req 2.3/10.2). Thiếu (quote legacy/chưa có meta) → dùng số đếm từ nesting (fallback).
+     */
+    const displayCount = useCallback(
+        (im: SheetNest, i: number): number =>
+            i === sheetIdx && engineSoConBaiIn != null && engineSoConBaiIn > 0
+                ? engineSoConBaiIn
+                : im.countPerSheet,
+        [sheetIdx, engineSoConBaiIn],
+    );
+
     // Cắt phẳng dạng chữ nhật (tờ rơi / SP khác) → bản vẽ 2D vô nghĩa, chỉ hiện Xếp khuôn.
     const hide2D = !boxType && flatShape === 'rect';
     const effTab: Tab = hide2D ? 'nest' : tab;
@@ -207,6 +223,8 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
     const sheetSvg = useMemo(() => {
         if (!data || !sheet || sheet.positions.length === 0) return null;
         const bb = data.bbox;
+        // Số con/tờ hiển thị cho khổ đang chọn: ưu tiên engine (parity giá ≡ preview), fallback nesting.
+        const selCount = engineSoConBaiIn != null && engineSoConBaiIn > 0 ? engineSoConBaiIn : sheet.countPerSheet;
         const flipT = `translate(0, ${bb.minY + bb.maxY}) scale(1, -1)`;
         const { margin, gripperMargin } = data.config;
         const effBottom = Math.max(margin.bottom, gripperMargin);
@@ -235,7 +253,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                 </defs>
                 {/* Tiêu đề khổ in + số con/tờ (trên cùng) */}
                 <text x={W / 2} y={-dpad * 0.45} textAnchor="middle" fontSize={dimFs * 1.15} fontWeight={800} fill="#334155">
-                    Khổ in {cmW}×{cmH} cm · {sheet.countPerSheet} con/tờ
+                    Khổ in {cmW}×{cmH} cm · {selCount} con/tờ
                 </text>
                 {/* Tờ giấy */}
                 <rect x={0} y={0} width={W} height={H} fill="white" stroke="#94a3b8" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
@@ -274,7 +292,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                 </g>
             </svg>
         );
-    }, [data, sheet]);
+    }, [data, sheet, engineSoConBaiIn]);
 
     if (!boxType && !(itemW && itemH)) return null;
 
@@ -293,7 +311,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                     {isBest && <span className="bg-emerald-500 text-white text-[8px] px-1.5 py-0.5 rounded leading-none flex-shrink-0">🏆</span>}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 text-[11px]">
-                    <span className="text-slate-500 font-semibold">{im.countPerSheet} con/tờ</span>
+                    <span className="text-slate-500 font-semibold">{displayCount(im, i)} con/tờ</span>
                     {im.loaiKem && <span className="text-[10px] font-medium text-slate-400">{im.loaiKem}</span>}
                 </div>
             </div>
@@ -312,7 +330,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                 {((hide2D ? [['nest', 'Xếp khuôn']] : [['2d', 'Bản vẽ 2D'], ['nest', 'Xếp khuôn']]) as [Tab, string][]).map(([id, label]) => (
                     <button key={id} onClick={() => setTab(id)}
                         className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition-colors ${effTab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                        {label}{id === 'nest' && sheet ? ` · ${sheet.countPerSheet} con/tờ` : ''}
+                        {label}{id === 'nest' && sheet ? ` · ${displayCount(sheet, sheetIdx)} con/tờ` : ''}
                     </button>
                 ))}
             </div>
@@ -362,7 +380,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                                 <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Dàn lên khổ in</span>
                                 {sheet && (
                                     <span className="text-xs">
-                                        <b className="text-indigo-600">{sheet.countPerSheet} con/tờ</b>
+                                        <b className="text-indigo-600">{displayCount(sheet, sheetIdx)} con/tờ</b>
                                         <span className="text-slate-400"> · {sheet.utilization}%</span>
                                     </span>
                                 )}

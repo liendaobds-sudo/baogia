@@ -13,6 +13,7 @@ import { HttpService } from '@nestjs/axios';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { KbDocument, KbDocStatus } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import * as fs from 'fs';
 
 const createMockRepo = () => ({
@@ -52,6 +53,9 @@ describe('KnowledgeBaseService', () => {
                 { provide: getRepositoryToken(KbChunk), useValue: chunkRepo },
                 { provide: HttpService, useValue: mockHttpService },
                 { provide: ConfigService, useValue: mockConfigService },
+                // Ngoài HTTP context (unit test) → get() undefined → KHÔNG lọc tenant,
+                // giữ nguyên hành vi/assertion cũ.
+                { provide: TenantContextService, useValue: { get: () => undefined } },
             ],
         }).compile();
 

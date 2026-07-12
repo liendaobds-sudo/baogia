@@ -19,7 +19,7 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
         bQuantity, setBQuantity, bPageCount, setBPageCount, bBindingType, setBBindingType,
         bCoverMaterialName, setBCoverMaterialName, bCoverMaterialId, setBCoverMaterialId, bCoverPaperSizeId, setBCoverPaperSizeId, bCoverPrintType, setBCoverPrintType, bCoverPrintSide, setBCoverPrintSide, bCoverProc, setBCoverProc,
         bInnerMaterialName, setBInnerMaterialName, bInnerMaterialId, setBInnerMaterialId, bInnerPaperSizeId, setBInnerPaperSizeId, bInnerPrintType, setBInnerPrintType, bInnerPrintSide, setBInnerPrintSide, bInnerProc, setBInnerProc,
-        pricingResult, optimizedSizes,
+        pricingResult, lastPricingPayload, optimizedSizes,
         addItem, productName
     } = state;
 
@@ -290,11 +290,11 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
                                     <div className="flex justify-between items-end mb-1">
                                         <span className="text-slate-800 font-extrabold text-[13px] uppercase tracking-wide">Thành tiền:</span>
                                         <span className="font-black text-[26px] text-indigo-600 leading-none tracking-tight" style={{textShadow: '0 2px 4px rgba(79, 70, 229, 0.15)'}}>
-                                            {pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency((pricingResult as any).total + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0)) : '0 ₫'}
+                                            {pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency(((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0)) : '0 ₫'}
                                         </span>
                                     </div>
                                     <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide mt-1">
-                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency(((pricingResult as any).total + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0)) / lfQuantity) : '-'}</span> / sản phẩm
+                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency((((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0)) / lfQuantity) : '-'}</span> / sản phẩm
                                     </div>
                                     <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-md border border-amber-200 font-medium flex items-center gap-1.5">
                                         <span>💡</span> Chưa bao gồm VAT & phí giao hàng — xem tổng cuối tại sidebar trái
@@ -313,10 +313,11 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
                                                 name: fileName || 'In Khổ Lớn',
                                                 type: 'large_format',
                                                 quantity: lfQuantity,
-                                                total: (pricingResult as any).total + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0),
-                                                unitPrice: (pricingResult as any).price_per_item,
+                                                total: ((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0),
+                                                unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
                                                 details: pricingResult,
-                                                configParams: { lfWidth, lfHeight, lfMaterialId, lfPrintType }
+                                                configParams: { lfWidth, lfHeight, lfMaterialId, lfPrintType },
+                                                pricingPayload: lastPricingPayload ?? undefined,
                                             });
                                             setFileName('');
                                         }}

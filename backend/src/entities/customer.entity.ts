@@ -12,7 +12,8 @@ export class Customer {
   @Column({ name: 'supabase_uid', type: 'varchar', length: 255, nullable: true, unique: true })
   supabaseUid: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true, unique: true })
+  // Unique THEO TENANT (index composite `uq_customers_tenant_code` ở DB), không còn unique toàn cục.
+  @Column({ type: 'varchar', length: 20, nullable: true })
   code: string;
 
   @Column({ type: 'varchar', length: 100 })
@@ -21,7 +22,8 @@ export class Customer {
   @Column({ name: 'customer_type', type: 'varchar', length: 20, default: 'individual' })
   customerType: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true, unique: true })
+  // Unique THEO TENANT (index composite `uq_customers_tenant_phone` ở DB), không còn unique toàn cục.
+  @Column({ type: 'varchar', length: 20, nullable: true })
   phone: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
@@ -119,4 +121,8 @@ export class Customer {
 
   @Column({ name: 'price_group_id', type: 'int', nullable: true })
   priceGroupId: number;
+
+  // Cô lập theo tenant (org-scoped). NULL = dùng chung/hệ thống. Cột do migration Pha A thêm.
+  @Column({ name: 'tenant_id', type: 'int', nullable: true })
+  tenantId: number | null;
 }

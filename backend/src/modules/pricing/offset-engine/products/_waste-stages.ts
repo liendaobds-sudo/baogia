@@ -12,7 +12,7 @@
  *
  * _Tài liệu: docs/offset-waste-model.md_
  */
-import { PricingData, GiaCongTier, WasteStageConfig, QuoteLine } from '../pricing-data';
+import { PricingData, GiaCongTier, WasteStageConfig, QuoteLine, numParam } from '../pricing-data';
 import { pickRate, haoHut as haoHutCurve } from '../lookups';
 import { StageWaste, cascadeProduct, qtyOf } from '../waste-cascade';
 
@@ -100,9 +100,9 @@ export function stageCostAt(code: string, slForTier: number, qtyCharged: number,
     const rec = d.giaCong.find((g) => g.code === code);
     if (!rec) return 0;
     const rate = pickRate(slForTier, rec.tiers as GiaCongTier[], d.tyLe.mocSoLuong);
-    const moq = d.tyLe.params[rec.moqParam] ?? d.tyLe.params.MOQ_GiaCong;
+    const moq = numParam(d.tyLe.params, rec.moqParam) ?? d.tyLe.params.MOQ_GiaCong;
     if (rec.billingMode === 'minCharge') {
-        if (slForTier < moq) return (rec.minChargeParam ? d.tyLe.params[rec.minChargeParam] : 0) ?? 0;
+        if (slForTier < moq) return (rec.minChargeParam ? numParam(d.tyLe.params, rec.minChargeParam) : 0) ?? 0;
         return rate * qtyCharged;
     }
     return rate * qtyCharged; // perUnit

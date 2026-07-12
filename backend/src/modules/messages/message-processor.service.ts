@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { runInTransaction } from 'typeorm-transactional';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { AppScopeService } from '../../common/app-scope/app-scope.service';
 import { Contact, Conversation, Message, Channel } from '../../entities';
 import { ConversationStatus, ConversationPriority } from '../../entities/conversation.entity';
 import { SenderType, ContentType, MessageStatus } from '../../entities/message.entity';
@@ -73,6 +74,7 @@ export class MessageProcessorService {
         @Optional() @Inject('AiSuggestService') private aiSuggestService?: AiSuggestService,
         @Optional() private followUpService?: FollowUpService,
         @Optional() private tenantCtx?: TenantContextService,
+        @Optional() private appScope?: AppScopeService,
     ) { }
 
     /**
@@ -151,6 +153,24 @@ export class MessageProcessorService {
         if (!channel) {
             this.logger.error(`Channel not found: ${channelId}`);
             return false;
+        }
+
+        // Gate Trục CSKH theo tenant: nếu tenant tắt CSKH → bỏ qua inbound an toàn (Req 4.6, 9.3).
+        // Dùng tenant từ context (RLS on) hoặc query channels.tenant_id (RLS off). Không xác
+        // định được tenant → fail-open (không chặn). Baseline bật CSKH → 0 thay đổi hành vi.
+        if (this.appScope) {
+            let tid = this.tenantCtx?.currentTenantId() ?? null;
+            if (tid == null) {
+                try {
+                    const rows = await this.channelRepo.manager.query(
+                        'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', [channelId]);
+                    if (rows?.[0]?.tenant_id) tid = Number(rows[0].tenant_id);
+                } catch { /* fail-open */ }
+            }
+            if (tid != null && !(await this.appScope.isCskhEnabledForTenant(tid))) {
+                this.logger.debug(`[cskh-scope] tenant ${tid} tắt CSKH — bỏ qua inbound`);
+                return false;
+            }
         }
 
         // Idempotency check

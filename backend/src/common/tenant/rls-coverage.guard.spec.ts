@@ -83,6 +83,23 @@ function parseOrgTablesFromSql(sqlPath: string): Set<string> {
   return new Set(literals.map((s) => s.replace(/'/g, '').trim()));
 }
 
+/**
+ * Bắt các bảng có RLS qua BLOCK RIÊNG (không nằm trong loop `org_tables`).
+ * Một số bảng có hàng BASELINE (`tenant_id IS NULL`) như `method_capabilities`,
+ * `tenant_app_scopes` KHÔNG dùng loop chung (loop SET NOT NULL sẽ phá baseline) mà
+ * có block riêng với `ALTER TABLE <name> ENABLE ROW LEVEL SECURITY` dạng LITERAL.
+ * Loop chung dùng `EXECUTE format('ALTER TABLE %I ...', t)` nên `%I` KHÔNG khớp
+ * regex tên literal → chỉ bắt đúng các bảng block-riêng. Đây vẫn là "đã có RLS".
+ */
+function parseLiteralRlsTablesFromSql(sqlPath: string): Set<string> {
+  const sql = fs.readFileSync(sqlPath, 'utf8');
+  const out = new Set<string>();
+  const re = /ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) out.add(m[1].trim());
+  return out;
+}
+
 describe('RLS coverage guard (anti-drift entity → tenant isolation)', () => {
   const entityFiles = [
     ...collectEntityFiles(path.join(SRC_DIR, 'entities')),
@@ -96,7 +113,12 @@ describe('RLS coverage guard (anti-drift entity → tenant isolation)', () => {
     if (name) entityTables.set(name, path.relative(SRC_DIR, file));
   }
 
-  const orgTables = parseOrgTablesFromSql(PHASE_B_SQL);
+  // Bảng có RLS: qua loop chung (org_tables) HOẶC qua block riêng literal
+  // (bảng có baseline NULL như method_capabilities, tenant_app_scopes).
+  const orgTables = new Set<string>([
+    ...parseOrgTablesFromSql(PHASE_B_SQL),
+    ...parseLiteralRlsTablesFromSql(PHASE_B_SQL),
+  ]);
 
   it('phát hiện được entity và danh sách org_tables (sanity)', () => {
     // Bảo đảm cơ chế quét hoạt động — nếu 0 thì regex/đường dẫn sai.

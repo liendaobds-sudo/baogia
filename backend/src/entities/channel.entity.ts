@@ -41,6 +41,10 @@ export class Channel {
     @Column({ name: 'webhook_secret', nullable: true })
     webhookSecret: string;
 
+    // Cô lập theo tenant (org-scoped). NULL = dùng chung/hệ thống. Cột do migration Pha A thêm.
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     @Column({ type: 'simple-json', default: '{}' })
     config: Record<string, any>;
 

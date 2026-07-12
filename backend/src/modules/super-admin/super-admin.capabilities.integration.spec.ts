@@ -22,9 +22,12 @@ import * as request from 'supertest';
 import { Repository } from 'typeorm';
 
 import { MethodCapability } from '../../entities/method-capability.entity';
+import { TenantAppScope } from '../../entities/tenant-app-scope.entity';
 import { CapabilityService } from '../../quote/capability.service';
+import { AppScopeService } from '../../common/app-scope/app-scope.service';
 import { SuperAdminController } from './super-admin.controller';
 import { SuperAdminService } from './super-admin.service';
+import { AuditService } from '../audit/audit.service';
 import { RolesGuard } from '../auth/roles.guard';
 
 describe('SuperAdminController (integration) — capability endpoints', () => {
@@ -39,15 +42,18 @@ describe('SuperAdminController (integration) — capability endpoints', () => {
                     database: ':memory:',
                     dropSchema: true,
                     synchronize: true,
-                    entities: [MethodCapability],
+                    entities: [MethodCapability, TenantAppScope],
                 }),
-                TypeOrmModule.forFeature([MethodCapability]),
+                TypeOrmModule.forFeature([MethodCapability, TenantAppScope]),
             ],
             controllers: [SuperAdminController],
             providers: [
                 CapabilityService,
+                AppScopeService,
                 // SuperAdminService không dùng trong các route capability; stub cho DI.
                 { provide: SuperAdminService, useValue: {} },
+                // AuditService là @Global ở app thật; module test cô lập nên phải stub.
+                { provide: AuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
             ],
         })
             .overrideGuard(AuthGuard('jwt'))

@@ -91,7 +91,7 @@ export default function WasteConfigPage() {
             
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cấu Hình Bù Hao — In Nhanh</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Cấu hình bù hao — in nhanh</h1>
                     <p className="text-slate-500 text-sm mt-1">Tỷ lệ % in dư bù hỏng cho báo giá <b>In Nhanh</b>. Engine cộng % này vào số lượng in thực tế (giá vốn). Tổng % = hao theo phương pháp in + hao các công đoạn gia công sản phẩm đi qua.</p>
                     <a href="/pricing/settings/waste-stages" className="text-indigo-600 text-xs font-semibold underline mt-1 inline-block">→ Định mức bù hao theo công đoạn (In Offset)</a>
                 </div>

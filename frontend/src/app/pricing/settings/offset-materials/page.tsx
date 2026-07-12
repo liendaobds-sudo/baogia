@@ -112,7 +112,7 @@ export default function OffsetMaterialsPage() {
             {toast && <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-semibold text-white ${toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>{toast.msg}</div>}
             <div className="mb-5 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Kẽm / Vật tư bề mặt / Ép kim — Offset</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Kẽm / vật tư bề mặt / ép kim — offset</h1>
                     <p className="text-slate-500 text-sm mt-1">Định mức in ấn offset; form báo giá tự dùng.{' '}
                         <Link href="/pricing/settings/offset-products" className="text-indigo-600 underline">Cấu hình sản phẩm</Link></p>
                 </div>

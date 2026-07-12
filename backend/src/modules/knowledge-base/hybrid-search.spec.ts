@@ -10,6 +10,7 @@ import { HttpService } from '@nestjs/axios';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { KbDocument } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import * as fs from 'fs';
 
 describe('KnowledgeBaseService — hybrid retrieval (recall fix)', () => {
@@ -47,6 +48,7 @@ describe('KnowledgeBaseService — hybrid retrieval (recall fix)', () => {
                 { provide: getRepositoryToken(KbChunk), useValue: chunkRepo },
                 { provide: HttpService, useValue: httpService },
                 { provide: ConfigService, useValue: configService },
+                { provide: TenantContextService, useValue: { get: () => undefined } },
             ],
         }).compile();
         jest.spyOn(fs, 'existsSync').mockReturnValue(true);

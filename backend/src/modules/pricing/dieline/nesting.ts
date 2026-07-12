@@ -44,6 +44,26 @@ export { calculateNesting } from './nestingEngine';
 export type { NestingResult, PlacedDieline, NestingConfig } from './nestingTypes';
 export { DEFAULT_NESTING_CONFIG, SHEET_PRESETS } from './nestingTypes';
 
+/** Lề/nhíp/gutter (mm) cho một khổ giấy — cấu trúc khớp `MarginConfig` của imposition. */
+export interface SheetMargins {
+    left: number; right: number; top: number; bottom: number; gripper: number; gutter: number;
+}
+
+/**
+ * Map lề/nhíp/gutter (mm, từ cấu hình khổ giấy) sang `overrides` cho `nestOnSheet`/`nestRectOnSheet`.
+ * Nhíp → `gripperMargin` (cạnh dài); gutter → cả `gutter` (grid) lẫn `dieGap` (smart) vì hai chế độ
+ * đọc khe hở từ hai field khác nhau (`calculateNesting`: gap = smart?dieGap:(gutter||dieGap)).
+ * Nguồn duy nhất cho số con — thay hằng số cứng 10/12/3 của DEFAULT_NESTING_CONFIG.
+ */
+export function marginsToNestOverrides(m: SheetMargins): Partial<NestingConfig> {
+    return {
+        margin: { top: m.top, right: m.right, bottom: m.bottom, left: m.left },
+        gripperMargin: m.gripper,
+        gutter: m.gutter,
+        dieGap: m.gutter,
+    };
+}
+
 /**
  * Dàn 1 HÌNH CHỮ NHẬT (sản phẩm phẳng: tờ rơi/bì thư/sp khác/túi) lên khổ in.
  * Dùng nesting lưới (grid, tự xoay 0°/90°), nhíp ở cạnh dài (landscape).

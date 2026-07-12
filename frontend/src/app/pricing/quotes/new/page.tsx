@@ -44,8 +44,8 @@ const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
         product_type: it.type,
         quantity: it.quantity,
         item_total: it.total,
-        // Gói cấu hình + kết quả tính để Sửa khôi phục (đọc lại từ printing_detail).
-        printing_detail: { digital: true, configParams: cfg, details: it.details },
+        // Gói cấu hình + kết quả tính + payload GỐC để Sửa khôi phục & backend replay xác thực giá.
+        printing_detail: { digital: true, configParams: cfg, details: it.details, pricingPayload: it.pricingPayload },
     };
     if (it.type === 'loose') {
         return {
@@ -94,7 +94,7 @@ export default function NewQuotePage() {
     const customerInfoRef = useRef<CustomerInfoHandle>(null);
 
     // Cart Context
-    const { items, getTotalAmount, clearCart, addItem } = useQuoteCart();
+    const { items, getTotalAmount, clearCart, addItem, chietKhauRate } = useQuoteCart();
 
     const handleCustomerNameChange = useCallback((name: string) => {
         setCustomerName(name);
@@ -127,9 +127,10 @@ export default function NewQuotePage() {
                         customer_address: d.customer_address || '',
                         customer_unit: d.customer_unit || '',
                         customer_email: d.customer_email || '',
-                        customer_tax_code: d.customer_tax_code || '',
+                        // Cột thật là `tax_code` / `customer_note` (không phải customer_tax_code / notes).
+                        customer_tax_code: d.tax_code || '',
                         customer_contact: d.customer_contact || '',
-                        notes: d.notes || '',
+                        notes: d.customer_note || '',
                     });
 
                     clearCart();
@@ -148,7 +149,9 @@ export default function NewQuotePage() {
                                 unitPrice: item.quantity > 0 ? (parseFloat(item.item_total) / item.quantity) : 0,
                                 total: parseFloat(item.item_total) || 0,
                                 configParams: parsedConfig,
-                                details: parsedDetails
+                                details: parsedDetails,
+                                // Giữ payload gốc để lần Lưu sau vẫn được backend replay xác thực giá.
+                                pricingPayload: pd.pricingPayload,
                             });
                         });
                     }
@@ -219,8 +222,13 @@ export default function NewQuotePage() {
         setIsSaving(true);
 
         const subtotal = getTotalAmount();
-        const vatAmount = subtotal * payload.vat_rate / 100;
-        const grandTotal = subtotal + vatAmount + payload.shipping_fee;
+        // Chiết khấu (%) nhập ở mục Thuế & Phí — trước đây bị bỏ khi lưu. Áp trên subtotal,
+        // rồi VAT trên phần SAU chiết khấu (đồng bộ backend createQuote).
+        const discountRate = Math.min(100, Math.max(0, chietKhauRate || 0));
+        const discountAmount = Math.round(subtotal * discountRate / 100);
+        const afterDiscount = subtotal - discountAmount;
+        const vatAmount = afterDiscount * payload.vat_rate / 100;
+        const grandTotal = afterDiscount + vatAmount + payload.shipping_fee;
 
         try {
             const res = await fetch(`${API_URL}/erp/orders`, {
@@ -237,7 +245,12 @@ export default function NewQuotePage() {
                     tax_code: payload.customer_tax_code,
                     customer_address: payload.customer_address,
                     customer_note: payload.notes,
+                    customer_email: payload.customer_email,
+                    customer_contact: payload.customer_contact,
                     total: subtotal,
+                    discount_type: discountRate > 0 ? 'percent' : undefined,
+                    discount_value: discountRate,
+                    discount_amount: discountAmount,
                     vat_rate: payload.vat_rate,
                     vat_amount: vatAmount,
                     shipping_fee: payload.shipping_fee,

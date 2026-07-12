@@ -37,6 +37,15 @@
   --ai-card-bg: #f5f3ff;
   --ai-accent: #7c3aed;
 
+  /* Inbox role tokens — giá trị = hex hiện hữu (không hồi quy light-mode; chuẩn bị dark-mode) */
+  --brand-zalo: #005ae0;        /* xanh hành động kiểu Zalo trong chat/list */
+  --brand-zalo-hover: #0047b3;
+  --icon-muted: #606d7b;        /* icon/label phụ trên toolbar list */
+  --surface-chat: #eaebed;      /* nền vùng tin nhắn */
+  --surface-input: #eaedf0;     /* nền ô tìm kiếm/nhập */
+  --border-strong: #e1e4ea;     /* viền toolbar/thanh nhập chat */
+  --icon-soft: #7589a3;         /* icon công cụ chat (soft gray) */
+
   --sidebar-bg: #0f172a;
   --sidebar-text: #cbd5e1;
   --sidebar-active: #2563eb;
@@ -821,3 +830,48 @@ body.resizing-sidebar .main-content {
     pointer-events: auto;
 }
 
+
+/* ============================================================
+   Dark mode scaffold (CHUẨN BỊ — chưa bật).
+   Chỉ có tác dụng khi phần tử tổ tiên có class `.dark`. Mặc định KHÔNG
+   phần tử nào mang class này ⇒ giao diện light KHÔNG đổi (không hồi quy).
+   Bật thật ở bước sau: thêm `dark` vào <html>/<body> + QA từng trang.
+   ============================================================ */
+.dark {
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-light: #1e3a5f;
+  --secondary: #a78bfa;
+  --secondary-light: #2e2a45;
+
+  --success: #22c55e;
+  --success-light: #14331f;
+  --warning: #fbbf24;
+  --warning-light: #3a2e10;
+  --danger: #f87171;
+  --danger-light: #3a1a1a;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --bg-primary: #0f172a;
+  --bg-secondary: #111827;
+  --bg-tertiary: #1e293b;
+  --border: #334155;
+  --border-light: #1e293b;
+
+  --chat-customer: #1e293b;
+  --chat-agent: #1e3a5f;
+  --ai-card-bg: #241f3a;
+  --ai-accent: #a78bfa;
+
+  /* Inbox role tokens (dark) */
+  --brand-zalo: #3b82f6;
+  --brand-zalo-hover: #60a5fa;
+  --icon-muted: #94a3b8;
+  --surface-chat: #0b1220;
+  --surface-input: #1e293b;
+  --border-strong: #334155;
+  --icon-soft: #94a3b8;
+}

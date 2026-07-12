@@ -32,19 +32,19 @@ const FIELDS: FieldDef[] = [
     { key: 'marginBottom', label: 'Nhíp dưới (mm)', type: 'number', required: false, min: 0 },
     { key: 'marginLeft', label: 'Lề trái (mm)', type: 'number', required: false, min: 0 },
     { key: 'marginRight', label: 'Lề phải (mm)', type: 'number', required: false, min: 0 },
-    { key: 'khoGiayLon', label: 'Khổ giấy lớn', type: 'text', required: false, placeholder: 'VD: 86x109' },
+    { key: 'khoGiayLon', label: 'Khổ giấy lớn', type: 'text', required: true, placeholder: 'VD: 79cm x 109cm' },
     { key: 'chiaTo', label: 'Kiểu chia tờ', type: 'text', required: false, placeholder: 'VD: Cắt 2' },
     { key: 'soConToLon', label: 'Số con / tờ lớn', type: 'number', required: false, min: 1 },
     { key: 'soConBaiIn', label: 'Số con tối đa / bài in', type: 'number', required: false, min: 1 },
-    { 
-        key: 'loaiKem', 
-        label: 'Loại kẽm', 
-        type: 'select', 
+    {
+        key: 'loaiKem',
+        label: 'Loại kẽm',
+        type: 'select',
         options: [
             { label: 'Kẽm nhỏ', value: 'Kẽm nhỏ' },
             { label: 'Kẽm lớn', value: 'Kẽm lớn' }
         ],
-        required: false 
+        required: false
     },
     { key: 'scopeOffset', label: 'Sử dụng cho In Offset', type: 'checkbox', defaultValue: true },
 ];
@@ -125,7 +125,7 @@ export function OffsetPaperSizes() {
                 onClose={() => { setModalOpen(false); setEditItem(null); }} 
                 onSave={handleSave} 
                 title="Khổ In Offset" 
-                fields={FIELDS} 
+                fields={FIELDS}
                 initialData={editItem} 
                 isEdit={!!editItem} 
             />

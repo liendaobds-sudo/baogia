@@ -18,6 +18,7 @@ out/
 *.sqlite
 *.sqlite3
 _backup/
+_backup_*.json
 
 # IDE
 .vscode/
@@ -63,3 +64,11 @@ _archive/
 # ── Tài liệu cá nhân / file lạc không thuộc dự án (added audit cleanup) ──
 *.pdf
 JLPT*
+
+# ── Test/build output tạm (jest --json reporter, script điều tra) — không commit ──
+.jestout/
+.jestout.json
+jest_*.json
+jout.json
+jest_fe_final.json
+_tmp_*.js

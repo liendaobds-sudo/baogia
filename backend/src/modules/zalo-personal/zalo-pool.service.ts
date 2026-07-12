@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ZaloAccount, ZaloAccountStatus } from '../../entities/zalo-account.entity';
@@ -9,6 +9,8 @@ import { parseZaloMessageContent, isZaloReactionCode } from './zalo-message-pars
 import { ModuleRef } from '@nestjs/core';
 import { MessageProcessorService } from '../messages/message-processor.service';
 import { EventsGateway } from '../gateway/events.gateway';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { runInTenant, tenantRlsEnabled } from '../../common/tenant/tenant-background';
 
 /**
  * ZaloPoolService — Singleton that manages live Zalo SDK (zca-js) instances.
@@ -63,6 +65,7 @@ export class ZaloPoolService implements OnModuleInit {
         private readonly rateLimiter: ZaloRateLimiterService,
         private readonly moduleRef: ModuleRef,
         private readonly eventsGateway: EventsGateway,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) {
         this.sender = new ZaloMessageSender(rateLimiter, this.recentOutboundEchoes);
         this.crm = new ZaloCrmFeatures();
@@ -292,6 +295,30 @@ export class ZaloPoolService implements OnModuleInit {
     // ═══════════════════════ LISTENER ═══════════════════════
 
     /**
+     * Phân giải tenant của một channel rồi chạy `fn` trong tenant scope — dùng cho
+     * các callback zca-js NỀN (undo/seen/typing/reaction/delivered, đồng bộ unread)
+     * có ĐỌC/GHI conversation/message/contact rows.
+     *
+     * AN TOÀN tuyệt đối: flag `TENANT_RLS_ENABLED` TẮT (mặc định) hoặc thiếu tenantCtx
+     * → chạy thẳng `fn()` (KHÔNG truy vấn phân giải tenant, KHÔNG bọc transaction) ⇒
+     * hành vi byte-for-byte như cũ. Flag BẬT → phân giải `channels.tenant_id` (cùng
+     * pattern với MessageProcessorService.processInbound) rồi `runInTenant` để mọi đọc/
+     * ghi đi qua connection có `app.current_tenant` (Postgres RLS lọc đúng tenant).
+     *
+     * _Requirements: 4.2_
+     */
+    private async runScopedForChannel<T>(channelId: string, fn: () => Promise<T>): Promise<T> {
+        if (!tenantRlsEnabled() || !this.tenantCtx) return fn();
+        let tenantId = 1;
+        try {
+            const rows = await this.repo.manager.query(
+                'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', [channelId]);
+            if (rows?.[0]?.tenant_id) tenantId = Number(rows[0].tenant_id);
+        } catch { /* fallback tenant 1 */ }
+        return runInTenant(this.tenantCtx, this.repo.manager, tenantId, fn);
+    }
+
+    /**
      * Attach zca-js listener events for incoming messages.
      * Includes circuit breaker for unstable connections.
      */
@@ -500,12 +527,15 @@ export class ZaloPoolService implements OnModuleInit {
                 
                 const account = await this.repo.findOne({ where: { id: accountId } });
                 if (account && account.channelId) {
+                    const channelId = account.channelId;
                     const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
                     // Try each candidate until one matches
-                    for (const candidateId of candidates) {
-                        this.logger.log(`⏪ [zalo:${accountId}] Trying undo with ID: ${candidateId}`);
-                        await processor.processUndoEvent(account.channelId, candidateId);
-                    }
+                    await this.runScopedForChannel(channelId, async () => {
+                        for (const candidateId of candidates) {
+                            this.logger.log(`⏪ [zalo:${accountId}] Trying undo with ID: ${candidateId}`);
+                            await processor.processUndoEvent(channelId, candidateId);
+                        }
+                    });
                 }
             } else {
                 this.logger.warn(`⏪ [zalo:${accountId}] Undo event but no msgId found in: ${JSON.stringify(data).substring(0, 500)}`);
@@ -516,24 +546,27 @@ export class ZaloPoolService implements OnModuleInit {
             if (!messages || messages.length === 0) return;
             const account = await this.repo.findOne({ where: { id: accountId } });
             if (!account || !account.channelId) return;
+            const channelId = account.channelId;
 
             const instance = this.instances.get(accountId);
             const ownZaloUid = instance?.zaloUid || '';
 
             const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
-            for (const msg of messages) {
-                const senderUid = String(msg.data?.uidFrom || '');
-                const isSelf = senderUid === ownZaloUid || senderUid === '0';
-                
-                let extUserId = msg.data?.groupId ? `g_${String(msg.data.groupId).replace('g_', '')}` : String(msg.data?.idTo || '');
-                if (!isSelf && !msg.data?.groupId) {
-                    extUserId = senderUid;
-                }
+            await this.runScopedForChannel(channelId, async () => {
+                for (const msg of messages) {
+                    const senderUid = String(msg.data?.uidFrom || '');
+                    const isSelf = senderUid === ownZaloUid || senderUid === '0';
 
-                if (extUserId && msg.data?.msgId) {
-                    await processor.processSeenEvent(account.channelId, extUserId, String(msg.data.msgId), isSelf);
+                    let extUserId = msg.data?.groupId ? `g_${String(msg.data.groupId).replace('g_', '')}` : String(msg.data?.idTo || '');
+                    if (!isSelf && !msg.data?.groupId) {
+                        extUserId = senderUid;
+                    }
+
+                    if (extUserId && msg.data?.msgId) {
+                        await processor.processSeenEvent(channelId, extUserId, String(msg.data.msgId), isSelf);
+                    }
                 }
-            }
+            });
         });
 
 
@@ -541,11 +574,13 @@ export class ZaloPoolService implements OnModuleInit {
         listener.on('typing', async (typing: any) => {
             const account = await this.repo.findOne({ where: { id: accountId } });
             if (!account || !account.channelId) return;
+            const channelId = account.channelId;
 
             const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
             const extUserId = typing.data?.groupId ? `g_${String(typing.data.groupId).replace('g_', '')}` : String(typing.data?.uidFrom || '');
             if (extUserId) {
-                await processor.processTypingEvent(account.channelId, extUserId, typing.data?.isTyping !== 0);
+                await this.runScopedForChannel(channelId, () =>
+                    processor.processTypingEvent(channelId, extUserId, typing.data?.isTyping !== 0));
             }
         });
 
@@ -565,9 +600,11 @@ export class ZaloPoolService implements OnModuleInit {
 
                 const account = await this.repo.findOne({ where: { id: accountId } });
                 if (!account?.channelId) return;
+                const channelId = account.channelId;
 
                 const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
-                await processor.processReactionEvent(account.channelId, msgId, icon, senderId);
+                await this.runScopedForChannel(channelId, () =>
+                    processor.processReactionEvent(channelId, msgId, icon, senderId));
             } catch (err: any) {
                 this.logger.warn(`[zalo:${accountId}] Reaction handler error: ${err.message}`);
             }
@@ -579,16 +616,19 @@ export class ZaloPoolService implements OnModuleInit {
                 if (!messages || messages.length === 0) return;
                 const account = await this.repo.findOne({ where: { id: accountId } });
                 if (!account?.channelId) return;
+                const channelId = account.channelId;
 
                 const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
-                for (const msg of messages) {
-                    const extUserId = msg.data?.groupId
-                        ? `g_${String(msg.data.groupId).replace('g_', '')}`
-                        : String(msg.data?.idTo || msg.data?.uidFrom || '');
-                    if (extUserId) {
-                        await processor.processDeliveredEvent(account.channelId, extUserId);
+                await this.runScopedForChannel(channelId, async () => {
+                    for (const msg of messages) {
+                        const extUserId = msg.data?.groupId
+                            ? `g_${String(msg.data.groupId).replace('g_', '')}`
+                            : String(msg.data?.idTo || msg.data?.uidFrom || '');
+                        if (extUserId) {
+                            await processor.processDeliveredEvent(channelId, extUserId);
+                        }
                     }
-                }
+                });
             } catch (err: any) {
                 this.logger.warn(`[zalo:${accountId}] Delivered handler error: ${err.message}`);
             }
@@ -600,21 +640,24 @@ export class ZaloPoolService implements OnModuleInit {
                 if (!messages || messages.length === 0) return;
                 const account = await this.repo.findOne({ where: { id: accountId } });
                 if (!account?.channelId) return;
+                const channelId = account.channelId;
 
                 const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
-                for (const msg of messages) {
-                    // UserSeenMessage: { data: { idTo, msgId }, threadId }
-                    // GroupSeenMessage: { data: { groupId, msgId, seenUids }, threadId }
-                    const extUserId = msg.threadId
-                        ? (msg.type === 1 ? `g_${String(msg.threadId).replace('g_', '')}` : String(msg.threadId))
-                        : String(msg.data?.idTo || msg.data?.groupId || '');
-                    const msgId = String(msg.data?.msgId || '');
+                await this.runScopedForChannel(channelId, async () => {
+                    for (const msg of messages) {
+                        // UserSeenMessage: { data: { idTo, msgId }, threadId }
+                        // GroupSeenMessage: { data: { groupId, msgId, seenUids }, threadId }
+                        const extUserId = msg.threadId
+                            ? (msg.type === 1 ? `g_${String(msg.threadId).replace('g_', '')}` : String(msg.threadId))
+                            : String(msg.data?.idTo || msg.data?.groupId || '');
+                        const msgId = String(msg.data?.msgId || '');
 
-                    if (extUserId) {
-                        this.logger.log(`👁️ [zalo:${accountId}] Seen event: user=${extUserId} msgId=${msgId}`);
-                        await processor.processSeenEvent(account.channelId, extUserId, msgId);
+                        if (extUserId) {
+                            this.logger.log(`👁️ [zalo:${accountId}] Seen event: user=${extUserId} msgId=${msgId}`);
+                            await processor.processSeenEvent(channelId, extUserId, msgId);
+                        }
                     }
-                }
+                });
             } catch (err: any) {
                 this.logger.warn(`[zalo:${accountId}] Seen handler error: ${err.message}`);
             }
@@ -1045,29 +1088,32 @@ export class ZaloPoolService implements OnModuleInit {
 
             this.logger.log(`[zalo:${accountId}] Zalo unread: ${unreadUserIds.length} users, ${unreadGroupIds.length} groups`);
 
-            // Get all conversations with unread > 0 in our DB
-            const convRepo = processor['convRepo'];
-            const conversations = await convRepo.find({
-                where: { channel: { id: account.channelId } },
-                relations: ['contact'],
-            });
+            // Đọc/ghi conversation NẰM NGOÀI processInbound → bọc tenant scope riêng.
+            await this.runScopedForChannel(account.channelId, async () => {
+                // Get all conversations with unread > 0 in our DB
+                const convRepo = processor['convRepo'];
+                const conversations = await convRepo.find({
+                    where: { channel: { id: account.channelId } },
+                    relations: ['contact'],
+                });
 
-            let cleared = 0;
-            for (const conv of conversations) {
-                if ((conv.unreadCount || 0) === 0) continue;
-                const extId = conv.contact?.externalUserId || '';
-                
-                // If Zalo says this conversation is NOT unread, clear the badge
-                if (!allUnreadExtIds.has(extId)) {
-                    conv.unreadCount = 0;
-                    await convRepo.save(conv);
-                    try { this.eventsGateway.emitConversationUpdated({ id: conv.id, unreadCount: 0 }); } catch(e) {}
-                    cleared++;
+                let cleared = 0;
+                for (const conv of conversations) {
+                    if ((conv.unreadCount || 0) === 0) continue;
+                    const extId = conv.contact?.externalUserId || '';
+
+                    // If Zalo says this conversation is NOT unread, clear the badge
+                    if (!allUnreadExtIds.has(extId)) {
+                        conv.unreadCount = 0;
+                        await convRepo.save(conv);
+                        try { this.eventsGateway.emitConversationUpdated({ id: conv.id, unreadCount: 0 }); } catch(e) {}
+                        cleared++;
+                    }
                 }
-            }
-            if (cleared > 0) {
-                this.logger.log(`✅ [zalo:${accountId}] Cleared ${cleared} phantom unread badges via Zalo unread sync`);
-            }
+                if (cleared > 0) {
+                    this.logger.log(`✅ [zalo:${accountId}] Cleared ${cleared} phantom unread badges via Zalo unread sync`);
+                }
+            });
         } catch (e: any) {
             this.logger.warn(`[zalo:${accountId}] Post-sync unread reconciliation error: ${e.message}`);
         }
@@ -1090,6 +1136,7 @@ export class ZaloPoolService implements OnModuleInit {
             try {
                 const account = await this.repo.findOne({ where: { id: accountId } });
                 if (!account?.channelId) return;
+                const channelId = account.channelId;
 
                 const unreadResult = await api.getUnreadMark();
                 const unreadData = unreadResult?.data || unreadResult;
@@ -1098,7 +1145,8 @@ export class ZaloPoolService implements OnModuleInit {
                 const allUnreadExtIds = new Set([...unreadUserIds, ...unreadGroupIds]);
 
                 const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
-                await processor.syncUnreadMarks(account.channelId, Array.from(allUnreadExtIds));
+                await this.runScopedForChannel(channelId, () =>
+                    processor.syncUnreadMarks(channelId, Array.from(allUnreadExtIds)));
             } catch (e: any) {
                 this.logger.warn(`[zalo:${accountId}] Unread poll error: ${e.message}`);
             }

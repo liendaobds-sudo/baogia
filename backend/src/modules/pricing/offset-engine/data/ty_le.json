@@ -38,6 +38,7 @@
     }
   ],
   "params": {
+    "ImpositionSource": "unified",
     "MOQ_GiaCong": 1000,
     "MOQ_BinhBai_Nho": 3000,
     "MOQ_BinhBai_Lon": 3000,

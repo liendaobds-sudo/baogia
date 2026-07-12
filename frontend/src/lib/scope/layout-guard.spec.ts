@@ -39,11 +39,12 @@ const CORE_ROUTES = [
   '/settings',
   '/test-chat',
   '/profile',
+  // Super Admin — bật lại thành Lõi để quản lý multi-tenant (unfreeze, xem scope-registry.json).
+  '/super-admin',
 ] as const;
 
 /** Route đóng băng tiêu biểu — guard cấp layout PHẢI chặn. */
 const FROZEN_ROUTES = [
-  '/super-admin',
   '/settings/api-keys',
   '/settings/ai-quote',
   '/settings/api-docs',

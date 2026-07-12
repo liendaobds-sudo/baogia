@@ -73,7 +73,7 @@ export default function OffsetFeesPage() {
 
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Phí cố định & Chiết khấu — Offset</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Phí cố định & chiết khấu — offset</h1>
                     <p className="text-slate-500 text-sm mt-1">Cấu hình tập trung; form báo giá tự dùng, không nhập tay.{' '}
                         <Link href="/pricing/settings/waste-stages" className="text-indigo-600 underline">Định mức bù hao</Link>{' · '}
                         <Link href="/pricing/settings/offset-products" className="text-indigo-600 underline">Cấu hình sản phẩm</Link></p>

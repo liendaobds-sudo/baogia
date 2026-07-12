@@ -611,6 +611,8 @@ function PreviewPanel({ result }: { result: OffsetQuoteResult | null }) {
                             sheetW={m.sheetW} sheetH={m.sheetH}
                             itemW={m.itemW} itemH={m.itemH}
                             soConToLon={m.soConToLon}
+                            positions={m.positions}
+                            marginConfig={m.marginConfig}
                         />
                     ) : (
                         <div className="text-[12px] text-slate-400 italic">Nhập đầy đủ cấu hình để xem bình bài.</div>
@@ -834,10 +836,12 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                         {/* CENTER: Preview + Gợi ý khổ giấy */}
                         <div className="flex-1 min-h-0 px-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
                             {dielineProps
-                                ? <DielinePreview {...dielineProps} />
+                                ? <DielinePreview {...dielineProps} engineSoConBaiIn={result?.meta?.soConBaiIn} />
                                 : <PreviewPanel result={result} />}
-                            {/* Gợi ý khổ giấy */}
-                            {suggestedSizes.length > 0 && (type === 'sp_khac' || type === 'hop_giay' || ((type === 'to_roi' || type === 'bi_thu_folder') && st.sizeMode === 'custom')) && (
+                            {/* Gợi ý khổ giấy — KHÔNG cho hop_giay: DielinePreview đã có danh sách chọn khổ
+                                tính nesting thật (số con/khổ in). Danh sách này dùng số tĩnh soConToLon (tờ lớn)
+                                nên vênh + trùng chức năng → chỉ giữ cho sp_khac / tờ rơi·bì thư custom (useDims tính đúng). */}
+                            {suggestedSizes.length > 0 && (type === 'sp_khac' || ((type === 'to_roi' || type === 'bi_thu_folder') && st.sizeMode === 'custom')) && (
                                 <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
                                     <div className="flex items-center gap-2 mb-2">
                                         <svg className="text-blue-500 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2.5 2v6h6M21.5 22v-6h-6"/><path d="M22 11.5A10 10 0 0 0 3.2 7.2M2 12.5a10 10 0 0 0 18.8 4.2"/></svg>

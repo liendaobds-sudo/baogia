@@ -18,6 +18,15 @@ export interface OffsetMaterial {
     priceNoVAT: number;
     sheetWidth: number;
     sheetHeight: number;
+    /**
+     * Vai trò khổ giấy offset (self-ref materials): `'parent'` = khổ nhập (giá `priceNoVAT` nhập tay) |
+     * `'child'` = khổ xả (giá DẪN XUẤT = giá cha / số bài in cắt được, tính sẵn ở config-store lúc nạp) |
+     * `null` = vật tư giấy thường (không phân vai trò). Engine KHÔNG cần đọc field này — giá con đã
+     * được dẫn sẵn vào `priceNoVAT` — nhưng giữ để hiển thị/suy diễn nếu cần.
+     */
+    sheetRole?: 'parent' | 'child' | null;
+    /** Chỉ khổ xả: id vật tư khổ NHẬP nguồn (self-ref) — dùng dẫn giá con. Giá đã dẫn sẵn vào `priceNoVAT`. */
+    parentMaterialId?: number | null;
 }
 
 export type LoaiKem = 'Kẽm nhỏ' | 'Kẽm lớn';
@@ -35,6 +44,23 @@ export interface KhoIn {
     marginRight?: number;
     marginTop?: number;
     marginBottom?: number;
+    // Cắn-nhíp (gripper, cm) cộng vào MỘT cạnh; thiếu → params.Gripper_Cm (mặc định 1.2).
+    gripperCm?: number;
+    // Khe hở giữa các con (gutter, cm); thiếu → params.Gutter_Cm (mặc định 0.3).
+    gutterCm?: number;
+}
+
+/**
+ * MarginConfig — bộ thông số lề tay-kê / cắn-nhíp / gutter đã chuẩn hóa về MILIMET (mm).
+ * Là đơn vị nội bộ chuẩn của Imposition_Service; chuyển đổi cm→mm đúng một lần ở biên vào.
+ */
+export interface MarginConfig {
+    left: number;    // mm
+    right: number;   // mm
+    top: number;     // mm
+    bottom: number;  // mm
+    gripper: number; // mm — cộng vào MỘT cạnh (cạnh nhíp)
+    gutter: number;  // mm — khe giữa các con
 }
 
 export interface FixedSizeToRoi {
@@ -114,7 +140,15 @@ export interface Params {
     TyLe_VAT: number;
     TyLe_ChietKhau: number;
     TyLe_ChietKhau_Max: number;
-    [key: string]: number;
+    /** Nguồn imposition mặc định cho giá xuất ra (Req 6.1). Thiếu → 'legacy'. */
+    ImpositionSource?: 'legacy' | 'unified';
+    /** Bật chạy song song Legacy_Grid + Imposition_Service để đối chiếu (Req 5). 0|1. */
+    ShadowMode?: number;
+    /** Gripper mặc định (cm) khi Kho_In thiếu (Req 1.3). Mặc định 1.2 (=12mm). */
+    Gripper_Cm?: number;
+    /** Gutter mặc định (cm) khi Kho_In thiếu (Req 1.3). Mặc định 0.3 (=3mm). */
+    Gutter_Cm?: number;
+    [key: string]: number | string | undefined;
 }
 
 export interface PricingData {
@@ -220,6 +254,22 @@ export interface QuoteMeta {
     // Khuôn bế (dieline) — khi báo giá hộp dùng engine dieline cho khổ trải.
     dielineStdCode?: string;   // mã tiêu chuẩn (vd 'ECMA-A20.20')
     dielineWarnings?: string[]; // cảnh báo kích thước/khả năng sản xuất
+    // Imposition thống nhất — parity giá ≡ preview ≡ PDF (Req 2, 5, 6, 10).
+    impositionSource?: 'legacy' | 'unified';   // nguồn đã dùng cho So_Con này
+    marginConfig?: MarginConfig;               // mm — để preview vẽ vùng in/gripper
+    positions?: Array<{ x: number; y: number; w: number; h: number }>; // mm — vị trí con TRÊN TỜ LỚN để preview
+    // Khổ BÀI IN (press sheet) — preview hộp vẽ theo mức này (khớp soConBaiIn dùng cho giá).
+    pressW?: number;           // cm — bề rộng khổ bài in
+    pressH?: number;           // cm — bề cao khổ bài in
+    pressPositions?: Array<{ x: number; y: number; w: number; h: number }>; // mm — vị trí con trên khổ bài in
+    pressUsableArea?: { width: number; height: number };                    // mm — vùng in khả dụng khổ bài in
+    shadow?: {                                  // chỉ khi ShadowMode bật (Req 5.2)
+        legacyToLon: number;
+        unifiedToLon: number;
+        legacyBaiIn: number;
+        unifiedBaiIn: number;
+        deltaToLon: number;
+    };
 }
 
 export class OffsetPricingError extends Error {
@@ -227,4 +277,15 @@ export class OffsetPricingError extends Error {
         super(message);
         this.name = 'OffsetPricingError';
     }
+}
+
+/**
+ * Đọc một tham số dạng SỐ (hữu hạn) từ `Params`. Index signature của `Params` đã được nới rộng
+ * sang `number | string | undefined` để chứa `ImpositionSource` (chuỗi); helper này thu hẹp lại về
+ * `number` cho các tham số số được truy cập qua khóa động/khóa chưa khai báo. Trả `undefined` nếu
+ * giá trị không phải số hữu hạn (để gọi cùng `?? default` hoặc `|| default`).
+ */
+export function numParam(params: Params, key: string): number | undefined {
+    const v = params[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }

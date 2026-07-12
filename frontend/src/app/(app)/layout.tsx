@@ -3,13 +3,15 @@
 import { useAuth } from '@/lib/auth-context';
 import { SocketProvider, useSocket } from '@/lib/socket-context';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 
 import { NotificationBell } from './_components/notification-bell';
 import { resolveMenu } from '@/lib/scope/ia-resolver';
 import { scopeRegistry } from '@/lib/scope/registry';
+import { useEnabledApps } from '@/lib/scope/use-enabled-apps';
 import { FrozenRouteGuard } from '@/components/FrozenRouteGuard';
+import { CskhRouteGuard } from '@/components/CskhRouteGuard';
 
 const ROLE_LABELS: Record<string, string> = {
     super_admin: 'Super Admin',
@@ -23,8 +25,33 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
     const { user, logout } = useAuth();
     const { socket } = useSocket();
     const pathname = usePathname();
+    // Tập Trục_Ứng_Dụng khả dụng của tenant — lọc menu CSKH theo Cờ_Phạm_Vi (Req 5.2).
+    const { enabledApps, loaded: appsLoaded } = useEnabledApps();
     const [notifCount, setNotifCount] = useState(0);
     const [notifItems, setNotifItems] = useState<{ convId: string; text: string; time: string; label: string; count: number }[]>([]);
+
+    // Impersonation: tên tenant đang truy cập (nếu có phiên backup super-admin).
+    const [impTenantName, setImpTenantName] = useState<string | null>(null);
+    useEffect(() => {
+        if (typeof window !== 'undefined' && localStorage.getItem('imp_sa_token')) {
+            setImpTenantName(localStorage.getItem('imp_tenant_name') || 'tenant');
+        }
+    }, [pathname]);
+
+    // Thoát impersonation: khôi phục phiên super-admin đã sao lưu rồi về /super-admin.
+    const exitImpersonation = useCallback(() => {
+        const saToken = localStorage.getItem('imp_sa_token');
+        const saUser = localStorage.getItem('imp_sa_user');
+        const saRefresh = localStorage.getItem('imp_sa_refresh');
+        if (saToken) localStorage.setItem('zh_token', saToken);
+        if (saUser) localStorage.setItem('zh_user', saUser);
+        if (saRefresh) localStorage.setItem('zh_refresh_token', saRefresh);
+        localStorage.removeItem('imp_sa_token');
+        localStorage.removeItem('imp_sa_user');
+        localStorage.removeItem('imp_sa_refresh');
+        localStorage.removeItem('imp_tenant_name');
+        window.location.href = '/super-admin';
+    }, []);
 
     // Dynamic browser tab title based on current route
     useEffect(() => {
@@ -225,7 +252,13 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
 
     // Menu chính suy dẫn từ Scope Registry: chỉ các Tính_Năng_Lõi của trục CSKH
     // (và shared) có `navItem`; mọi mục frozen/removed bị ẩn (Req 4.1, 4.3).
+    // Lọc thêm theo Cờ_Phạm_Vi Trục: nếu tenant tắt CSKH → ẩn mục `axis==='cskh'`
+    // (giữ `shared`/`baogia`). Fail-open khi chưa tải xong (Req 5.2, 5.3, 5.4).
     const navItems: { href: string; label: string; icon: React.ReactNode }[] = resolveMenu(scopeRegistry, 'cskh')
+        .filter((item) => {
+            if (appsLoaded && !enabledApps.includes('cskh') && item.axis === 'cskh') return false;
+            return true;
+        })
         .map((item) => {
             const meta = navMeta[item.navItem];
             return {
@@ -354,7 +387,19 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
             )}
 
             <div className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`} style={{ '--sidebar-w': sidebarWidth + 'px' } as React.CSSProperties}>
-                <FrozenRouteGuard registry={scopeRegistry}>{children}</FrozenRouteGuard>
+                {impTenantName && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '8px 16px', background: '#f59e0b', color: '#1f2937', fontSize: 13, fontWeight: 600 }}>
+                        <span>👁️ Đang truy cập tenant: <strong>{impTenantName}</strong> (phiên tạm — quyền quản trị tenant)</span>
+                        <button onClick={exitImpersonation} style={{ padding: '4px 14px', background: '#1f2937', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            ← Thoát về Super Admin
+                        </button>
+                    </div>
+                )}
+                <FrozenRouteGuard registry={scopeRegistry}>
+                    <CskhRouteGuard registry={scopeRegistry} cskhEnabled={enabledApps.includes('cskh')} loaded={appsLoaded}>
+                        {children}
+                    </CskhRouteGuard>
+                </FrozenRouteGuard>
             </div>
         </>
     );

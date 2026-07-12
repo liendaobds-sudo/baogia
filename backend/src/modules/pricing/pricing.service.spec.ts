@@ -239,4 +239,28 @@ describe('PricingService — Contract Tests', () => {
             expect(r.name).toBe('Unknown');
         });
     });
+
+    // ================================================================
+    // 7. hasAnyTier — phân biệt "có định mức" vs "chưa cấu hình"
+    //    Dùng để CHẶN báo giá loose/bound khi vật tư chưa có tier
+    //    (thay vì getPricingTierByMaterial âm thầm trả 0 → thiếu tiền giấy).
+    // ================================================================
+
+    describe('hasAnyTier', () => {
+        function buildService(findImpl: (where: any) => Promise<any>) {
+            const tierRepo: any = { findOne: jest.fn(({ where }: any) => findImpl(where)) };
+            return { svc: new PricingService(tierRepo, null as any), tierRepo };
+        }
+
+        test('vật tư CÓ ít nhất 1 định mức → true', async () => {
+            const { svc, tierRepo } = buildService(async () => ({ pricePerSheet: 1000 }));
+            await expect(svc.hasAnyTier(42)).resolves.toBe(true);
+            expect(tierRepo.findOne).toHaveBeenCalledWith({ where: { materialId: 42 } });
+        });
+
+        test('vật tư KHÔNG có định mức nào → false (để caller chặn)', async () => {
+            const { svc } = buildService(async () => null);
+            await expect(svc.hasAnyTier(99)).resolves.toBe(false);
+        });
+    });
 });

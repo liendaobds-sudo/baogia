@@ -71,6 +71,8 @@ export class CreateQuoteDto {
   @IsOptional() @IsString() tax_code?: string;
   @IsOptional() @IsString() customer_address?: string;
   @IsOptional() @IsString() customer_note?: string;
+  @IsOptional() @IsString() customer_email?: string;
+  @IsOptional() @IsString() customer_contact?: string;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) total?: number;
   @IsOptional() @IsString() discount_type?: string;
   @IsOptional() @Type(() => Number) @IsNumber() discount_value?: number;
@@ -97,6 +99,8 @@ export class UpdateQuoteDto {
   @IsOptional() @IsString() tax_code?: string;
   @IsOptional() @IsString() customer_address?: string;
   @IsOptional() @IsString() customer_note?: string;
+  @IsOptional() @IsString() customer_email?: string;
+  @IsOptional() @IsString() customer_contact?: string;
   @IsOptional() @Type(() => Number) @IsNumber() total?: number;
   @IsOptional() @IsString() delivery_time?: string;
   @IsOptional() @IsString() status?: string;

@@ -200,6 +200,105 @@ describe('MaterialsService', () => {
     });
 
     // ================================================================
+    // OFFSET SCOPE — bắt buộc đơn giá > 0 (fail fast, chặn "chi phí giấy = 0" âm thầm)
+    // ================================================================
+
+    describe('offset material requires unit_price > 0', () => {
+        const setupNoDup = () => {
+            materialRepo.findOne.mockResolvedValue(null);
+            const qb = mockQueryBuilder();
+            qb.getOne.mockResolvedValue(null);
+            materialRepo.createQueryBuilder.mockReturnValue(qb);
+        };
+
+        it('createMaterial: chặn khi bật scope_offset mà thiếu giá', async () => {
+            setupNoDup();
+            await expect(service.createMaterial({ name: 'Giấy Offset', scope_offset: 1 }))
+                .rejects.toThrow(/đơn giá/);
+        });
+
+        it('createMaterial: chặn khi bật scope_offset với giá = 0', async () => {
+            setupNoDup();
+            await expect(service.createMaterial({ name: 'Giấy Offset', scope_offset: 1, unit_price: 0 }))
+                .rejects.toThrow(/đơn giá/);
+        });
+
+        it('createMaterial: cho phép khi bật scope_offset với giá > 0', async () => {
+            setupNoDup();
+            const result = await service.createMaterial({ name: 'Giấy Offset', scope_offset: 1, unit_price: 12000 });
+            expect(result).toBeDefined();
+            expect(materialRepo.save).toHaveBeenCalled();
+        });
+
+        it('createMaterial: KHÔNG chặn vật tư in nhanh (không offset) dù thiếu giá', async () => {
+            setupNoDup();
+            const result = await service.createMaterial({ name: 'Giấy KTS', scope_offset: 0 });
+            expect(result).toBeDefined();
+        });
+
+        it('updateMaterial: chặn khi vật tư đã offset mà cập nhật giá về 0', async () => {
+            materialRepo.findOne.mockResolvedValue({ id: 1, code: 'M1', name: 'Giấy Offset', scopeOffset: true, unitPrice: '12000' });
+            await expect(service.updateMaterial('1', { unit_price: 0 }))
+                .rejects.toThrow(/đơn giá/);
+        });
+
+        it('updateMaterialScope: chặn bật offset qua màn Scope khi giá = 0 (đóng đường vòng)', async () => {
+            materialRepo.findOne.mockResolvedValue({ id: 1, code: 'M1', name: 'Giấy', scopeOffset: false, unitPrice: '0' });
+            await expect(service.updateMaterialScope('1', { scope_offset: true } as any))
+                .rejects.toThrow(/đơn giá/);
+        });
+
+        it('createMaterial: KHÔNG chặn khổ XẢ (sheet_role=child) dù không có giá (giá dẫn xuất từ cha)', async () => {
+            setupNoDup();
+            const result = await service.createMaterial({ name: 'Khổ xả 54x79', scope_offset: 1, sheet_role: 'child', parent_material_id: 1 } as any);
+            expect(result).toBeDefined();
+            expect(materialRepo.save).toHaveBeenCalled();
+        });
+    });
+
+    // ================================================================
+    // SELF-REF: vật tư cha (khổ nhập) sinh vật tư con (khổ xả) — GĐ K
+    // ================================================================
+
+    describe('syncChildSheets — sinh vật tư con từ khổ xả tick', () => {
+        const parent = { id: 7, code: 'C300-79x109', name: 'Couché 300', type: 'paper', category: 'printing', categoryTab: null, unit: 'tờ', scopeOffset: true } as any;
+
+        it('sinh con mã tự sinh cha+khổ, role=child, FK về cha, giá 0', async () => {
+            materialRepo.findOne.mockResolvedValue(null); // chưa tồn tại
+            await service.syncChildSheets(parent, [{ width: 540, height: 790 }]);
+            const created = materialRepo.create.mock.calls[0][0];
+            expect(created.code).toBe('C300-79x109-540x790');
+            expect(created.sheetRole).toBe('child');
+            expect(created.parentMaterialId).toBe(7);
+            expect(created.unitPrice).toBe(0);
+            expect(created.scopeOffset).toBe(true);
+            expect(materialRepo.save).toHaveBeenCalled();
+        });
+
+        it('idempotent: con đã tồn tại → bỏ qua, không nhân đôi', async () => {
+            materialRepo.findOne.mockResolvedValue({ id: 99, code: 'C300-79x109-540x790' });
+            await service.syncChildSheets(parent, [{ width: 540, height: 790 }]);
+            expect(materialRepo.save).not.toHaveBeenCalled();
+        });
+
+        it('bỏ khổ không hợp lệ (w/h ≤ 0)', async () => {
+            materialRepo.findOne.mockResolvedValue(null);
+            await service.syncChildSheets(parent, [{ width: 0, height: 790 }, { width: 540, height: -1 }]);
+            expect(materialRepo.save).not.toHaveBeenCalled();
+        });
+
+        it('createMaterial cha có child_sheets → sinh con sau khi lưu cha', async () => {
+            materialRepo.findOne.mockResolvedValue(null);
+            const qb = mockQueryBuilder();
+            qb.getOne.mockResolvedValue(null);
+            materialRepo.createQueryBuilder.mockReturnValue(qb);
+            await service.createMaterial({ name: 'Couché 300', code: 'C300-79x109', scope_offset: 1, unit_price: 10000, sheet_role: 'parent', child_sheets: [{ width: 540, height: 790 }] } as any);
+            // save gọi ≥ 2 lần: cha + con.
+            expect(materialRepo.save.mock.calls.length).toBeGreaterThanOrEqual(2);
+        });
+    });
+
+    // ================================================================
     // DELETE
     // ================================================================
 

@@ -32,7 +32,7 @@ export default function ApiDocsPage() {
     return (
         <div className="flex flex-col h-full bg-slate-50/50 p-6">
             <div className="mb-6">
-                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Tài Liệu API</h1>
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">Tài liệu API</h1>
                 <p className="text-slate-500 text-sm mt-1">API Documentation cho hệ thống bên ngoài kết nối.</p>
             </div>
 

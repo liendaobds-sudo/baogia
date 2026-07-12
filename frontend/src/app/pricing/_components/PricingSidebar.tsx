@@ -11,6 +11,7 @@ import {
   methodOfNavItem,
 } from '@/lib/scope/ia-resolver';
 import { useEnabledMethods } from '@/lib/scope/use-enabled-methods';
+import { useEnabledApps } from '@/lib/scope/use-enabled-apps';
 import type { MethodId } from '@/lib/scope/types';
 
 interface NavChild {
@@ -60,9 +61,9 @@ const navItems: NavItem[] = [
     // Đơn hàng (`orders`) tách thành mục điều hướng riêng bên dưới. _Requirements: 4.7, 8.1_
     scopeNavItems: ['quotes', 'pricing-create'],
     children: [
-      { href: '/pricing/quotes', label: 'Danh sách BG' },
-      { href: '/pricing/quotes/new', label: 'BG Kỹ Thuật Số', method: 'digital' },
-      { href: '/pricing/quotes/offset', label: 'BG Offset', method: 'offset' },
+      { href: '/pricing/quotes', label: 'Danh sách báo giá' },
+      { href: '/pricing/quotes/new', label: 'Báo giá kỹ thuật số', method: 'digital' },
+      { href: '/pricing/quotes/offset', label: 'Báo giá offset', method: 'offset' },
     ]
   },
   {
@@ -77,39 +78,40 @@ const navItems: NavItem[] = [
   { href: '/pricing/customers', label: 'Khách hàng', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>, scopeNavItems: ['customers'] },
 
   {
-    key: 'master_data', label: 'Vật tư & Danh mục', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
+    key: 'master_data', label: 'Vật tư & Cấu hình', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
     children: [
-      { href: '/pricing/materials', label: 'Vật Tư' },
-      { href: '/pricing/settings/paper-sizes', label: 'Khổ Giấy' },
-      { href: '/pricing/settings/units', label: 'Đơn Vị Tính' },
-      { href: '/pricing/settings/finishings', label: 'Danh Mục Gia Công' },
-      { href: '/pricing/settings/print-types', label: 'Hệ Màu In' },
+      { href: '/pricing/materials', label: 'Vật tư' },
+      { href: '/pricing/settings/paper-sizes', label: 'Khổ giấy' },
+      { href: '/pricing/settings/units', label: 'Đơn vị tính' },
+      { href: '/pricing/settings/finishings', label: 'Gia công' },
+      { href: '/pricing/settings/print-types', label: 'Hệ màu in' },
     ]
   },
   {
-    key: 'settings_digital', label: 'Định mức In Nhanh', method: 'digital', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+    key: 'settings_digital', label: 'Định mức in nhanh', method: 'digital', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
     children: [
-      { href: '/pricing/settings/pricing-tiers', label: 'Định Mức Khổ Nhỏ' },
-      { href: '/pricing/settings/pricing-large-format', label: 'Định Mức Khổ Lớn' },
-      { href: '/pricing/settings/waste-config', label: 'Bù Hao' },
-      { href: '/pricing/settings/pricing-markup', label: 'Lợi Nhuận & Làm Tròn' },
+      { href: '/pricing/settings/printers', label: 'Chi phí máy in' },
+      { href: '/pricing/settings/pricing-tiers', label: 'Định mức khổ nhỏ' },
+      { href: '/pricing/settings/pricing-large-format', label: 'Định mức khổ lớn' },
+      { href: '/pricing/settings/waste-config', label: 'Bù hao' },
+      { href: '/pricing/settings/pricing-markup', label: 'Lợi nhuận & làm tròn' },
     ]
   },
   {
-    key: 'settings_offset', label: 'Định mức Offset', method: 'offset', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
+    key: 'settings_offset', label: 'Định mức in offset', method: 'offset', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
     children: [
-      { href: '/pricing/settings/offset-products', label: 'Cấu Hình Loại Offset' },
-      { href: '/pricing/settings/offset-materials', label: 'Kẽm / Vật Tư / Ép Kim' },
-      { href: '/pricing/settings/waste-stages', label: 'Bù Hao Theo Công Đoạn' },
-      { href: '/pricing/settings/offset-fees', label: 'Phí & Chiết Khấu' },
+      { href: '/pricing/settings/offset-products', label: 'Cấu hình loại offset' },
+      { href: '/pricing/settings/offset-materials', label: 'Kẽm / vật tư / ép kim' },
+      { href: '/pricing/settings/waste-stages', label: 'Bù hao theo công đoạn' },
+      { href: '/pricing/settings/offset-fees', label: 'Phí & chiết khấu' },
     ]
   },
-  { href: '/pricing/settings/company-info', label: 'Thông Tin Công Ty', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/></svg> },
+  { href: '/pricing/settings/company-info', label: 'Thông tin công ty', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/></svg> },
   {
     key: 'admin', label: 'Quản trị', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
     children: [
-      { href: '/pricing/admin/users', label: 'Người Dùng' },
-      { href: '/pricing/admin/roles', label: 'Vai Trò & Quyền' },
+      { href: '/pricing/admin/users', label: 'Người dùng' },
+      { href: '/pricing/admin/roles', label: 'Vai trò & quyền' },
     ]
   },
 ];
@@ -160,6 +162,10 @@ export default function PricingSidebar({ collapsed, onToggle, userName }: Pricin
   const pathname = usePathname();
   // Tập Phương_Pháp_Khả_Dụng của Đơn_Vị — nguồn để lọc menu theo Cờ_Năng_Lực (Req 2.1).
   const { enabledMethods, loaded: methodsLoaded } = useEnabledMethods();
+  // Trục_Ứng_Dụng của Đơn_Vị — để ẩn link chéo "Inbox CSKH" khi tenant tắt CSKH.
+  // Fail-open: chỉ ẩn khi đã nạp xong và KHÔNG có 'cskh' (tránh ẩn nhầm lúc tải).
+  const { enabledApps, loaded: appsLoaded } = useEnabledApps();
+  const showCskhLink = !appsLoaded || enabledApps.includes('cskh');
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     pricing: true,
     pricing_tiers: false,
@@ -316,20 +322,22 @@ export default function PricingSidebar({ collapsed, onToggle, userName }: Pricin
           );
         })}
       </nav>
-      <div className="sidebar-bottom relative group" style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <Link href="/inbox" target="_blank" rel="noopener noreferrer"
-          // title={collapsed ? 'Inbox CSKH' : undefined}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#6ee7b7', textDecoration: 'none', padding: '6px 0' }}>
-          💬 <span className="sidebar-bottom-text">Inbox CSKH</span>
-        </Link>
-        {collapsed && (
-          <div className="absolute left-full top-1/2 -translate-y-1/2 hidden group-hover:flex z-[9999] whitespace-nowrap pl-0.5 pointer-events-none">
-            <div className="bg-[#042412] border border-[rgba(255,255,255,0.1)] rounded-md shadow-2xl py-1.5 px-3">
-              <div className="text-[13px] font-bold text-white tracking-wide">Inbox CSKH</div>
+      {showCskhLink && (
+        <div className="sidebar-bottom relative group" style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <Link href="/inbox" target="_blank" rel="noopener noreferrer"
+            // title={collapsed ? 'Inbox CSKH' : undefined}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#6ee7b7', textDecoration: 'none', padding: '6px 0' }}>
+            💬 <span className="sidebar-bottom-text">Inbox CSKH</span>
+          </Link>
+          {collapsed && (
+            <div className="absolute left-full top-1/2 -translate-y-1/2 hidden group-hover:flex z-[9999] whitespace-nowrap pl-0.5 pointer-events-none">
+              <div className="bg-[#042412] border border-[rgba(255,255,255,0.1)] rounded-md shadow-2xl py-1.5 px-3">
+                <div className="text-[13px] font-bold text-white tracking-wide">Inbox CSKH</div>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       <div className="relative group" style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between' }}>
         <Link href="/profile" /* title="Hồ sơ cá nhân" */ style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', minWidth: 0, textDecoration: 'none' }}>

@@ -152,6 +152,20 @@ export default function SettingsPage() {
 
     useEffect(() => { setMounted(true); }, []);
 
+    // Ẩn tab theo quyền (backend đã chặn, nhưng tránh hiển thị tab 403 cho non-admin).
+    // Chỉ admin/super_admin thấy mọi tab; supervisor chỉ thấy "Nhân sự"; còn lại: không tab nào.
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+    const allowedTabKeys = TAB_CONFIG
+        .filter(t => isAdmin || (user?.role === 'supervisor' && t.key === 'staff'))
+        .map(t => t.key);
+    useEffect(() => {
+        if (allowedTabKeys.length === 0) {
+            if (activeTab) setActiveTab('' as any); // không quyền → không render nội dung tab nào
+        } else if (!allowedTabKeys.includes(activeTab)) {
+            setActiveTab(allowedTabKeys[0] as any);
+        }
+    }, [user, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const fetchStaff = useCallback(async () => {
         try {
             const res = await fetch(`${API}/users`, { headers: headers() });
@@ -384,7 +398,12 @@ export default function SettingsPage() {
                 background: '#fff', borderRadius: 12, padding: 4,
                 border: '1px solid #e2e8f0', width: 'fit-content',
             }}>
-                {TAB_CONFIG.map(tab => (
+                {allowedTabKeys.length === 0 && (
+                    <span style={{ fontSize: 13, color: '#64748b', padding: '8px 12px' }}>
+                        Bạn không có quyền truy cập mục Cài đặt. Vui lòng liên hệ quản trị viên.
+                    </span>
+                )}
+                {TAB_CONFIG.filter(t => allowedTabKeys.includes(t.key)).map(tab => (
                     <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                         style={{
                             padding: '8px 18px', fontSize: 13, fontWeight: 600,

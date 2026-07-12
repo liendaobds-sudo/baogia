@@ -163,7 +163,7 @@ export default function WasteStagesPage() {
 
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Định Mức Bù Hao Theo Công Đoạn</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Định mức bù hao theo công đoạn</h1>
                     <p className="text-slate-500 text-sm mt-1">In Offset. Mỗi công đoạn có <b>bảng mốc số lượng riêng</b>.{' '}
                         <Link href="/pricing/settings/offset-fees" className="text-indigo-600 underline">Phí cố định & chiết khấu</Link></p>
                 </div>

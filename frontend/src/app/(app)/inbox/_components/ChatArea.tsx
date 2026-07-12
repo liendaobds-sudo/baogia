@@ -34,6 +34,9 @@ interface ChatAreaProps {
     onDeleteLocalMessage?: (msgId: string) => void;
     rightSidebarVisible?: boolean;
     onToggleRightSidebar?: () => void;
+    /** Bo_Cuc_Hep: hien nut quay lai danh sach trong header. */
+    showBackButton?: boolean;
+    onBack?: () => void;
 }
 
 export interface ChatAreaRef {
@@ -58,7 +61,9 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
     onStarMessage,
     onDeleteLocalMessage,
     rightSidebarVisible,
-    onToggleRightSidebar
+    onToggleRightSidebar,
+    showBackButton,
+    onBack
 }, ref) => {
     // -- Text/Image State --
     const [replyText, setReplyText] = useState('');
@@ -279,9 +284,9 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
     // ===== EMPTY STATE =====
     if (!selectedConversation) {
         return (
-            <div className="flex-1 flex items-center justify-center text-slate-400">
+            <div className="flex-1 flex items-center justify-center text-slate-500">
                 <div className="text-center">
-                    <div className="text-5xl mb-4">💬</div>
+                    <div className="text-5xl mb-4" aria-hidden="true">💬</div>
                     <div className="text-base">Chọn một hội thoại để bắt đầu</div>
                 </div>
             </div>
@@ -289,7 +294,7 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
     }
 
     return (
-        <div className="flex-1 flex flex-col bg-[#eaebed] min-w-0">
+        <div className="flex-1 flex flex-col bg-[var(--surface-chat)] min-w-0">
             {/* ===== HEADER ===== */}
             <ChatHeader
                 selectedConversation={selectedConversation}
@@ -297,6 +302,8 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
                 isSearchVisible={isSearchVisible}
                 onToggleSearch={() => setIsSearchVisible(v => !v)}
                 onToggleRightSidebar={onToggleRightSidebar}
+                showBackButton={showBackButton}
+                onBack={onBack}
             />
 
             {/* ===== PINNED BANNER ===== */}
@@ -311,7 +318,7 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
             />
 
             {/* ===== MESSAGES ===== */}
-            <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-1.5 bg-[#eaebed]">
+            <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-1.5 bg-[var(--surface-chat)]">
                 {filteredMessages.map((msg, i) => {
                     const isMine = msg.senderType === 'agent';
                     const prevMsg = i > 0 ? filteredMessages[i - 1] : null;
@@ -432,9 +439,9 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
             {/* ===== REPLYING TO PREVIEW ===== */}
             {replyingTo && (
                 <div className="px-5 py-2 border-t border-[var(--border)] bg-blue-50 flex items-center gap-3">
-                    <div className="w-1 h-9 bg-[#005ae0] rounded shrink-0" />
+                    <div className="w-1 h-9 bg-[var(--brand-zalo)] rounded shrink-0" />
                     <div className="flex-1 flex flex-col min-w-0">
-                        <span className="text-xs font-semibold text-[#005ae0]">
+                        <span className="text-xs font-semibold text-[var(--brand-zalo)]">
                             Trả lời {replyingTo.senderType === 'customer' ? (selectedConversation?.contact?.displayName || 'Khách hàng') : 'tin nhắn của bạn'}
                         </span>
                         <span className="text-[13px] text-slate-500 whitespace-nowrap overflow-hidden text-ellipsis">
@@ -446,7 +453,7 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
             )}
 
             {/* ===== INPUT WRAPPER ===== */}
-            <div className="bg-white border-t border-[#e1e4ea] flex flex-col relative">
+            <div className="bg-white border-t border-[var(--border-strong)] flex flex-col relative">
                 {/* Multi-Select Toolbar */}
                 {isMultiSelectMode && (
                     <div className="absolute inset-0 flex items-center justify-between px-4 py-2 bg-white z-20">
@@ -487,22 +494,22 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
                 )}
 
                 {/* Toolbar Row */}
-                <div className="px-3.5 py-1.5 flex items-center gap-1 border-b border-[#e1e4ea]">
+                <div className="px-3.5 py-1.5 flex items-center gap-1 border-b border-[var(--border-strong)]">
                     {/* Sticker */}
                     <div title="Stickers" className="flex relative">
                         <button onClick={() => setShowStickerPicker(!showStickerPicker)}
                             className="bg-transparent border-none cursor-pointer p-1.5 rounded-md flex hover:bg-slate-100 transition-colors">
-                            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke={showStickerPicker ? '#005ae0' : "#7589a3"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><circle cx="8.5" cy="11.5" r="1"/><circle cx="13.5" cy="11.5" r="1"/><path d="M8 15a4.5 4.5 0 0 0 5 0"/></svg>
+                            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: showStickerPicker ? 'var(--brand-zalo)' : 'var(--icon-soft)' }} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><circle cx="8.5" cy="11.5" r="1"/><circle cx="13.5" cy="11.5" r="1"/><path d="M8 15a4.5 4.5 0 0 0 5 0"/></svg>
                         </button>
                         {showStickerPicker && (
-                            <div className="absolute bottom-11 left-0 w-[340px] h-[280px] bg-white border border-[#e1e4ea] rounded-lg p-2.5 flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.15)] z-50">
+                            <div className="absolute bottom-11 left-0 w-[340px] h-[280px] bg-white border border-[var(--border-strong)] rounded-lg p-2.5 flex flex-col shadow-[0_10px_40px_rgba(0,0,0,0.15)] z-50">
                                 <div className="text-[13px] font-semibold text-slate-500 px-1 pb-2 border-b border-slate-100 mb-2 flex justify-between items-center">
                                     <span>Zalo Stickers (QooBee)</span>
                                     <button onClick={() => setShowStickerPicker(false)} className="bg-transparent border-none cursor-pointer text-slate-400 text-base">✕</button>
                                 </div>
                                 {sendingSticker ? (
-                                    <div className="flex-1 flex flex-col items-center justify-center text-[#005ae0] text-[13px] font-medium gap-3">
-                                        <div className="w-6 h-6 border-3 border-slate-200 border-t-[#005ae0] rounded-full animate-spin" />
+                                    <div className="flex-1 flex flex-col items-center justify-center text-[var(--brand-zalo)] text-[13px] font-medium gap-3">
+                                        <div className="w-6 h-6 border-3 border-slate-200 border-t-[var(--brand-zalo)] rounded-full animate-spin" />
                                         <span>Đang tải và gửi Sticker...</span>
                                     </div>
                                 ) : (
@@ -521,21 +528,21 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
                     {/* Image */}
                     <div title="Gửi hình ảnh">
                         <button onClick={() => fileInputRef.current?.click()} className="bg-transparent border-none cursor-pointer p-1.5 rounded-md flex hover:bg-slate-100 transition-colors">
-                            <ImageIcon size={23} color="#7589a3" strokeWidth={1.5} />
+                            <ImageIcon size={23} strokeWidth={1.5} style={{ color: 'var(--icon-soft)' }} />
                         </button>
                         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelectBtn} />
                     </div>
                     {/* File */}
                     <div title="Đính kèm file">
                         <button onClick={() => docInputRef.current?.click()} className="bg-transparent border-none cursor-pointer p-1.5 rounded-md flex hover:bg-slate-100 transition-colors">
-                            <Paperclip size={23} color="#7589a3" strokeWidth={1.5} />
+                            <Paperclip size={23} strokeWidth={1.5} style={{ color: 'var(--icon-soft)' }} />
                         </button>
                         <input ref={docInputRef} type="file" accept="*/*" className="hidden" onChange={handleDocSelectBtn} />
                     </div>
                     {/* Screenshot */}
                     <div title="Chụp màn hình">
                         <button className="bg-transparent border-none cursor-pointer p-1.5 rounded-md flex hover:bg-slate-100 transition-colors">
-                            <MonitorUp size={23} color="#7589a3" strokeWidth={1.5} />
+                            <MonitorUp size={23} strokeWidth={1.5} style={{ color: 'var(--icon-soft)' }} />
                         </button>
                     </div>
                 </div>
@@ -573,7 +580,7 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
                                     try { await apiPatch(`/conversations/follow-ups/${proactiveFollowupMsg.id}/status`, { status: 'completed' }); } catch (e) {}
                                     setProactiveFollowupMsg(null);
                                 }}
-                                className="bg-[#005ae0] text-white border-none px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex-1 flex justify-center items-center gap-1.5 hover:bg-[#0047b3] transition-colors">
+                                className="bg-[var(--brand-zalo)] text-white border-none px-4 py-2 rounded-md text-[13px] font-semibold cursor-pointer flex-1 flex justify-center items-center gap-1.5 hover:bg-[#0047b3] transition-colors">
                                 Gửi Đi Ngay <ChevronRight size={16} strokeWidth={2.5} />
                             </button>
                             <button onClick={() => { setReplyText(proactiveFollowupMsg.message); setProactiveFollowupMsg(null); setTimeout(() => inputRef.current?.focus(), 50); }}
@@ -613,7 +620,7 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
                         {/* Emoji Picker */}
                         <div title="Emoji" className="relative flex items-center">
                             <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="bg-transparent border-none cursor-pointer flex items-center">
-                                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke={showEmojiPicker ? '#005ae0' : "#334155"} strokeWidth="1.3">
+                                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: showEmojiPicker ? 'var(--brand-zalo)' : '#334155' }} strokeWidth="1.3">
                                     <circle cx="12" cy="12" r="9.5" />
                                     <circle cx="8.5" cy="9" r="1" fill="currentColor" stroke="none"/>
                                     <circle cx="15.5" cy="9" r="1" fill="currentColor" stroke="none"/>
@@ -644,7 +651,7 @@ const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(({
                             <button onClick={() => handleSendSubmit()}
                                 disabled={!replyText.trim() && !pendingImage}
                                 className="bg-transparent border-none p-0 flex items-center cursor-pointer disabled:cursor-default">
-                                <span className="text-[15px] text-[#005ae0] font-semibold tracking-wide">GỬI</span>
+                                <span className="text-[15px] text-[var(--brand-zalo)] font-semibold tracking-wide">GỬI</span>
                             </button>
                         )}
                     </div>

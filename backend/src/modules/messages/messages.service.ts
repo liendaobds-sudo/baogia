@@ -193,7 +193,7 @@ export class MessagesService {
             throw new NotFoundException(`Conversation not found`);
         }
 
-        this.logger.log(`📋 Conversation: channelType=${conversation.channel.type}, contactExtId=${conversation.contact.externalUserId}, channelAccessToken=${conversation.channel.accessTokenEnc}`);
+        this.logger.log(`📋 Conversation: channelType=${conversation.channel.type}, contactExtId=${conversation.contact.externalUserId}, hasAccessToken=${!!conversation.channel.accessTokenEnc}`);
 
         // 1. Zalo send undo if supported channel
         let zaloUndoFailed = false;

@@ -5,8 +5,9 @@
  *  - Bù hao theo công đoạn: in & cán theo TỜ; bế/dán/đóng gói theo SỐ CON (cấu hình được, basis đổi được).
  *  - Định mức hao mỗi công đoạn lấy từ `d.wasteStages` (bảng mốc riêng + makeready).
  */
-import { PricingData, QuoteLine, QuoteResult, OffsetPricingError } from '../pricing-data';
+import { PricingData, QuoteLine, QuoteResult, OffsetPricingError, numParam } from '../pricing-data';
 import { giaGiay, timKhoIn, pickRate, chiPhiEpKim, soConTrenKho, docKichThuocCm } from '../lookups';
+import { resolveSoCon } from '../imposition-selector';
 import { tongHopKetQua } from '../totals';
 import { buildWaste, stageCostAt, extraProcessingLines } from './_waste-stages';
 import { flatDielineSize, nestOnSheet, BoxType } from '../../dieline';
@@ -64,7 +65,7 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     const fd = flatDielineSize({
         boxType: input.boxType,
         L: input.rong * 10, W: input.hong * 10, D: input.cao * 10,
-        T: input.matThickness ?? params.MatThickness_Mm ?? 0.5,
+        T: input.matThickness ?? numParam(params, 'MatThickness_Mm') ?? 0.5,
     });
     const trai: { doc: number; ngang: number } = { ngang: fd.widthCm, doc: fd.heightCm };
     dielineStdCode = fd.standardCode;
@@ -77,16 +78,35 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     let soConBaiInVal = kho.soConBaiIn;
     if (khoInDims) {
         const nest = nestOnSheet(
-            { boxType: input.boxType, L: input.rong * 10, W: input.hong * 10, D: input.cao * 10, T: input.matThickness ?? params.MatThickness_Mm ?? 0.5 },
+            { boxType: input.boxType, L: input.rong * 10, W: input.hong * 10, D: input.cao * 10, T: input.matThickness ?? numParam(params, 'MatThickness_Mm') ?? 0.5 },
             khoInDims.w * 10, khoInDims.h * 10,
         );
         if (nest.countPerSheet > 0) { soCon = nest.countPerSheet; soConBaiInVal = nest.countPerSheet; }
     }
-    if (!(soCon > 0)) soCon = khoGiay ? soConTrenKho(khoGiay.w, khoGiay.h, trai.ngang, trai.doc, params.Gap_Cm || 0.3) : 0;
+    if (!(soCon > 0)) soCon = khoGiay ? soConTrenKho(khoGiay.w, khoGiay.h, trai.ngang, trai.doc, numParam(params, 'Gap_Cm') || 0.3) : 0;
     if (!(soCon > 0)) soCon = kho.soConToLon;
     if (!(soCon > 0)) throw new OffsetPricingError('Không xác định được số con/tờ cho hộp');
     // (A3) Chặn chia-0: cần số con/bài in (với boxType đã suy từ nesting ở trên).
     if (!(soConBaiInVal > 0)) throw new OffsetPricingError('Khổ in chưa cấu hình "số con/bài in". Vui lòng bổ sung cho khổ in này.');
+
+    // Nguồn So_Con thống nhất qua selector. Hộp giấy dùng KÍCH THƯỚC TRẢI (dieline) làm "con":
+    // map khổ trải (cm) → itemWcm/itemHcm, truyền số con dieline ở trên làm fallback bảng tĩnh.
+    // GIỮ NGUYÊN hình học dieline + hành vi giá legacy (số con nesting hiện tại) để golden không đổi;
+    // CHỈ khi `ImpositionSource='unified'` mới để selector điều khiển số con/giá. `outcome` còn cấp
+    // meta (impositionSource/shadow/positions/marginConfig) cho parity giá ≡ preview ≡ PDF.
+    //
+    // WIRING CHÚ Ý (hop_giay): Legacy path tính `soCon` = pieces per PRESS SHEET (qua nestOnSheet
+    // trên `khoInDims`), dùng cho buildWaste. Unified `soConToLon` = pieces per LARGE SHEET (khác!).
+    // Đúng: dùng `soConBaiIn` (pieces per press sheet) cho waste/pricing — khớp ngữ nghĩa legacy.
+    // `soConToLon` (pieces per large sheet) chỉ ghi vào meta để preview hiển thị bình bài tờ lớn.
+    const outcome = resolveSoCon({
+        itemWcm: trai.ngang, itemHcm: trai.doc, kho, data: d,
+        fallbackToLon: soCon, fallbackBaiIn: soConBaiInVal,
+    });
+    if (outcome.source === 'unified') {
+        // hop_giay dùng press sheet cho waste — lấy soConBaiIn (pieces/press), không phải soConToLon.
+        if (outcome.soConBaiIn > 0) { soCon = outcome.soConBaiIn; soConBaiInVal = outcome.soConBaiIn; }
+    }
 
     // Bù hao theo công đoạn (basis động theo cấu hình người dùng).
     const defs = [
@@ -99,6 +119,12 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     const w = buildWaste(d, sl, soCon, defs);
     const sheetsGross = w.sheetsGross;
     const sheetsAtCan = w.q('CAN') || w.sheetsNet;
+    // GĐ C — SỬA LỆCH ĐƠN VỊ GIẤY: `sheetsGross` đếm theo tờ XẢ (bài in, tờ vào máy) — đúng cho
+    // IN/CAN/XLBM/lượt in. Nhưng GIẤY mua theo tờ NHẬP (`giaTo` = giá 1 tờ nhập). Quy về tờ nhập:
+    // 1 tờ nhập xả ra `pressPerParent` bài in. Khổ xả ≡ khổ nhập (in thẳng) → pressPerParent=1 → không đổi.
+    const ppp = outcome.pressPerParent && outcome.pressPerParent > 0 ? outcome.pressPerParent : 1;
+    const parentGross = Math.ceil(sheetsGross / ppp);
+    const parentNet = Math.ceil(w.sheetsNet / ppp);
     const pcsBe = w.q('BE') || sl;
     const pcsDan = w.q('DAN') || sl;
     const pcsDongGoi = w.q('DONGGOI') || sl;
@@ -107,7 +133,7 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     const MOQ = params.MOQ_GiaCong;
 
     const giaTo = giaGiay(input.materialCode, d);
-    const cpGiay = giaTo * sheetsGross;
+    const cpGiay = giaTo * parentGross;
 
     const don1Kem = kho.loaiKem === 'Kẽm lớn' ? d.kem.donGia1Kem.kemLon : d.kem.donGia1Kem.kemNho;
     const cpLamKem = don1Kem * (input.soBoKem ?? 1) * input.soMau;
@@ -151,7 +177,7 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
 
     const cpDongGoi = input.dongGoi ? stageCostAt('DONGGOI', sl, pcsDongGoi, d) : 0;
     const cpEpKim = chiPhiEpKim(input.epKimViTri, sl, d);
-    const cpGiayBoi = input.boi2Lop ? giaTo * sheetsGross : 0;
+    const cpGiayBoi = input.boi2Lop ? giaTo * parentGross : 0;
     // Phí thiết kế là giá CHƯA VAT (như mọi dòng chi phí); VAT cộng sau ở tổng theo % báo giá.
     const cpThietKe = input.thietKe ?? phi('Gia_ThietKe', d);
 
@@ -175,15 +201,28 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
-    const wasteInfo = giaTo * (sheetsGross - w.sheetsNet);
+    const wasteInfo = giaTo * (parentGross - parentNet);
 
     const sheet = docKichThuocCm(kho.khoGiayLon);
+    // meta.soConToLon = pieces per LARGE sheet (preview/PDF parity — Req 10).
+    // Khi unified, lấy từ outcome.soConToLon (large sheet). Khi legacy, giữ giá trị `soCon` (trước
+    // đây tính trên press sheet cho hình học, nhưng cần map sang large sheet cho meta.soConToLon).
+    // Ưu tiên outcome.soConToLon nếu > 0 vì nó luôn tính trên large sheet (đúng ngữ nghĩa meta).
+    const metaSoConToLon = outcome.soConToLon > 0 ? outcome.soConToLon : soCon;
     const res = tongHopKetQua(lines, baseSXTKFull, sl, d, wasteInfo, input.chietKhauRate, input.vatRate);
     res.meta = {
-        khoBinh: kho.khoIn, khoGiayLon: kho.khoGiayLon, soConBaiIn: soConBaiInVal, soConToLon: soCon,
-        soToLon: sheetsGross, luotIn, soKem: input.soMau, loaiKem: kho.loaiKem,
+        khoBinh: kho.khoIn, khoGiayLon: kho.khoGiayLon, soConBaiIn: soConBaiInVal, soConToLon: metaSoConToLon,
+        soToLon: parentGross, luotIn, soKem: input.soMau, loaiKem: kho.loaiKem,
         sheetW: sheet?.w, sheetH: sheet?.h, itemW: trai.ngang, itemH: trai.doc,
         dielineStdCode, dielineWarnings,
+        impositionSource: outcome.source,
+        ...(outcome.shadow ? { shadow: outcome.shadow } : {}),
+        ...(outcome.positions ? { positions: outcome.positions } : {}),
+        ...(outcome.marginConfig ? { marginConfig: outcome.marginConfig } : {}),
+        // Khổ BÀI IN (press sheet) — số + vị trí con dùng để TÍNH GIÁ; preview hộp vẽ theo mức này.
+        ...(khoInDims ? { pressW: khoInDims.w, pressH: khoInDims.h } : {}),
+        ...(outcome.pressPositions ? { pressPositions: outcome.pressPositions } : {}),
+        ...(outcome.pressUsableArea ? { pressUsableArea: outcome.pressUsableArea } : {}),
     };
     return res;
 }

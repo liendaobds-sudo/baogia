@@ -87,7 +87,7 @@ export default function CompanyInfoPage() {
 
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Thông Tin Công Ty</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Thông tin công ty</h1>
                     <p className="text-slate-500 text-sm mt-1">Cấu hình thông tin công ty sử dụng trong AI Chat và báo giá.</p>
                 </div>
                 <button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-5 rounded-lg shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50">

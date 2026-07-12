@@ -101,6 +101,8 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
 
     // Live Result & Auto Optimize
     const [pricingResult, setPricingResult] = useState<Record<string, unknown> | null>(null);
+    // Payload GỐC của lần tính giá gần nhất (đồng bộ pricingResult) — để lưu kèm item.
+    const [lastPricingPayload, setLastPricingPayload] = useState<Record<string, unknown> | null>(null);
     const [calculating, setCalculating] = useState(false);
     const [optimizedSizes, setOptimizedSizes] = useState<any[]>([]);
 
@@ -293,6 +295,8 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
             const norm = readPricingResult(json);
             if (norm.ok) {
                 setPricingResult(norm.raw as any);
+                // Lưu payload GỐC (đồng bộ với kết quả) để THÊM VÀO BÁO GIÁ → backend replay xác thực giá.
+                setLastPricingPayload(payload);
             } else {
                 setPricingResult({ error: norm.error || norm.reason || 'Tính giá thất bại' });
             }
@@ -333,34 +337,60 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
             if (fc.default_quantity) setQuantity(Number(fc.default_quantity));
 
             // Apply whitelist filters
-            setAllowedMaterialIds(data.allowed_materials || []);
-            setAllowedPaperSizeIds(data.allowed_paper_sizes || []);
-            setAllowedProcessingIds(data.allowed_processing || []);
-            setAllowedAccessoryIds(data.allowed_accessories || []);
+            const newAllowedMats = (data.allowed_materials || []).map(String);
+            const newAllowedPapers = (data.allowed_paper_sizes || []).map(String);
+            const newAllowedProcs = (data.allowed_processing || []).map(String);
+            const newAllowedAccs = (data.allowed_accessories || []).map(String);
+            setAllowedMaterialIds(newAllowedMats);
+            setAllowedPaperSizeIds(newAllowedPapers);
+            setAllowedProcessingIds(newAllowedProcs);
+            setAllowedAccessoryIds(newAllowedAccs);
 
-            // Áp khổ giấy mặc định của sản phẩm (nếu có) — optimizer giữ lại nếu hợp lệ
-            if (fc.default_paper_size_id) setPaperSizeId(String(fc.default_paper_size_id));
-
-            // Apply default material — ưu tiên default_material_id của sản phẩm, rồi material_filter, rồi allowed[0]
+            // Chọn vật tư mặc định cho sản phẩm mới — ưu tiên default_material_id, rồi material_filter, rồi allowed[0].
+            let nextMaterialId: string | null = null;
             if (fc.default_material_id) {
-                setMaterialId(String(fc.default_material_id));
+                nextMaterialId = String(fc.default_material_id);
             } else if (data.material_filter) {
                 const matKeys = Object.keys(data.material_filter);
                 if (matKeys.length > 0) {
                     const firstMatCode = matKeys[0];
                     const mats = (masterData?.materials as any[]) || [];
                     const foundMat = mats.find(m => m.code === firstMatCode || m.name === data.material_filter[firstMatCode].name);
-                    if (foundMat) {
-                        setMaterialId(foundMat.id.toString());
-                    }
+                    if (foundMat) nextMaterialId = foundMat.id.toString();
                 }
-            } else if (data.allowed_materials?.length) {
-                // Auto-select first allowed material if no specific default
-                setMaterialId(data.allowed_materials[0]);
+            } else if (newAllowedMats.length) {
+                nextMaterialId = newAllowedMats[0];
             }
-            if (data.finishing) {
-                setSelectedProcessing([]); // Reset for now to avoid invalid mappings
-            }
+
+            // Khổ giấy mặc định của sản phẩm (nếu có).
+            const nextPaperSizeId = fc.default_paper_size_id ? String(fc.default_paper_size_id) : null;
+
+            // PRUNE lựa chọn cũ theo whitelist MỚI: đổi sản phẩm không được để sót vật tư/khổ/gia công
+            // /phụ kiện của sản phẩm trước — nếu sót, live-recalc sẽ văng lỗi "không nằm trong cấu hình
+            // sản phẩm" dù người dùng chỉ đổi sản phẩm. Có default hợp lệ → dùng; không → bỏ chọn.
+            setMaterialId(prev => {
+                if (nextMaterialId && newAllowedMats.includes(nextMaterialId)) return nextMaterialId;
+                if (nextMaterialId && !newAllowedMats.length) return nextMaterialId;
+                return newAllowedMats.length === 0 || newAllowedMats.includes(prev) ? prev : '';
+            });
+            setPaperSizeId(prev => {
+                if (nextPaperSizeId && (newAllowedPapers.length === 0 || newAllowedPapers.includes(nextPaperSizeId))) return nextPaperSizeId;
+                return newAllowedPapers.length === 0 || newAllowedPapers.includes(prev) ? prev : '';
+            });
+            setSelectedProcessing(prev => newAllowedProcs.length === 0 ? prev : prev.filter(p => newAllowedProcs.includes(String(p.id))));
+            setSelectedAccessories(prev => newAllowedAccs.length === 0 ? prev : prev.filter(a => newAllowedAccs.includes(String(a.id))));
+
+            // Cùng handleTemplateChange dùng chung cho cả 3 tab (loose/large_format/bound) — phải prune
+            // state riêng của lf + bound nữa, nếu không đổi sản phẩm ở 2 tab đó cũng văng lỗi whitelist.
+            const pruneId = (prev: string, allowed: string[]) => allowed.length === 0 || allowed.includes(prev) ? prev : '';
+            setLfMaterialId(prev => pruneId(prev, newAllowedMats));
+            setLfSelectedProc(prev => newAllowedProcs.length === 0 ? prev : prev.filter(p => newAllowedProcs.includes(String(p.id))));
+            setLfSelectedAcc(prev => newAllowedAccs.length === 0 ? prev : prev.filter(a => newAllowedAccs.includes(String(a.id))));
+            setBCoverMaterialId(prev => pruneId(prev, newAllowedMats));
+            setBCoverPaperSizeId(prev => pruneId(prev, newAllowedPapers));
+            setBCoverProc(prev => newAllowedProcs.length === 0 ? prev : prev.filter(p => newAllowedProcs.includes(String(p.id))));
+            setBInnerMaterialId(prev => pruneId(prev, newAllowedMats));
+            setBInnerPaperSizeId(prev => pruneId(prev, newAllowedPapers));
         } catch (err) {
             console.error('Failed to fetch template defaults', err);
         }
@@ -389,6 +419,6 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
         bQuantity, setBQuantity, bPageCount, setBPageCount, bBindingType, setBBindingType,
         bCoverMaterialName, setBCoverMaterialName, bCoverMaterialId, setBCoverMaterialId, bCoverPaperSizeId, setBCoverPaperSizeId, bCoverPrintType, setBCoverPrintType, bCoverPrintSide, setBCoverPrintSide, bCoverProc, setBCoverProc,
         bInnerMaterialName, setBInnerMaterialName, bInnerMaterialId, setBInnerMaterialId, bInnerPaperSizeId, setBInnerPaperSizeId, bInnerPrintType, setBInnerPrintType, bInnerPrintSide, setBInnerPrintSide, bInnerProc, setBInnerProc,
-        pricingResult, calculating, optimizedSizes, handleTemplateChange
+        pricingResult, lastPricingPayload, calculating, optimizedSizes, handleTemplateChange
     };
 }

@@ -60,4 +60,28 @@ describe('ConversationList', () => {
         const tabs = screen.getAllByRole('tab');
         expect(tabs.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('A11y: dòng hội thoại là control có thể focus + chọn bằng bàn phím (Enter/Space)', () => {
+        const onSelect = jest.fn();
+        render(
+            <ToastProvider>
+                <ConversationList
+                    conversations={[conv('c1', 'Anh Tuấn', 'nội dung')]}
+                    loading={false}
+                    selectedId={null}
+                    slaWarnings={new Set()}
+                    tagFilter=""
+                    availableTags={[]}
+                    onSelect={onSelect}
+                    onSetTagFilter={jest.fn()}
+                />
+            </ToastProvider>,
+        );
+        const row = screen.getByRole('button', { name: /Hội thoại với Anh Tuấn/ });
+        expect(row).toHaveAttribute('tabindex', '0');
+        fireEvent.keyDown(row, { key: 'Enter' });
+        fireEvent.keyDown(row, { key: ' ' });
+        expect(onSelect).toHaveBeenCalledTimes(2);
+        expect(onSelect).toHaveBeenCalledWith('c1');
+    });
 });

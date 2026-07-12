@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../_components/apiClient';
 import MaterialEditModal from '../_components/MaterialEditModal';
 import StockActionModal from '../_components/StockActionModal';
+import CategoryManagerModal from '../_components/CategoryManagerModal';
+import { useMethodVisibility } from '@/lib/scope/use-method-visibility';
 
 // ─── Types ────────────────────────────────────
 interface Material {
@@ -11,12 +13,17 @@ interface Material {
     stock_quantity?: number; stock?: number; min_stock?: number; status?: string;
     width?: number; height?: number; gsm?: number;
     scope_loose?: number; scope_bound?: number; scope_large_format?: number;
+    sheet_role?: string | null; parent_material_id?: number | null;
+    has_pricing_tier?: boolean;
     
     // Missing Parity Fields
     materialFormat?: string; // 'sheet' | 'roll'
+    material_format?: string; // raw snake_case từ getRawMany (nguồn thật khi đọc từ /erp/materials)
     paperSizeId?: number;
     rollWidth?: number; // m
+    roll_width?: number; // raw snake_case
     rollLength?: number; // m
+    roll_length?: number; // raw snake_case
     chargeFullWidth?: boolean;
     minChargeArea?: number; // m2
     priceUnit?: string;
@@ -34,6 +41,8 @@ export default function MaterialsPage() {
     const [units, setUnits] = useState<{ id: number; symbol: string; name: string }[]>([]);
     const [activeTab, setActiveTab] = useState('');
     const [loading, setLoading] = useState(true);
+    // Khổ xả (con) gom dưới vật tư cha (khổ nhập); mặc định thu gọn, bấm để xổ.
+    const [expandedParents, setExpandedParents] = useState<Set<number>>(new Set());
 
     // Filters
     const [keyword, setKeyword] = useState('');
@@ -42,18 +51,28 @@ export default function MaterialsPage() {
     const [filterScope, setFilterScope] = useState('');
     // Tách hệ in: '' = tất cả, 'loose' = In nhanh (digital), 'offset' = In Offset.
     const [printMode, setPrintMode] = useState<'' | 'loose' | 'offset'>('');
+    const { showOffset, bothMethods, loaded: methodsLoaded } = useMethodVisibility();
+
+    // Tenant chỉ bật 1 Phương_Pháp_In: ép printMode về đúng hệ in đó (loose=digital,
+    // offset) và ẩn thanh chọn hệ in — tránh lọt vật tư của hệ in không khả dụng.
+    const forcedPrintMode: '' | 'loose' | 'offset' = methodsLoaded && !bothMethods
+        ? (showOffset ? 'offset' : 'loose')
+        : printMode;
 
     // Modals
     const [editModal, setEditModal] = useState(false);
     const [editItem, setEditItem] = useState<Material | null>(null);
     const [stockAction, setStockAction] = useState<StockAction | null>(null);
     const [deleteItem, setDeleteItem] = useState<Material | null>(null);
+    const [showCategoryManager, setShowCategoryManager] = useState(false);
 
     // Edit form
     const [form, setForm] = useState<Record<string, unknown>>({});
 
-    // Stock form
-    const [stockForm, setStockForm] = useState({ quantity: 0, cost_price: 0, reference: '', notes: '', reason: 'production', adjustment_type: 'set' });
+    // Stock form — nhập kho theo LÔ: purchase_unit (đv mua) + purchase_qty + conversion_factor.
+    // cost_price ở đây = giá / 1 ĐV mua (không phải /tờ). quantity giữ để tương thích (đv cơ sở
+    // khi mua thẳng tờ/m²); khi nhập lô, backend tính quantity = purchase_qty × factor.
+    const [stockForm, setStockForm] = useState({ quantity: 0, cost_price: 0, reference: '', notes: '', reason: 'production', adjustment_type: 'set', purchase_unit: '', purchase_qty: 0, conversion_factor: 0 });
 
     // Bulk select
     const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -61,8 +80,8 @@ export default function MaterialsPage() {
     // Load categories & paper sizes
     const loadCategoriesAndRefs = useCallback(async () => {
         const [catRes, psRes] = await Promise.all([
-            api.get<Category[]>('/erp/material-categories'),
-            api.get<PaperSize[]>('/erp/paper-sizes')
+            api.get<Category[]>('/erp/material-categories?active_only=1'),
+            api.get<PaperSize[]>('/erp/paper-sizes'),
         ]);
         if (psRes.success && psRes.data) setPaperSizes(psRes.data);
         const unitRes = await api.get<{ id: number; symbol: string; name: string }[]>('/erp/units');
@@ -84,15 +103,16 @@ export default function MaterialsPage() {
         if (keyword) params.append('search', keyword);
         if (filterType) params.append('type', filterType);
         if (filterStatus) params.append('status', filterStatus);
-        // printMode (In nhanh/Offset) ưu tiên hơn bộ lọc Phạm vi.
-        const scope = printMode || filterScope;
+        // forcedPrintMode (In nhanh/Offset) ưu tiên hơn bộ lọc Phạm vi. Khi tenant chỉ
+        // bật 1 hệ in, forcedPrintMode bị ép về đúng hệ in đó (bỏ qua printMode UI).
+        const scope = forcedPrintMode || filterScope;
         if (scope) params.append('scope', scope);
 
         const res = await api.get<Material[]>(`/erp/materials?${params.toString()}`);
         if (res.success && res.data) setData(res.data);
         else if (Array.isArray(res)) setData(res as unknown as Material[]);
         setLoading(false);
-    }, [activeTab, keyword, filterType, filterStatus, filterScope, printMode]);
+    }, [activeTab, keyword, filterType, filterStatus, filterScope, forcedPrintMode]);
 
     useEffect(() => { loadCategoriesAndRefs(); }, [loadCategoriesAndRefs]);
     useEffect(() => { if (activeTab) loadData(); }, [activeTab, loadData]);
@@ -144,20 +164,39 @@ export default function MaterialsPage() {
         await loadData();
     };
 
+    // Mở modal nhập/xuất kho — reset stockForm để field lô không dính giá trị lần trước.
+    // Đơn vị mua mặc định theo dạng vật tư: roll → 'cuộn', sheet → 'ram' (giấy tờ thường mua ram).
+    const openStockAction = (type: 'import' | 'export', m: Material) => {
+        const defaultUnit = type === 'import' ? (m.material_format === 'roll' ? 'roll' : 'ram') : '';
+        setStockForm({ quantity: 0, cost_price: 0, reference: '', notes: '', reason: 'production', adjustment_type: 'set', purchase_unit: defaultUnit, purchase_qty: 0, conversion_factor: 0 });
+        setStockAction({ type, material: m });
+    };
+
     // Stock operations
     const handleStockSubmit = async () => {
         if (!stockAction) return;
         const { type, material } = stockAction;
         try {
+            // Nhập theo LÔ: gửi purchase_unit + purchase_qty + purchase_price + conversion_factor.
+            // Backend tự tính lại factor (trừ override ram) + unit_cost_base → cost_price bình quân.
+            // Không chọn đơn vị mua (purchase_unit rỗng) → giữ luồng cũ: quantity + unit_price trực tiếp.
+            const buyingByLot = type === 'import' && !!stockForm.purchase_unit;
+            const item: Record<string, unknown> = {
+                material_id: material.id,
+                quantity: stockForm.quantity,
+                unit_price: stockForm.cost_price,
+                notes: stockForm.notes,
+            };
+            if (buyingByLot) {
+                item.purchase_unit = stockForm.purchase_unit;
+                item.purchase_qty = stockForm.purchase_qty;
+                item.purchase_price = stockForm.cost_price; // giá / 1 ĐV mua
+                item.conversion_factor = stockForm.conversion_factor;
+            }
             const payload: Record<string, unknown> = {
                 type,
                 status: 'confirmed',
-                items: [{
-                    material_id: material.id,
-                    quantity: stockForm.quantity,
-                    unit_price: stockForm.cost_price,
-                    notes: stockForm.notes,
-                }]
+                items: [item],
             };
             if (type === 'import') {
                 payload.reason = 'Nhập kho nhanh';
@@ -206,34 +245,43 @@ export default function MaterialsPage() {
             {/* Header */}
             <div className="mb-4 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">📦 Quản lý Kho Vật Tư</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">📦 Quản lý kho vật tư</h1>
                     <p className="text-slate-500 text-sm mt-1">Theo dõi tồn kho, xuất nhập vật tư — {categories.length} nhóm</p>
                 </div>
-                <button onClick={() => { setEditItem(null); setForm({ category: activeTab, status: 'normal' }); setEditModal(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-sm flex items-center gap-2">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                    Thêm Vật Tư
-                </button>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setShowCategoryManager(true)} className="bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 font-semibold py-2.5 px-4 rounded-lg shadow-sm flex items-center gap-2">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                        Quản lý nhóm
+                    </button>
+                    <button onClick={() => { setEditItem(null); setForm({ category: activeTab, status: 'normal' }); setEditModal(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-sm flex items-center gap-2">
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                        Thêm vật tư
+                    </button>
+                </div>
             </div>
 
-            {/* Tách hệ in: In nhanh / Offset */}
-            <div className="flex items-center gap-1.5 mb-3">
-                {[
-                    { id: '', label: 'Tất cả hệ in' },
-                    { id: 'loose', label: '⚡ In nhanh' },
-                    { id: 'offset', label: '🖨️ In Offset' },
-                ].map(opt => (
-                    <button key={opt.id} onClick={() => setPrintMode(opt.id as '' | 'loose' | 'offset')}
-                        className={`px-4 py-1.5 text-sm font-bold rounded-lg border transition-all ${printMode === opt.id ? 'bg-purple-600 text-white border-purple-600 shadow' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                        {opt.label}
-                    </button>
-                ))}
-                <span className="text-[11px] text-slate-400 ml-2">Giấy in offset & in nhanh dùng chung kho, tách theo hệ in.</span>
-            </div>
+            {/* Tách hệ in: In nhanh / Offset — chỉ hiện khi tenant bật CẢ HAI phương pháp.
+                Tenant chỉ 1 phương pháp: ẩn thanh này (forcedPrintMode đã ép đúng hệ in). */}
+            {bothMethods && (
+                <div className="flex items-center gap-1.5 mb-3">
+                    {[
+                        { id: '', label: 'Tất cả hệ in' },
+                        { id: 'loose', label: '⚡ In nhanh' },
+                        { id: 'offset', label: '🖨️ In Offset' },
+                    ].map(opt => (
+                        <button key={opt.id} onClick={() => setPrintMode(opt.id as '' | 'loose' | 'offset')}
+                            className={`px-4 py-1.5 text-sm font-bold rounded-lg border transition-all ${printMode === opt.id ? 'bg-purple-600 text-white border-purple-600 shadow' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                            {opt.label}
+                        </button>
+                    ))}
+                    <span className="text-[11px] text-slate-400 ml-2">Giấy in offset & in nhanh dùng chung kho, tách theo hệ in.</span>
+                </div>
+            )}
 
             {/* Category Tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 scrollbar-thin">
+            <div className="flex flex-wrap items-center gap-2 pb-2 mb-4">
                 {categories.map(cat => (
-                    <button key={cat.code} onClick={() => switchTab(cat.code)} className={`whitespace-nowrap px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === cat.code ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+                    <button key={cat.code} onClick={() => switchTab(cat.code)} className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === cat.code ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
                         {cat.name}
                     </button>
                 ))}
@@ -256,13 +304,21 @@ export default function MaterialsPage() {
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">Phạm vi</label>
-                        <select className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white" value={filterScope} onChange={e => setFilterScope(e.target.value)}>
-                            <option value="">Tất cả</option>
-                            <option value="loose">SP Rời</option>
-                            <option value="bound">SP Cuốn</option>
-                            <option value="large_format">Khổ lớn</option>
-                            <option value="offset">Offset</option>
-                        </select>
+                        {/* Chip lọc scope — bấm là lọc ngay (filterScope nằm trong deps loadData). */}
+                        <div className="flex flex-wrap gap-1.5">
+                            {[
+                                { id: '', label: 'Tất cả' },
+                                { id: 'loose', label: 'SP Rời' },
+                                { id: 'bound', label: 'SP Cuốn' },
+                                { id: 'large_format', label: 'Khổ lớn' },
+                                ...((!methodsLoaded || showOffset) ? [{ id: 'offset', label: 'Offset' }] : []),
+                            ].map(opt => (
+                                <button key={opt.id} onClick={() => setFilterScope(opt.id)}
+                                    className={`px-3 py-2 text-sm font-medium rounded-lg border transition-all ${filterScope === opt.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                     <button onClick={loadData} className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-semibold">🔍 Tìm</button>
                 </div>
@@ -300,31 +356,63 @@ export default function MaterialsPage() {
                                 <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400"><svg className="animate-spin w-5 h-5 inline mr-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Đang tải...</td></tr>
                             ) : data.length === 0 ? (
                                 <tr><td colSpan={10} className="px-6 py-12 text-center text-slate-400">Không tìm thấy vật tư nào</td></tr>
-                            ) : data.map(m => {
-                                const ss = stockStatus(m);
-                                return (
-                                    <tr key={m.id} className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-3 py-4 text-center"><input type="checkbox" className="w-4 h-4 rounded cursor-pointer" checked={selected.has(m.id)} onChange={() => toggleSelect(m.id)} /></td>
-                                        <td className="px-4 py-4 font-mono text-indigo-600 font-bold text-sm">{m.code}</td>
-                                        <td className="px-4 py-4 font-bold text-slate-800 text-sm">{m.name}</td>
-                                        <td className="px-4 py-4 text-center text-sm text-slate-600">{m.type_name || m.type_code || '—'}</td>
-                                        <td className="px-4 py-4 text-center text-sm text-slate-600">{m.width && m.height ? `${m.width}×${m.height}` : m.gsm ? `${m.gsm}gsm` : '—'}</td>
-                                        <td className="px-4 py-4 text-center font-black text-slate-800 text-base">{fmt(m.stock ?? m.stock_quantity ?? 0)}</td>
-                                        <td className="px-4 py-4 text-center text-sm text-slate-600 font-medium">{m.unit || '—'}</td>
-                                        <td className="px-4 py-4 text-right text-sm font-bold text-slate-700">{fmtVND(m.cost_price || m.unit_price || 0)}</td>
-                                        <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-wide ${ss.cls}`}>{ss.label}</span></td>
-                                        <td className="px-4 py-4 text-center">
-                                            <div className="flex items-center justify-center gap-1.5">
-                                                <button onClick={() => setStockAction({ type: 'import', material: m })} className="p-2 hover:bg-green-100 rounded-lg text-green-700 transition-colors" title="Nhập kho"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m0 0l-4-4m4 4l4-4" /></svg></button>
-                                                <button onClick={() => setStockAction({ type: 'export', material: m })} className="p-2 hover:bg-amber-100 rounded-lg text-amber-700 transition-colors" title="Xuất kho"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 20V4m0 0l-4 4m4-4l4 4" /></svg></button>
-                                                <button onClick={() => setStockAction({ type: 'adjust', material: m })} className="p-2 hover:bg-blue-100 rounded-lg text-blue-700 transition-colors" title="Điều chỉnh"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
-                                                <button onClick={() => { setEditItem(m); setForm({ ...m }); setEditModal(true); }} className="p-2 hover:bg-indigo-100 rounded-lg text-indigo-700 transition-colors" title="Sửa"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                                                <button onClick={() => setDeleteItem(m)} className="p-2 hover:bg-red-100 rounded-lg text-red-600 transition-colors" title="Xóa"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
+                            ) : (() => {
+                                // Nhóm cha→con: con (sheet_role='child') gom dưới cha (parent_material_id).
+                                // Cha = mọi vật tư KHÔNG phải con. Con mồ côi (cha bị lọc khỏi trang) vẫn hiện như dòng thường.
+                                const childrenByParent = new Map<number, Material[]>();
+                                for (const m of data) {
+                                    if (m.sheet_role === 'child' && m.parent_material_id != null) {
+                                        const arr = childrenByParent.get(m.parent_material_id) || [];
+                                        arr.push(m);
+                                        childrenByParent.set(m.parent_material_id, arr);
+                                    }
+                                }
+                                const parentIds = new Set(data.map(m => m.id));
+                                const topRows = data.filter(m => !(m.sheet_role === 'child' && m.parent_material_id != null && parentIds.has(m.parent_material_id)));
+
+                                const renderRow = (m: Material, isChild: boolean) => {
+                                    const ss = stockStatus(m);
+                                    const kids = childrenByParent.get(m.id) || [];
+                                    const expanded = expandedParents.has(m.id);
+                                    return (
+                                        <tr key={m.id} className={`hover:bg-slate-50 transition-colors ${isChild ? 'bg-purple-50/30' : ''}`}>
+                                            <td className="px-3 py-4 text-center"><input type="checkbox" className="w-4 h-4 rounded cursor-pointer" checked={selected.has(m.id)} onChange={() => toggleSelect(m.id)} /></td>
+                                            <td className="px-4 py-4 font-mono text-indigo-600 font-bold text-sm">
+                                                <span className={isChild ? 'pl-6 inline-block text-purple-600' : ''}>
+                                                    {kids.length > 0 && (
+                                                        <button onClick={() => setExpandedParents(s => { const n = new Set(s); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })} className="mr-1 text-slate-400 hover:text-slate-700" title={expanded ? 'Thu gọn' : 'Xổ khổ xả'}>{expanded ? '▼' : '▶'}</button>
+                                                    )}
+                                                    {isChild && <span className="text-purple-300 mr-1">└</span>}
+                                                    {m.code}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-4 font-bold text-slate-800 text-sm">{m.name}{kids.length > 0 && <span className="ml-2 text-xs font-normal text-purple-500">({kids.length} khổ xả)</span>}{!isChild && (m.scope_loose || m.scope_bound) && !m.has_pricing_tier && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700" title="Vật tư in nhanh chưa cấu hình định mức giá — vào Định mức in nhanh để thêm">⚠ chưa có định mức</span>}</td>
+                                            <td className="px-4 py-4 text-center text-sm text-slate-600">{m.type_name || m.type_code || '—'}</td>
+                                            <td className="px-4 py-4 text-center text-sm text-slate-600">{m.width && m.height ? `${m.width}×${m.height}` : m.gsm ? `${m.gsm}gsm` : '—'}</td>
+                                            <td className="px-4 py-4 text-center font-black text-slate-800 text-base">{isChild ? '—' : fmt(m.stock ?? m.stock_quantity ?? 0)}</td>
+                                            <td className="px-4 py-4 text-center text-sm text-slate-600 font-medium">{m.unit || '—'}</td>
+                                            <td className="px-4 py-4 text-right text-sm font-bold text-slate-700">{m.sheet_role === 'child' ? <span className="text-purple-400 text-xs italic" title="Giá dẫn xuất từ khổ nhập">tự chia</span> : fmtVND(m.cost_price || m.unit_price || 0)}</td>
+                                            <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-wide ${ss.cls}`}>{ss.label}</span></td>
+                                            <td className="px-4 py-4 text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    {!isChild && <button onClick={() => openStockAction('import', m)} className="p-2 hover:bg-green-100 rounded-lg text-green-700 transition-colors" title="Nhập kho"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m0 0l-4-4m4 4l4-4" /></svg></button>}
+                                                    {!isChild && <button onClick={() => openStockAction('export', m)} className="p-2 hover:bg-amber-100 rounded-lg text-amber-700 transition-colors" title="Xuất kho"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 20V4m0 0l-4 4m4-4l4 4" /></svg></button>}
+                                                    <button onClick={() => { setEditItem(m); setForm({ ...m }); setEditModal(true); }} className="p-2 hover:bg-indigo-100 rounded-lg text-indigo-700 transition-colors" title="Sửa"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                                                    <button onClick={() => setDeleteItem(m)} className="p-2 hover:bg-red-100 rounded-lg text-red-600 transition-colors" title="Xóa"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                };
+
+                                return topRows.flatMap(m => {
+                                    const rows = [renderRow(m, false)];
+                                    if (expandedParents.has(m.id)) {
+                                        for (const kid of (childrenByParent.get(m.id) || [])) rows.push(renderRow(kid, true));
+                                    }
+                                    return rows;
+                                });
+                            })()}
                         </tbody>
                     </table>
                 </div>
@@ -348,6 +436,12 @@ export default function MaterialsPage() {
                 onSubmit={handleStockSubmit}
                 stockForm={stockForm}
                 setStockForm={setStockForm}
+            />
+
+            <CategoryManagerModal
+                isOpen={showCategoryManager}
+                onClose={() => setShowCategoryManager(false)}
+                onSaved={loadCategoriesAndRefs}
             />
 
             {/* ─── DELETE CONFIRM ─── */}

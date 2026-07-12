@@ -21,6 +21,14 @@ export default function BatchMiniQuoteModal({ isOpen, onClose, selectedProducts,
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
 
+    // Close on Escape key
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [isOpen, onClose]);
+
     // Check if all selected products share the same quote_type
     const quoteTypes = [...new Set(selectedProducts.map(p => p.quote_type))];
     const isMixed = quoteTypes.length > 1;

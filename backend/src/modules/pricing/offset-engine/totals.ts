@@ -21,8 +21,10 @@ export function tongHopKetQua(
     vatRate?: number,
 ): QuoteResult {
     const tongChuaVAT = lines.reduce((s, l) => s + (l.amount || 0), 0);
-    // VAT: dùng % từ UI nếu truyền vào (đã ở dạng phân số, vd 0.1), nếu không lấy cấu hình.
-    const vatPct = vatRate ?? d.tyLe.params.TyLe_VAT;
+    // VAT: BẮT BUỘC đi theo % nhập ở thông tin khách hàng (truyền vào dạng phân số, vd 0.1).
+    // KHÔNG fallback về cấu hình pricebook (TyLe_VAT) — thiếu rate ⇒ coi như không áp VAT (0)
+    // để VAT chỉ có một nguồn duy nhất (mục khách hàng), tránh VAT "chui" từ config.
+    const vatPct = vatRate ?? 0;
     const vat = tongChuaVAT * vatPct;
     const tongGomVAT = tongChuaVAT + vat; // KHÔNG cộng hao phẳng — hao đã nằm trong số lượng cascade
 

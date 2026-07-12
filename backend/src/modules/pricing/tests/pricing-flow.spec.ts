@@ -12,6 +12,7 @@
 
 import { PricingService } from '../pricing.service';
 import { PricingFacadeService } from '../services/pricing-facade.service';
+import { deriveTierCost } from '../lib/cost-derivation';
 
 // ──────────────────────────────────────────────────────────────
 // SAMPLE MASTER DATA (du lieu mau — nhat quan noi bo, khong phai gia thi truong)
@@ -28,7 +29,7 @@ const SAMPLE = {
     config: { vat_rate: '8' }, // phan con lai dung DEFAULT trong PricingService (markup 50, rounding 100, waste digital 1...)
 };
 
-function buildEngine() {
+function buildEngine(tierPrice: number = SAMPLE.tierPricePerSheet) {
     const managerQuery = jest.fn().mockImplementation((sql: string) => {
         if (sql.includes('pricing_config')) {
             return Promise.resolve([{ config_key: 'vat_rate', config_value: SAMPLE.config.vat_rate }]);
@@ -40,7 +41,7 @@ function buildEngine() {
     });
 
     const tierRepo: any = {
-        findOne: jest.fn().mockResolvedValue({ pricePerSheet: SAMPLE.tierPricePerSheet }),
+        findOne: jest.fn().mockResolvedValue({ pricePerSheet: tierPrice }),
         manager: { query: managerQuery },
     };
     const materialRepo: any = {
@@ -81,6 +82,7 @@ describe('Pricing FLOW — du lieu mau, kiem tra logic', () => {
             gap_h: 2,
             gap_v: 2,
             processing: [{ id: 5, code: 'foo', side: 'single' }],
+            vat_rate: 8, // VAT đi theo % nhập ở thông tin khách hàng (truyền qua request, không lấy từ config)
         });
 
         expect(res.success).toBe(true);
@@ -119,6 +121,7 @@ describe('Pricing FLOW — du lieu mau, kiem tra logic', () => {
             height: 2000,
             quantity: 2,
             print_type: 'uv',
+            vat_rate: 8, // VAT theo thông tin khách hàng (request), không từ config
         });
 
         expect(res.success).toBe(true);
@@ -137,7 +140,7 @@ describe('Pricing FLOW — du lieu mau, kiem tra logic', () => {
         const res: any = await facade.calculatePrice({
             type: 'loose', material_id: 10, paper_size_id: 1, quantity: 1000,
             item_width: 90, item_height: 54, print_side: 'double', print_type: '4c', print_method: 'digital',
-            shape: 'rectangle', gap_h: 2, gap_v: 2, processing: [],
+            shape: 'rectangle', gap_h: 2, gap_v: 2, processing: [], vat_rate: 8,
         });
         const d = res.data;
         const expectedGrand = d.selling_subtotal + Math.round(d.selling_subtotal * d.vat_rate / 100);
@@ -155,5 +158,71 @@ describe('Pricing FLOW — du lieu mau, kiem tra logic', () => {
         });
         expect(res.success).toBe(false);
         expect(res.error).toContain('quá lớn');
+    });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// END-TO-END: định mức 5 thành phần (deriveTierCost) → tier → facade → markup.
+// Đây là ràng buộc KIẾN TRÚC cốt lõi của cả 3 tầng: định mức là GIÁ VỐN THUẦN,
+// markup áp ĐÚNG MỘT LẦN ở facade. Trước đây chỉ khẳng định gián tiếp (helper
+// assert Σ; facade assert ×1.5 riêng). Ở đây chạy SUỐT chuỗi để bắt markup-chồng.
+// ══════════════════════════════════════════════════════════════════════════
+describe('END-TO-END: giá vốn thuần (5 thành phần) → facade markup MỘT LẦN', () => {
+    // Cùng bố cục LOOSE với các test trên: 90x54 trên SRA3, 1000 cái, 2 mặt → total_sheets = 48.
+    const LOOSE_ARGS = {
+        type: 'loose' as const, material_id: 10, paper_size_id: 1, quantity: 1000,
+        item_width: 90, item_height: 54, print_side: 'double', print_type: '4c', print_method: 'digital',
+        shape: 'rectangle', gap_h: 2, gap_v: 2, processing: [], vat_rate: 8,
+    };
+    const TOTAL_SHEETS = 48; // theo contract layout+waste của các test trên
+
+    it('tier = Σ 5 thành phần (giá vốn thuần) → selling/cost ≈ 1.5, KHÔNG 2.25', async () => {
+        // Giá vốn thuần/tờ suy từ 5 thành phần (không markup).
+        const breakdown = deriveTierCost({
+            paperCost: 300,
+            ink: { mlPerSheet: 0.5, pricePerMl: 500 },
+            printer: {
+                machineValue: 1_200_000_000, depreciationYears: 5, sheetsPerMonth: 100_000,
+                electricityPerHour: 50_000, sheetsPerHour: 1_000, staffCount: 3, avgSalaryMonthly: 12_000_000,
+                rentMonthly: 20_000_000, utilitiesMonthly: 5_000_000, otherMonthly: 5_000_000,
+            },
+            sizeFactor: 1, sides: 1,
+        });
+        const pureCostPerSheet = breakdown.total; // = Σ 5 thành phần, không lời
+
+        const { facade } = buildEngine(pureCostPerSheet);
+        const res: any = await facade.calculatePrice(LOOSE_ARGS);
+        expect(res.success).toBe(true);
+        const d = res.data;
+
+        // Giá vốn (total) = giá vốn thuần/tờ × số tờ, không processing.
+        expect(d.breakdown.price_per_sheet).toBe(pureCostPerSheet);
+        expect(d.total).toBe(pureCostPerSheet * TOTAL_SHEETS);
+
+        // Markup áp ĐÚNG MỘT LẦN: selling ≈ total × 1.5 (sai số làm tròn ≤ rounding=100).
+        expect(Math.abs(d.selling_subtotal - d.total * 1.5)).toBeLessThanOrEqual(100);
+
+        // INVARIANT CHỐNG MARKUP-CHỒNG: nếu markup áp 2 lần thì selling ≈ total × 2.25.
+        // Khẳng định selling KHÔNG chạm ngưỡng ×2 → chắc chắn không chồng.
+        expect(d.selling_subtotal).toBeLessThan(d.total * 2);
+    });
+
+    it('CANARY: nếu tier ĐÃ gồm markup (lỗi) → selling/giá-vốn-thuần chạm 2.25 → invariant ×2 BẮT được', async () => {
+        // Giả lập LỖI: ai đó nhét markup ×1.5 vào tier (định mức không còn là giá vốn thuần).
+        const breakdown = deriveTierCost({ paperCost: 300, ink: { mlPerSheet: 0.5, pricePerMl: 500 }, sides: 1 });
+        const pureCostPerSheet = breakdown.total;           // giá vốn thuần đúng
+        const tierWithMarkup = Math.round(pureCostPerSheet * 1.5); // SAI: đã nhét lời
+
+        const { facade } = buildEngine(tierWithMarkup);
+        const res: any = await facade.calculatePrice(LOOSE_ARGS);
+        const d = res.data;
+
+        // Giá vốn thuần thật (nếu tier đúng) = pureCostPerSheet × số tờ.
+        const truePureTotal = pureCostPerSheet * TOTAL_SHEETS;
+
+        // Vì tier đã ×1.5 rồi facade lại ×1.5 → selling ≈ giá-vốn-thuần × 2.25.
+        // Test này CHỨNG MINH invariant "selling < pure×2" ở case trên CÓ RĂNG:
+        // với lỗi markup-chồng, selling vượt hẳn ngưỡng ×2.
+        expect(d.selling_subtotal).toBeGreaterThan(truePureTotal * 2);
     });
 });

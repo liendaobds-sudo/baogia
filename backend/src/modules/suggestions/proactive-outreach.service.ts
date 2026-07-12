@@ -12,7 +12,7 @@
  * Runs as a cron job every 15 minutes, processing stale conversations.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In, Not } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
@@ -22,6 +22,8 @@ import { Contact } from '../../entities/contact.entity';
 import { FollowUp, FollowUpStatus } from '../../entities/follow-up.entity';
 import { AiProviderService } from './ai-provider.service';
 import { EventsGateway } from '../gateway/events.gateway';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { forEachTenant } from '../../common/tenant/tenant-background';
 
 // Stale thresholds per conversation status (in hours)
 const STALE_THRESHOLDS: Record<string, number> = {
@@ -45,14 +47,23 @@ export class ProactiveOutreachService {
         @InjectRepository(FollowUp) private followUpRepo: Repository<FollowUp>,
         private aiProvider: AiProviderService,
         private gateway: EventsGateway,
+        @Optional() private tenantCtx?: TenantContextService,
     ) {}
 
     /**
      * Cron: every 15 minutes, find stale conversations and generate proactive messages.
      * Only generates the message and notifies agents — doesn't auto-send to customer.
+     *
+     * Khi RLS bật (TENANT_RLS_ENABLED): lặp từng tenant, mỗi vòng quét trong scope tenant
+     * (withTenant + transaction set app.current_tenant) → RLS lọc đúng dữ liệu mỗi xưởng.
+     * Khi tắt (mặc định): chạy thẳng logic gốc quét toàn bộ — không đổi hành vi.
      */
     @Cron('0 */15 * * * *') // Every 15 minutes
     async scanForStaleConversations(): Promise<void> {
+        await forEachTenant(this.tenantCtx, this.convRepo.manager, () => this.scanStaleCore());
+    }
+
+    private async scanStaleCore(): Promise<void> {
         const activeStatuses = Object.keys(STALE_THRESHOLDS);
 
         for (const status of activeStatuses) {

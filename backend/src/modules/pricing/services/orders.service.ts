@@ -4,6 +4,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { QuotePdfService } from './quote-pdf.service';
 import { CustomersService } from './customers.service';
 import { EngineOffsetService } from '../offset-engine/engine-offset.service';
+import { PricingFacadeService } from './pricing-facade.service';
 import { TenantContextService } from '../../../common/tenant/tenant-context.service';
 import { applyTenantToConnection } from '../../../common/tenant/tenant-transaction';
 
@@ -17,18 +18,59 @@ export class OrdersService {
         private customersService: CustomersService,
         private engineOffset: EngineOffsetService,
         @Optional() private readonly tenantCtx?: TenantContextService,
+        // Optional: unit test dựng OrdersService không có facade → recompute digital bỏ qua (tin giá đã lưu).
+        @Optional() private readonly pricingFacade?: PricingFacadeService,
     ) { }
+
+    /** tenant hiện hành (non-bypass) để GHI; null cho system/không context. */
+    private writeTenantId(): number | null {
+        const ctx = this.tenantCtx?.get?.();
+        return ctx && !ctx.bypass ? ctx.tenantId : null;
+    }
+
+    /**
+     * Ràng buộc tenant cho SQL raw (lưới an toàn khi RLS chưa flip): trả mệnh đề
+     * `AND (<col> = $N OR <col> IS NULL)` + tham số, hoặc rỗng khi ngoài context/bypass.
+     * @param nextIdx chỉ số tham số kế tiếp ($N) để nối vào query hiện có.
+     */
+    private tenantGuard(nextIdx: number, col = 'tenant_id'): { clause: string; params: any[] } {
+        const ctx = this.tenantCtx?.get?.();
+        if (!ctx || ctx.bypass) return { clause: '', params: [] };
+        return { clause: ` AND (${col} = $${nextIdx} OR ${col} IS NULL)`, params: [ctx.tenantId] };
+    }
+
+    /** Loại sản phẩm offset (server tự nhận diện, KHÔNG chỉ tin cờ client `printing_detail.offset`). */
+    private static readonly OFFSET_TYPES = new Set(['offset', 'to_roi', 'bi_thu_folder', 'sp_khac', 'hop_giay', 'tui_giay']);
+
+    /**
+     * Item có phải offset không — nhận diện bằng NHIỀU dấu hiệu để chặn "bỏ recompute":
+     * cờ `printing_detail.offset`, HOẶC `item_type`/`product_type` thuộc nhóm offset.
+     * Nhờ vậy client không thể né tính-lại-giá chỉ bằng cách bỏ cờ `offset`.
+     */
+    private isOffsetItem(item: Record<string, unknown>): boolean {
+        const pd = item.printing_detail as any;
+        if (pd?.offset === true) return true;
+        const it = String(item.item_type ?? '').toLowerCase();
+        const pt = String(item.product_type ?? '').toLowerCase();
+        return it === 'offset' || OrdersService.OFFSET_TYPES.has(it) || OrdersService.OFFSET_TYPES.has(pt);
+    }
 
     /**
      * Tính LẠI giá các item offset từ cấu hình đã lưu (`printing_detail.config`) bằng engine —
      * KHÔNG tin giá client gửi (chống sửa giá). Ghi đè `item_total` + `printing_detail.result/unitPrice`,
      * trả tổng để dựng total/vat/grand cho header. Item không phải offset giữ nguyên.
+     *
+     * Item ĐƯỢC nhận diện là offset nhưng THIẾU `config` ⇒ ném lỗi (không cho gửi giá offset
+     * không kèm cơ sở tính → chống lách chống-sửa-giá bằng cách bỏ config/cờ).
      */
     private recomputeOffsetItems(items: Record<string, unknown>[]): { count: number; sumPreVatNet: number; sumChietKhau: number } {
         let count = 0, sumPreVatNet = 0, sumChietKhau = 0;
         for (const item of items) {
+            if (!this.isOffsetItem(item)) continue;
             const pd = item.printing_detail as any;
-            if (!pd || pd.offset !== true || !pd.config) continue;
+            if (!pd || !pd.config) {
+                throw new Error(`Thiếu cấu hình để xác thực giá offset cho "${item.product_name || 'sản phẩm'}".`);
+            }
             const res = this.engineOffset.calculate(pd.config);
             if (!res.success || !res.data) {
                 throw new Error(`Không tính lại được giá offset cho "${item.product_name || 'sản phẩm'}": ${res.error || 'lỗi không xác định'}`);
@@ -45,6 +87,39 @@ export class OrdersService {
             sumChietKhau += res.data.chietKhau || 0;
         }
         return { count, sumPreVatNet, sumChietKhau };
+    }
+
+    /**
+     * Xác thực LẠI giá item DIGITAL (loose/bound/large_format) bằng cách replay ĐÚNG payload
+     * đã gửi lên `/pricing/calculate` qua CÙNG `PricingFacadeService` (chống client sửa giá +
+     * ép whitelist server-side). `item_total = data.selling_subtotal` = GIÁ BÁN TRƯỚC VAT
+     * (đã áp markup MỘT LẦN ở facade). KHÔNG dùng `data.total` (giá vốn — mất markup) và KHÔNG
+     * dùng `data.grand_total` (đã gồm VAT — header lại áp VAT lần nữa ⇒ VAT chồng).
+     *
+     * An toàn ngược: item KHÔNG kèm `printing_detail.pricingPayload` (báo giá cũ, prefill chat,
+     * hoặc facade chưa inject trong unit test) → BỎ QUA, tin giá đã lưu.
+     */
+    private async recomputeDigitalItems(items: Record<string, unknown>[]): Promise<void> {
+        if (!this.pricingFacade) return;
+        for (const item of items) {
+            if (this.isOffsetItem(item)) continue; // offset đã do recomputeOffsetItems xử lý
+            const pd = item.printing_detail as any;
+            if (!pd) continue;
+            const payload = pd.pricingPayload;
+            if (!payload || typeof payload !== 'object') continue; // không có payload → tin giá đã lưu
+            // Khổ lớn: phụ kiện tính phía client theo thiết kế (facade LF không cộng phụ kiện) →
+            // `data.total` KHÔNG bằng "Thành tiền" giỏ hàng, không override để khỏi mất tiền phụ kiện.
+            const ptype = String((payload as any).type || (payload as any).product_type || '');
+            if (ptype === 'large_format') continue;
+            const res: any = await this.pricingFacade.calculatePrice(payload);
+            if (!res?.success || !res.data) {
+                throw new Error(`Không xác thực được giá cho "${item.product_name || 'sản phẩm'}": ${res?.error || 'lỗi tính giá'}`);
+            }
+            // GIÁ BÁN TRƯỚC VAT (markup áp 1 lần ở facade). Fallback về `total` (giá vốn) chỉ khi
+            // facade không trả selling_subtotal (không nên xảy ra với engine hiện tại).
+            const authoritative = Number(res.data.selling_subtotal ?? res.data.total);
+            if (Number.isFinite(authoritative)) item.item_total = authoritative;
+        }
     }
 
     // ─── Quotes: List with search/filter/pagination ───
@@ -87,6 +162,13 @@ export class OrdersService {
         if (filters.keyword) {
             params.push(`%${filters.keyword}%`, `%${filters.keyword}%`, `%${filters.keyword}%`);
             query += ` AND (q.code LIKE CAST($${params.length - 2} AS TEXT) OR q.customer_name LIKE CAST($${params.length - 1} AS TEXT) OR q.customer_phone LIKE CAST($${params.length} AS TEXT))`;
+        }
+
+        // Cô lập tenant (tầng app; lưới an toàn khi RLS chưa flip): chỉ báo giá của
+        // tenant hiện hành HOẶC dùng chung (NULL). Bỏ qua khi bypass/không context.
+        {
+            const t = this.tenantGuard(params.length + 1, 'q.tenant_id');
+            if (t.clause) { params.push(...t.params); query += t.clause; }
         }
 
         query += ' ORDER BY q.created_at DESC';
@@ -154,12 +236,14 @@ export class OrdersService {
 
     async findQuoteById(id: string) {
         const numId = parseInt(id) || 0;
+        // Cô lập tenant: không cho đọc chéo báo giá của tenant khác (rò rỉ PII/giá).
+        const t = this.tenantGuard(2, 'q.tenant_id');
         const [quote] = await this.dataSource.query(`
             SELECT q.*, u.full_name as created_by_name
             FROM quotes q
             LEFT JOIN users u ON u.id::text = q.created_by::text
-            WHERE q.id = $1
-        `, [numId]);
+            WHERE q.id = $1${t.clause}
+        `, [numId, ...t.params]);
         if (!quote) return null;
 
         quote.items = await this.dataSource.query(`
@@ -193,6 +277,7 @@ export class OrdersService {
             // Tính lại giá offset từ cấu hình đã lưu (chống sửa giá) + chuẩn hoá item_total về TRƯỚC VAT cho mọi item.
             const items = (data.items && Array.isArray(data.items)) ? data.items as Record<string, unknown>[] : [];
             this.recomputeOffsetItems(items);
+            await this.recomputeDigitalItems(items);
 
             // QUY ƯỚC THỐNG NHẤT (offset + in nhanh, trộn được): subtotal = Σ item_total (trước VAT, sau chiết khấu engine);
             // 1 VAT chung của mục khách áp trên (subtotal − chiết khấu thủ công); grand = sau-chiết-khấu + VAT + ship.
@@ -209,22 +294,23 @@ export class OrdersService {
                 INSERT INTO quotes (
                     code, type, customer_id,
                     customer_name, customer_phone, customer_unit, tax_code,
-                    customer_address, customer_note,
+                    customer_address, customer_note, customer_email, customer_contact,
                     total, discount_type, discount_value, discount_amount,
                     vat_rate, vat_amount, shipping_fee, grand_total,
                     created_by, created_at, delivery_time,
-                    status, validity_days
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), $19, 'draft', $20)
+                    status, validity_days, tenant_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20, 'draft', $21, $22)
             `, [
                 data.code, data.type || 'In nhanh', customerId,
                 data.customer_name || 'Khách lẻ', data.customer_phone || null,
                 data.customer_unit || null, data.tax_code || null,
                 data.customer_address || null, data.customer_note || null,
+                data.customer_email || null, data.customer_contact || null,
                 subtotal, data.discount_type || null,
                 data.discount_value || 0, discountAmt,
                 vatRate, vatAmount, shippingFee, grandTotal,
                 userId || null, data.delivery_time || null,
-                validityDays,
+                validityDays, this.writeTenantId(),
             ]);
 
             const [{ id: quoteId }] = await qr.query(`SELECT currval(pg_get_serial_sequence('quotes', 'id')) as id`);
@@ -271,8 +357,9 @@ export class OrdersService {
 
         try {
             await applyTenantToConnection(qr, this.tenantCtx);
-            // Guard: prevent editing completed/cancelled quotes
-            const [existing] = await qr.query('SELECT status FROM quotes WHERE id = $1', [id]);
+            // Guard: prevent editing completed/cancelled quotes (+ cô lập tenant).
+            const tg = this.tenantGuard(2);
+            const [existing] = await qr.query(`SELECT status FROM quotes WHERE id = $1${tg.clause}`, [id, ...tg.params]);
             if (!existing) throw new Error('Quote not found');
             if (['completed', 'cancelled', 'expired'].includes(existing.status)) {
                 throw new Error(`Không thể sửa báo giá ở trạng thái "${existing.status}". Vui lòng tạo bản sao.`);
@@ -282,6 +369,7 @@ export class OrdersService {
             if (data.items && Array.isArray(data.items)) {
                 const items = data.items as Record<string, unknown>[];
                 this.recomputeOffsetItems(items);
+                await this.recomputeDigitalItems(items);
                 const itemsSum = items.reduce((s, it) => s + (parseFloat(String((it as any).item_total ?? 0)) || 0), 0);
                 const subtotal = itemsSum > 0 ? itemsSum : parseFloat(String(data.total || 0));
                 const discountAmt = parseFloat(String(data.discount_amount || 0));
@@ -297,7 +385,8 @@ export class OrdersService {
             // Dynamic header update
             const allowedFields = [
                 'customer_name', 'customer_phone', 'customer_unit', 'tax_code',
-                'customer_address', 'customer_note', 'total', 'delivery_time',
+                'customer_address', 'customer_note', 'customer_email', 'customer_contact',
+                'total', 'delivery_time',
                 'status', 'discount_type', 'discount_value', 'discount_amount',
                 'vat_rate', 'vat_amount', 'shipping_fee', 'grand_total',
             ];
@@ -337,6 +426,10 @@ export class OrdersService {
         await qr.startTransaction();
         try {
             await applyTenantToConnection(qr, this.tenantCtx);
+            // Cô lập tenant: chặn xóa chéo báo giá tenant khác.
+            const tg = this.tenantGuard(2);
+            const [own] = await qr.query(`SELECT id FROM quotes WHERE id = $1${tg.clause}`, [id, ...tg.params]);
+            if (!own) throw new Error('Quote not found');
             await qr.query('DELETE FROM quote_versions WHERE quote_id = $1', [id]);
             await qr.query('DELETE FROM quote_items WHERE quote_id = $1', [id]);
             await qr.query('DELETE FROM quotes WHERE id = $1', [id]);
@@ -369,19 +462,22 @@ export class OrdersService {
             await applyTenantToConnection(qr, this.tenantCtx);
             await qr.query(`
                 INSERT INTO quotes (code, type, customer_name, customer_phone, customer_unit, tax_code,
-                    customer_address, customer_note, total, discount_type, discount_value, discount_amount,
+                    customer_address, customer_note, customer_email, customer_contact,
+                    total, discount_type, discount_value, discount_amount,
                     vat_rate, vat_amount, shipping_fee, grand_total,
-                    created_by, created_at, delivery_time, status, validity_days)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), $18, 'draft', $19)
+                    created_by, created_at, delivery_time, status, validity_days, tenant_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), $19, 'draft', $20, $21)
             `, [
                 newCode, original.type, original.customer_name, original.customer_phone,
                 original.customer_unit, original.tax_code,
                 original.customer_address, original.customer_note,
+                original.customer_email || null, original.customer_contact || null,
                 original.total, original.discount_type || null,
                 original.discount_value || 0, original.discount_amount || 0,
                 original.vat_rate || 0, original.vat_amount || 0,
                 original.shipping_fee || 0, original.grand_total || original.total,
                 userId || original.created_by, original.delivery_time, validityDays,
+                this.writeTenantId(),
             ]);
 
             const [{ id: newId }] = await qr.query(`SELECT currval(pg_get_serial_sequence('quotes', 'id')) as id`);
@@ -406,53 +502,59 @@ export class OrdersService {
     //                              ↘ rejected (+ reason)
 
     async submitForApproval(id: string) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'pending_approval' WHERE id = $1 AND status = 'draft' RETURNING id", [id],
+            `UPDATE quotes SET status = 'pending_approval' WHERE id = $1 AND status = 'draft'${t.clause} RETURNING id`, [id, ...t.params],
         );
         if (!affected) {
-            const [q] = await this.dataSource.query('SELECT status FROM quotes WHERE id = $1', [id]);
+            const [q] = await this.dataSource.query(`SELECT status FROM quotes WHERE id = $1${t.clause}`, [id, ...t.params]);
             if (!q) throw new Error('Quote not found');
             throw new Error(`Chỉ duyệt được báo giá ở trạng thái Nháp (hiện: ${q.status})`);
         }
     }
 
     async approveQuote(id: string, approvedBy?: number) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'approved' WHERE id = $1 AND status IN ('draft', 'pending_approval') RETURNING id",
-            [id],
+            `UPDATE quotes SET status = 'approved' WHERE id = $1 AND status IN ('draft', 'pending_approval')${t.clause} RETURNING id`,
+            [id, ...t.params],
         );
         if (!affected) throw new Error('Không thể duyệt ở trạng thái hiện tại');
     }
 
     async rejectQuote(id: string, reason: string, rejectedBy?: number) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'rejected' WHERE id = $1 AND status IN ('draft', 'pending_approval') RETURNING id",
-            [id],
+            `UPDATE quotes SET status = 'rejected' WHERE id = $1 AND status IN ('draft', 'pending_approval')${t.clause} RETURNING id`,
+            [id, ...t.params],
         );
         if (!affected) throw new Error('Không thể từ chối ở trạng thái hiện tại');
     }
 
     async sendQuote(id: string) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'sent' WHERE id = $1 AND status IN ('draft', 'approved') RETURNING id", [id],
+            `UPDATE quotes SET status = 'sent' WHERE id = $1 AND status IN ('draft', 'approved')${t.clause} RETURNING id`, [id, ...t.params],
         );
         if (!affected) {
-            const [q] = await this.dataSource.query('SELECT status FROM quotes WHERE id = $1', [id]);
+            const [q] = await this.dataSource.query(`SELECT status FROM quotes WHERE id = $1${t.clause}`, [id, ...t.params]);
             if (!q) throw new Error('Quote not found');
             throw new Error('Báo giá phải ở trạng thái Nháp/Đã duyệt mới gửi được');
         }
     }
 
     async acceptQuote(id: string) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'accepted' WHERE id = $1 AND status = 'sent' RETURNING id", [id],
+            `UPDATE quotes SET status = 'accepted' WHERE id = $1 AND status = 'sent'${t.clause} RETURNING id`, [id, ...t.params],
         );
         if (!affected) throw new Error('Chỉ chấp nhận được báo giá đã gửi');
     }
 
     async completeQuote(id: string) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'completed' WHERE id = $1 AND status IN ('approved', 'accepted') RETURNING id, customer_id", [id],
+            `UPDATE quotes SET status = 'completed' WHERE id = $1 AND status IN ('approved', 'accepted')${t.clause} RETURNING id, customer_id`, [id, ...t.params],
         );
         if (!affected) throw new Error('Không thể hoàn thành ở trạng thái hiện tại');
 
@@ -467,9 +569,10 @@ export class OrdersService {
     }
 
     async cancelQuote(id: string, reason?: string) {
+        const t = this.tenantGuard(2);
         const [affected] = await this.dataSource.query(
-            "UPDATE quotes SET status = 'cancelled' WHERE id = $1 AND status != 'cancelled' RETURNING id",
-            [id],
+            `UPDATE quotes SET status = 'cancelled' WHERE id = $1 AND status != 'cancelled'${t.clause} RETURNING id`,
+            [id, ...t.params],
         );
         if (!affected) throw new Error('Quote not found or already cancelled');
     }
@@ -493,13 +596,16 @@ export class OrdersService {
     // ─── Versions ───
 
     async findVersionsByQuote(quoteId: string) {
+        const t = this.tenantGuard(2);
         return this.dataSource.query(
-            'SELECT * FROM quote_versions WHERE quote_id = $1 ORDER BY version_number DESC', [quoteId],
+            `SELECT * FROM quote_versions WHERE quote_id = $1${t.clause} ORDER BY version_number DESC`, [quoteId, ...t.params],
         );
     }
 
     async findVersionById(id: string) {
-        const [version] = await this.dataSource.query('SELECT * FROM quote_versions WHERE id = $1', [id]);
+        // Cô lập tenant: quote_versions chứa snapshot đầy đủ (PII/giá) — chặn đọc chéo.
+        const t = this.tenantGuard(2);
+        const [version] = await this.dataSource.query(`SELECT * FROM quote_versions WHERE id = $1${t.clause}`, [id, ...t.params]);
         if (version) {
             try { version.quote_data = JSON.parse(version.quote_data); } catch { }
         }
@@ -516,9 +622,9 @@ export class OrdersService {
         const nextVersion = (parseInt(last.max_v || '0') || 0) + 1;
 
         await this.dataSource.query(`
-            INSERT INTO quote_versions (quote_id, version_number, quote_data, created_by, note)
-            VALUES ($1, $2, $3, $4, $5)
-        `, [quoteId, nextVersion, JSON.stringify(quote), createdBy || null, note || `Phiên bản ${nextVersion}`]);
+            INSERT INTO quote_versions (quote_id, version_number, quote_data, created_by, note, tenant_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
+        `, [quoteId, nextVersion, JSON.stringify(quote), createdBy || null, note || `Phiên bản ${nextVersion}`, this.writeTenantId()]);
 
         const [{ id }] = await this.dataSource.query(`SELECT currval(pg_get_serial_sequence('quote_versions', 'id')) as id`);
         return this.findVersionById(String(id));
@@ -591,6 +697,12 @@ export class OrdersService {
 
             const [{ id: insertedId }] = await qr.query(`SELECT currval(pg_get_serial_sequence('quote_items', 'id')) as id`);
             tempIdMap[index] = insertedId;
+        }
+
+        // Stamp tenant cho item vừa chèn (cô lập dữ liệu mới; sẵn sàng cho RLS).
+        const tid = this.writeTenantId();
+        if (tid != null) {
+            await qr.query('UPDATE quote_items SET tenant_id = $1 WHERE quote_id = $2 AND tenant_id IS NULL', [tid, quoteId]);
         }
     }
 

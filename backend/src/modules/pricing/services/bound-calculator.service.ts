@@ -63,6 +63,12 @@ export class BoundCalculatorService {
       const coverProcessCodes = (cover.processing || []).map((p) => p.code || String(p.id));
       const totalCoverSheets = this.pricing.calculateWasteSheets(coverSheets, config, 'digital', coverProcessCodes);
 
+      // Chặn giấy bìa chưa có định mức: tra tier miss → getPricingTierByMaterial trả 0 âm thầm
+      // → báo giá thiếu tiền giấy mà không ai biết. Thiếu tier → lỗi rõ, buộc cấu hình trước.
+      if (!(await this.pricing.hasAnyTier(cover.material_id))) {
+        throw new BadRequestException(`Giấy bìa "${await this.materialName(cover.material_id)}" chưa có định mức giá — vào Định mức in nhanh để cấu hình.`);
+      }
+
       const coverPricePerSheet = await this.pricing.getPricingTierByMaterial(
         cover.material_id,
         cover.paper_size_id,
@@ -119,6 +125,11 @@ export class BoundCalculatorService {
       innerProcessCodes.push('binding'); 
       const totalInnerSheets = this.pricing.calculateWasteSheets(innerSheets, config, 'digital', innerProcessCodes);
 
+      // Chặn giấy ruột chưa có định mức (xem lý do ở phần bìa).
+      if (!(await this.pricing.hasAnyTier(inner.material_id))) {
+        throw new BadRequestException(`Giấy ruột "${await this.materialName(inner.material_id)}" chưa có định mức giá — vào Định mức in nhanh để cấu hình.`);
+      }
+
       const innerPricePerSheet = await this.pricing.getPricingTierByMaterial(
         inner.material_id,
         inner.paper_size_id,
@@ -173,5 +184,13 @@ export class BoundCalculatorService {
         binding_type: bindingType,
       },
     };
+  }
+
+  /** Tên vật tư cho thông báo lỗi (thiếu định mức). Không thấy → dùng chính id. */
+  private async materialName(materialId: number): Promise<string> {
+    const rows = await this.dataSource
+      .query('SELECT name FROM materials WHERE id = $1 LIMIT 1', [materialId])
+      .catch(() => [] as Array<{ name: string }>);
+    return rows?.[0]?.name || `#${materialId}`;
   }
 }

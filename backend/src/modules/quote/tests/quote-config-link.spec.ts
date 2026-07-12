@@ -89,7 +89,7 @@ function build() {
 
 describe('Quote CONFIG-LINK + nhat quan 2 cua (engine that)', () => {
 
-    it('NHAT QUAN: cùng cấu hình -> mini (grand_total) == chatbot (total) == 85.536', async () => {
+    it('NHAT QUAN: cùng cấu hình -> mini (grand_total) == chatbot (total) == 79.200 (CHƯA VAT)', async () => {
         const { svc } = build();
 
         // Cua MINI: tham so day du, gap aligned = 2
@@ -106,8 +106,10 @@ describe('Quote CONFIG-LINK + nhat quan 2 cua (engine that)', () => {
             printSides: 2, finishing: ['can_mo'], isComplete: true,
         } as any);
 
-        expect(mini.grand_total).toBe(85536);
-        expect(chatbot.total).toBe(85536);     // B1: chatbot tra gia ban
+        // VAT KHÔNG còn nhúng từ config: mini/chatbot báo GIÁ BÁN CHƯA VAT (markup, chưa VAT).
+        // VAT chỉ áp ở luồng báo giá chính thức theo % nhập ở mục thông tin khách hàng.
+        expect(mini.grand_total).toBe(79200);
+        expect(chatbot.total).toBe(79200);     // B1: chatbot tra gia ban (chưa VAT)
         expect(chatbot.total).toBe(mini.grand_total); // NHAT QUAN giua 2 cua
     });
 
@@ -122,8 +124,8 @@ describe('Quote CONFIG-LINK + nhat quan 2 cua (engine that)', () => {
             size: { width: 90, height: 54 }, printSides: 2, finishing: [], isComplete: true,
         } as any);
 
-        expect(withLam.total).toBe(85536); // co can mang
-        expect(noLam.total).toBe(77760);   // khong can mang (48.000 x1.5 +8%)
+        expect(withLam.total).toBe(79200); // co can mang (markup, chưa VAT)
+        expect(noLam.total).toBe(72000);   // khong can mang (48.000 x1.5, chưa VAT)
         expect(withLam.total).toBeGreaterThan(noLam.total);
     });
 

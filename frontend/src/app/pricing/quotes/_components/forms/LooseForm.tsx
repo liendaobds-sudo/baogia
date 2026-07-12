@@ -20,7 +20,7 @@ export function LooseForm({ state }: { state: QuoteState }) {
         bQuantity, setBQuantity, bPageCount, setBPageCount, bBindingType, setBBindingType,
         bCoverMaterialName, setBCoverMaterialName, bCoverMaterialId, setBCoverMaterialId, bCoverPaperSizeId, setBCoverPaperSizeId, bCoverPrintType, setBCoverPrintType, bCoverPrintSide, setBCoverPrintSide, bCoverProc, setBCoverProc,
         bInnerMaterialName, setBInnerMaterialName, bInnerMaterialId, setBInnerMaterialId, bInnerPaperSizeId, setBInnerPaperSizeId, bInnerPrintType, setBInnerPrintType, bInnerPrintSide, setBInnerPrintSide, bInnerProc, setBInnerProc,
-        pricingResult, optimizedSizes,
+        pricingResult, lastPricingPayload, optimizedSizes,
         addItem, productName
     } = state;
 
@@ -90,7 +90,7 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                         <SearchableSelect 
                                             value={materialId} 
                                             onChange={v => setMaterialId(v.toString())} 
-                                            options={((masterData?.materials as Array<{id: string, name: string, scopeLoose: boolean}>) || []).filter(m => m.scopeLoose && allowedMaterialIds.includes(String(m.id))).map(m => ({id: m.id.toString(), label: m.name}))}
+                                            options={((masterData?.materials as Array<{id: string, name: string, scopeLoose: boolean, has_pricing_tier?: boolean}>) || []).filter(m => m.scopeLoose && allowedMaterialIds.includes(String(m.id))).map(m => ({id: m.id.toString(), label: m.has_pricing_tier === false ? `${m.name} ⚠ (chưa có định mức)` : m.name}))}
                                             placeholder={allowedMaterialIds.length ? '-- Chọn giấy in --' : '⚠ Sản phẩm chưa cấu hình giấy in'}
                                         />
                                     </div>
@@ -345,11 +345,11 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                         <div className="flex justify-between items-end mb-1">
                                             <span className="text-slate-800 font-extrabold text-sm uppercase">Thành tiền:</span>
                                             <span className="font-black text-2xl text-indigo-600 leading-none tracking-tight">
-                                                {pricingResult ? formatCurrency((pricingResult as any).total) : '0 ₫'}
+                                                {pricingResult ? formatCurrency((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) : '0 ₫'}
                                             </span>
                                         </div>
                                         <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide">
-                                            Đơn giá: <span className="text-slate-700 font-bold">{pricingResult ? formatCurrency((pricingResult as any).price_per_item) : '-'}</span> / sp
+                                            Đơn giá: <span className="text-slate-700 font-bold">{pricingResult ? formatCurrency((pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item) : '-'}</span> / sp
                                         </div>
                                         <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-md border border-amber-200 font-medium flex items-center gap-1.5">
                                         <span>💡</span> Giá trên chưa bao gồm VAT và phí giao hàng (cài đặt ở mục Thuế và Phí bên trái)
@@ -371,10 +371,11 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                                 name: fileName || productName || 'Báo giá In Nhanh Rời',
                                                 type: 'loose',
                                                 quantity,
-                                                total: (pricingResult as any).total,
-                                                unitPrice: (pricingResult as any).price_per_item,
+                                                total: (pricingResult as any).selling_subtotal ?? (pricingResult as any).total,
+                                                unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
                                                 details: pricingResult,
-                                                configParams: { materialId, paperSizeId, itemWidth, itemHeight, printType, printSide }
+                                                configParams: { materialId, paperSizeId, itemWidth, itemHeight, printType, printSide },
+                                                pricingPayload: lastPricingPayload ?? undefined,
                                             });
                                             setFileName('');
                                         }}

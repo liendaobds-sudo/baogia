@@ -4,6 +4,12 @@ import { Repository } from 'typeorm';
 import { PricingService } from '../pricing.service';
 import { Product, ProductCategory, Material, PaperSize, PrintType, Unit } from '../../../entities';
 import { BoundCalculatorService } from './bound-calculator.service';
+import {
+    ScopeFlags,
+    ProductType,
+    isOffsetOnly,
+    resourceInScope,
+} from '../scope/resource-scope-rule';
 
 interface ProcessingInput { id: number; code?: string; side?: string; }
 interface AccessoryInput { id: number; qty?: number; }
@@ -28,6 +34,9 @@ interface CalculatePriceInput {
     accessories?: AccessoryInput[];
     /** Mã sản phẩm — nếu có, server kiểm tra material/khổ/gia công/phụ kiện phải nằm trong whitelist của sản phẩm. */
     product_code?: string;
+    /** VAT (%) — BẮT BUỘC đi theo thông số nhập ở mục thông tin khách hàng lúc báo giá.
+     *  Không truyền ⇒ 0 (không áp VAT). Endpoint KHÔNG còn lấy VAT từ pricing_config. */
+    vat_rate?: number | string;
 }
 
 interface ProcessingDetail { name: string; cost: number; price_type: string; }
@@ -59,13 +68,20 @@ export class PricingFacadeService {
                 // separately via processing_options and should not appear in paper dropdowns
                 const qb = this.materialRepo.createQueryBuilder('m')
                     .where("m.category_tab IN (:...tabs)", { tabs: ['substrate_sheet', 'substrate_roll'] });
-                if (scope === 'loose') qb.andWhere('m.scopeLoose = :v', { v: true });
-                if (scope === 'bound') qb.andWhere('m.scopeBound = :v', { v: true });
-                if (scope === 'large_format') qb.andWhere('m.scopeLargeFormat = :v', { v: true });
-                // Loại vật tư CHỈ dành cho Offset (scope_offset=true, không có scope in nhanh nào) khỏi dropdown in nhanh.
-                qb.andWhere('NOT (m.scopeOffset = true AND m.scopeLoose = false AND m.scopeBound = false AND m.scopeLargeFormat = false)');
                 qb.orderBy('m.name', 'ASC');
-                const materialsList = await qb.getMany();
+                const materialsRaw = await qb.getMany();
+
+                // Phân loại Phạm_Vi qua Quy_Tắc_Phạm_Vi canonical (resource-scope-rule), KHÔNG còn raw SQL.
+                // - Có scope (loose/bound/large_format): giữ tài nguyên thuộc Phạm_Vi đó (resourceInScope).
+                //   resourceInScope đã hàm ý không phải Tài_Nguyên_Chỉ_Offset nên bao trùm điều kiện loại offset-only.
+                // - Không scope: chỉ loại Tài_Nguyên_Chỉ_Offset (isOffsetOnly).
+                // LƯU Ý: bảng materials KHÔNG có cột is_active (xem material.entity.ts) nên ở đây KHÔNG lọc
+                // theo Trạng_Thái_Hoạt_Động — giữ đúng hành vi cũ; vì vậy không dùng filterForProductType.
+                const productType = this.toProductType(scope);
+                const materialsList = materialsRaw.filter((m) => {
+                    const flags = this.toScopeFlags(m);
+                    return productType ? resourceInScope(flags, productType) : !isOffsetOnly(flags);
+                });
 
                 // Group valid paper sizes from pricing_tiers
                 const validSizesRaw = await mgr.query('SELECT DISTINCT material_id, paper_size_id FROM pricing_tiers WHERE paper_size_id IS NOT NULL');
@@ -77,31 +93,37 @@ export class PricingFacadeService {
                     validSizesMap.get(mId)!.push(psId);
                 }
 
+                // Cờ "đã có định mức": vật tư xuất hiện trong pricing_tiers (KỂ CẢ tier có paper_size_id NULL,
+                // nên KHÔNG lọc như validSizesMap). Frontend cảnh báo "chưa có định mức" khi cờ này false;
+                // backend cũng chặn tính giá (hasAnyTier) — cờ đây chỉ để hiển thị.
+                const tierMatRaw = await mgr.query('SELECT DISTINCT material_id FROM pricing_tiers');
+                const hasTierSet = new Set<number>(tierMatRaw.map((r: any) => parseInt(r.material_id)));
+
                 result.materials = materialsList.map(m => {
                     const mapped = { ...m } as any;
                     mapped.valid_paper_size_ids = validSizesMap.get(m.id) || [];
+                    mapped.has_pricing_tier = hasTierSet.has(m.id);
                     return mapped;
                 });
             }
 
             if (!type || type === 'all' || type === 'paper_sizes') {
-                // Loại khổ CHỈ dành cho Offset (scope_offset, không có scope in nhanh) khỏi dropdown in nhanh.
-                result.paper_sizes = await this.paperSizeRepo.createQueryBuilder('p')
-                    .where('NOT (p.scopeOffset = true AND p.scopeLoose = false AND p.scopeBound = false AND p.scopeLargeFormat = false)')
+                // Loại khổ CHỈ dành cho Offset khỏi dropdown in nhanh — qua Quy_Tắc_Phạm_Vi canonical (isOffsetOnly).
+                // paper_sizes không có cột is_active và không lọc theo scope ở master-data (giữ hành vi cũ).
+                const paperSizesRaw = await this.paperSizeRepo.createQueryBuilder('p')
                     .orderBy('p.name', 'ASC')
                     .getMany();
+                result.paper_sizes = paperSizesRaw.filter((p) => !isOffsetOnly(this.toScopeFlags(p)));
             }
 
             if (!type || type === 'all' || type === 'processing_options') {
-                // Loại công đoạn CHỈ dành cho Offset (scope_offset, không có scope in nhanh) khỏi danh sách in nhanh.
-                // LƯU Ý: cột scope_* của processing_options là smallint → so sánh = 0 (không dùng boolean false).
-                result.processing_options = await mgr.query(
-                    `SELECT * FROM processing_options
-                     WHERE is_active = 1
-                       AND NOT (scope_offset = true AND COALESCE(scope_loose, 0) = 0
-                                AND COALESCE(scope_bound, 0) = 0 AND COALESCE(scope_large_format, 0) = 0)
-                     ORDER BY id`,
+                // Giữ điều kiện is_active = 1 (smallint) ở SQL; phần loại Tài_Nguyên_Chỉ_Offset chuyển sang
+                // Quy_Tắc_Phạm_Vi canonical (isOffsetOnly) thay cho raw SQL NOT (scope_offset = true AND ...).
+                // Hàng raw đã có sẵn các cờ snake_case scope_* khớp shape ScopeFlags.
+                const processingRaw: ScopeFlags[] = await mgr.query(
+                    `SELECT * FROM processing_options WHERE is_active = 1 ORDER BY id`,
                 ).catch((e) => { this.logger.error(e); return []; });
+                result.processing_options = processingRaw.filter((p) => !isOffsetOnly(p));
             }
 
             if (!type || type === 'all' || type === 'print_types') {
@@ -127,9 +149,46 @@ export class PricingFacadeService {
         }
     }
 
+    /**
+     * Map cờ scope camelCase của entity (Material/PaperSize) sang shape ScopeFlags snake_case
+     * mà Quy_Tắc_Phạm_Vi canonical sử dụng. Hàng raw của processing_options đã là snake_case nên
+     * không cần đi qua hàm này.
+     */
+    private toScopeFlags(r: {
+        scopeLoose?: boolean | number | null;
+        scopeBound?: boolean | number | null;
+        scopeLargeFormat?: boolean | number | null;
+        scopeOffset?: boolean | number | null;
+    }): ScopeFlags {
+        return {
+            scope_loose: r.scopeLoose,
+            scope_bound: r.scopeBound,
+            scope_large_format: r.scopeLargeFormat,
+            scope_offset: r.scopeOffset,
+        };
+    }
+
+    /** Chuẩn hoá tham số `scope` của master-data về ProductType in nhanh hợp lệ, hoặc undefined. */
+    private toProductType(scope?: string): ProductType | undefined {
+        return scope === 'loose' || scope === 'bound' || scope === 'large_format' ? scope : undefined;
+    }
+
     async calculatePrice(input: CalculatePriceInput) {
         try {
             const type = input.type || input.product_type || 'loose';
+
+            // Chặn rò rỉ engine: facade digital CHỈ phục vụ loose/bound/large_format.
+            // Trước đây mọi `type` lạ (kể cả loại offset to_roi/hop_giay/…) rơi vào nhánh `else`
+            // và bị tính NHẦM như 'loose' → sai giá âm thầm. Endpoint /pricing/calculate là public,
+            // nên phải từ chối tường minh (đối xứng với `default:` của EngineOffset) thay vì đoán.
+            // Sản phẩm offset đi qua POST /pricing/offset/calculate (EngineOffset).
+            if (type !== 'loose' && type !== 'bound' && type !== 'large_format') {
+                return {
+                    success: false,
+                    error: `Loại '${type}' không thuộc báo giá in nhanh (loose/bound/large_format). Sản phẩm offset dùng endpoint /pricing/offset/calculate.`,
+                };
+            }
+
             const config = await this.pricing.getPricingConfig();
 
             // Server-side whitelist guard: nếu request kèm product_code, mọi material/khổ/gia công/
@@ -161,8 +220,11 @@ export class PricingFacadeService {
                     price_rounding: config.price_rounding || '100',
                 });
 
-                // VAT
-                const vatRate = parseFloat(config.vat_rate || '0');
+                // VAT: BẮT BUỘC theo % nhập ở thông tin khách hàng (truyền qua request `vat_rate`).
+                // KHÔNG còn đọc từ pricing_config — thiếu/không hợp lệ ⇒ 0 (không áp VAT), để VAT
+                // chỉ có một nguồn duy nhất (mục khách hàng) và không "chui" từ cấu hình hệ thống.
+                const parsedVat = parseFloat(String(input.vat_rate));
+                const vatRate = Number.isFinite(parsedVat) && parsedVat > 0 ? parsedVat : 0;
                 const vatAmount = Math.round(sellingSubtotal * vatRate / 100);
                 const grandTotal = sellingSubtotal + vatAmount;
 
@@ -308,6 +370,13 @@ export class PricingFacadeService {
         });
         const totalSheets = this.pricing.calculateWasteSheets(sheetsNeeded, config, printMethod as 'digital' | 'offset', processingCodes);
         const wasteSheets = totalSheets - sheetsNeeded;
+
+        // Vật tư giấy chưa cấu hình định mức nào → chặn thay vì âm thầm tính giá giấy = 0
+        // (getPricingTierByMaterial trả 0 khi hết đường fallback, dễ ra báo giá thiếu tiền giấy).
+        if (!(await this.pricing.hasAnyTier(materialId as number))) {
+            const mat = await this.materialRepo.findOne({ where: { id: materialId as number } });
+            return { success: false, error: `Vật tư "${mat?.name ?? `#${materialId}`}" chưa có định mức giá — vào Định mức in nhanh để cấu hình.` };
+        }
 
         // ─── PRICING TIER — dùng totalSheets (đã bao gồm bù hao) như PHP ───
         const pricePerSheet = await this.pricing.getPricingTierByMaterial(materialId as number, paperSizeId as number, printSide, printType, totalSheets);

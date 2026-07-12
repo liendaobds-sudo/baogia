@@ -11,7 +11,7 @@ import { API_URL } from '@/lib/api';
 
 const TABS = [
     { key: 'kb' as const, label: '📚 Knowledge Base', desc: 'Tài liệu nội bộ cho AI tham khảo' },
-    { key: 'qa' as const, label: '⚡ Trả lời nhanh', desc: '98 mẫu Q&A khớp keyword tự động' },
+    { key: 'qa' as const, label: '⚡ Trả lời nhanh', desc: 'Mẫu Q&A khớp keyword tự động' },
     { key: 'rules' as const, label: '🤖 Luật Sản Phẩm', desc: 'Ràng buộc AI báo giá' },
     { key: 'providers' as const, label: '⚙️ AI Providers', desc: 'Cấu hình API keys cho AI' },
 ];

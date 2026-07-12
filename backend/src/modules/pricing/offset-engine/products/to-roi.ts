@@ -4,8 +4,9 @@
  *  - giấy/cán theo TỜ; XLBM/bế/gấp/cắt/đóng gói theo SỐ CON (basis đổi được, định mức theo mốc riêng).
  *  - Số con/tờ lấy từ bảng khổ cố định (định mức tờ rơi). Kẽm/bình bài/khuôn theo công thức gốc.
  */
-import { PricingData, QuoteLine, QuoteResult, OffsetPricingError } from '../pricing-data';
-import { giaGiay, dienTichKho, pickRate, chiPhiLamKem, chiPhiBinhBai, docKichThuocCm, timKhoIn, imposeFromKhoIn, soConKhoTinh } from '../lookups';
+import { PricingData, QuoteLine, QuoteResult, OffsetPricingError, KhoIn } from '../pricing-data';
+import { giaGiay, dienTichKho, pickRate, chiPhiLamKem, chiPhiBinhBai, docKichThuocCm, timKhoIn } from '../lookups';
+import { resolveSoCon, SoConOutcome } from '../imposition-selector';
 import { tongHopKetQua } from '../totals';
 import { buildWaste, stageCostAt, extraProcessingLines } from './_waste-stages';
 
@@ -46,23 +47,35 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
     // Hai chế độ song song: khổ TĨNH (tra bảng) hoặc NHẬP kích thước (dàn khuôn động).
     let soCon: number, soConBaiIn: number, khoBinh: string, khoGiayLon: string;
     let itemW: number | undefined, itemH: number | undefined;
+    let imposition: SoConOutcome | undefined;
     if (input.kichThuoc) {
         const fs = d.fixedSizes.toRoi.find((x) => x.kichThuoc === input.kichThuoc);
         if (!fs) throw new OffsetPricingError(`Kích thước tờ rơi không tồn tại: ${input.kichThuoc}`);
         khoBinh = fs.khoIn; khoGiayLon = fs.khoGiayLon;
         const it = docKichThuocCm(input.kichThuoc); itemW = it?.w; itemH = it?.h;
-        // Số con: tự tính theo hình học từ kích thước + khổ in (fallback số bảng nếu không tính được).
-        const sc = soConKhoTinh(d, fs.soConBaiIn, fs.soConToLon, fs.khoIn, fs.khoGiayLon, itemW, itemH);
-        soCon = sc.soConToLon; soConBaiIn = sc.soConBaiIn;
+        // Số con: tự tính theo hình học từ kích thước + khổ in (fallback số bảng nếu không tính được)
+        // qua nguồn imposition thống nhất (selector). Dùng margins của khổ in tra cứu được.
+        const recFixed = timKhoIn(fs.khoIn, d);
+        const khoFixed = {
+            ...(recFixed ?? {}),
+            khoIn: fs.khoIn, khoGiayLon: fs.khoGiayLon,
+            soConBaiIn: fs.soConBaiIn, soConToLon: fs.soConToLon,
+        } as KhoIn;
+        imposition = resolveSoCon({
+            itemWcm: itemW, itemHcm: itemH, kho: khoFixed, data: d,
+            fallbackToLon: fs.soConToLon, fallbackBaiIn: fs.soConBaiIn,
+        });
+        soCon = imposition.soConToLon; soConBaiIn = imposition.soConBaiIn;
         // Người dùng chọn khổ in cụ thể (preview/gợi ý) → dùng khổ đó & dàn khuôn lại theo kích thước
         // phẳng để báo giá đổi realtime. Không chọn (khoIn rỗng) → giữ khổ mặc định của size (golden).
         if (input.khoIn && itemW && itemH) {
             const khoChon = timKhoIn(input.khoIn, d);
             if (khoChon) {
-                const imp = imposeFromKhoIn(khoChon, itemW, itemH, d.tyLe.params.Gap_Cm || 0.3);
-                if (imp.soConToLon > 0 && imp.soConBaiIn > 0) {
-                    soCon = imp.soConToLon; soConBaiIn = imp.soConBaiIn;
+                const imp2 = resolveSoCon({ itemWcm: itemW, itemHcm: itemH, kho: khoChon, data: d });
+                if (imp2.soConToLon > 0 && imp2.soConBaiIn > 0) {
+                    soCon = imp2.soConToLon; soConBaiIn = imp2.soConBaiIn;
                     khoBinh = khoChon.khoIn; khoGiayLon = khoChon.khoGiayLon;
+                    imposition = imp2;
                 }
             }
         }
@@ -71,9 +84,9 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
         if (!input.rong || !input.cao || input.rong <= 0 || input.cao <= 0) throw new OffsetPricingError('Cần nhập kích thước (rộng × cao) hợp lệ');
         const kho = timKhoIn(input.khoIn, d);
         if (!kho) throw new OffsetPricingError(`Khổ in không tồn tại: ${input.khoIn}`);
-        const imp = imposeFromKhoIn(kho, input.rong, input.cao, d.tyLe.params.Gap_Cm || 0.3);
-        if (!(imp.soConToLon > 0) || !(imp.soConBaiIn > 0)) throw new OffsetPricingError('Kích thước sản phẩm quá lớn cho khổ in đã chọn');
-        soCon = imp.soConToLon; soConBaiIn = imp.soConBaiIn; khoBinh = kho.khoIn; khoGiayLon = kho.khoGiayLon;
+        imposition = resolveSoCon({ itemWcm: input.rong, itemHcm: input.cao, kho, data: d });
+        if (!(imposition.soConToLon > 0) || !(imposition.soConBaiIn > 0)) throw new OffsetPricingError('Kích thước sản phẩm quá lớn cho khổ in đã chọn');
+        soCon = imposition.soConToLon; soConBaiIn = imposition.soConBaiIn; khoBinh = kho.khoIn; khoGiayLon = kho.khoGiayLon;
         itemW = input.rong; itemH = input.cao;
     }
 
@@ -161,5 +174,11 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
         soKem: input.soKemIn, loaiKem: kemType,
         sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
     };
+    if (imposition) {
+        res.meta.impositionSource = imposition.source;
+        if (imposition.shadow) res.meta.shadow = imposition.shadow;
+        if (imposition.positions) res.meta.positions = imposition.positions;
+        if (imposition.marginConfig) res.meta.marginConfig = imposition.marginConfig;
+    }
     return res;
 }

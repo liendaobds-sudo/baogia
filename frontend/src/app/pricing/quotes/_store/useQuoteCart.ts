@@ -9,6 +9,8 @@ export interface QuoteCartItem {
   unitPrice: number;
   details: any; // The calculated pricing result payload
   configParams: any; // The original parameters
+  /** Payload GỐC đã gửi /pricing/calculate — để backend replay xác thực giá (chống sửa giá). */
+  pricingPayload?: Record<string, unknown>;
   imageUrl?: string; // Image base64 for preview
 }
 

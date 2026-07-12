@@ -77,8 +77,13 @@ export function QuoteResultDisplay({
                                 <span>💰</span> Kết quả báo giá
                             </div>
                             <div className="text-2xl font-black text-emerald-700 mb-1 tracking-tight">
-                                {formatVND(Number(quoteResult.total))}
+                                {formatVND(Number(quoteResult.grand_total ?? quoteResult.total))}
                             </div>
+                            {Number(quoteResult.vat_rate) > 0 && (
+                                <div className="text-[11px] text-emerald-700/80 mb-1 font-medium">
+                                    Đã gồm VAT {quoteResult.vat_rate}% (+{formatVND(Number(quoteResult.vat_amount || 0))})
+                                </div>
+                            )}
                             {quoteResult.breakdown && (() => {
                                 const LABEL_VI: Record<string, string> = {
                                     sheets_needed: 'Số tờ cần in', waste_sheets: 'Tờ hao phí',
@@ -107,7 +112,7 @@ export function QuoteResultDisplay({
                                             <div className="flex justify-between items-center border-t border-emerald-100/80 pt-1.5 mt-1.5">
                                                 <span className="text-emerald-700 font-medium pb-0.5">Giá/Con:</span>
                                                 <span className="font-bold text-emerald-600">
-                                                    {formatVND(Number(quoteResult.price_per_item))}
+                                                    {formatVND(Number(quoteResult.grand_total_per_item ?? quoteResult.price_per_item))}
                                                 </span>
                                             </div>
                                         )}
@@ -127,10 +132,13 @@ export function QuoteResultDisplay({
                             )}
                             <button
                                 onClick={() => {
-                                    const isPerItem = quoteResult.price_per_item !== undefined && quoteResult.price_per_item > 0;
+                                    const dispTotal = Number(quoteResult.grand_total ?? quoteResult.total);
+                                    const dispPerItem = Number(quoteResult.grand_total_per_item ?? quoteResult.price_per_item);
+                                    const isPerItem = Number.isFinite(dispPerItem) && dispPerItem > 0;
                                     const greeting = `Dạ, em gửi anh/chị báo giá in ${selectedTemplate.name} ạ:\n\n`;
-                                    const totalStr = `💰 Tổng cộng: ${formatVND(Number(quoteResult.total))}\n`;
-                                    const perItemStr = isPerItem ? `💠 Đơn giá: ${formatVND(Number(quoteResult.price_per_item))} / con\n` : '';
+                                    const vatStr = Number(quoteResult.vat_rate) > 0 ? ` (đã gồm VAT ${quoteResult.vat_rate}%)` : ' (chưa gồm VAT)';
+                                    const totalStr = `💰 Tổng cộng: ${formatVND(dispTotal)}${vatStr}\n`;
+                                    const perItemStr = isPerItem ? `💠 Đơn giá: ${formatVND(dispPerItem)} / con\n` : '';
                                     const leadtimeStr = quoteResult.leadtime ? `🚚 Giao hàng: Khoảng ${quoteResult.leadtime.standardDays} ngày\n` : '';
                                     const ending = `\nAnh/chị xem qua, nếu cần điều chỉnh hay tiến hành in thì nhắn em nhé! Cảm ơn anh/chị ạ. 😊`;
                                     

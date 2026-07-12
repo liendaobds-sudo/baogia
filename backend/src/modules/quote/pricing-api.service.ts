@@ -1,7 +1,4 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
 
 import { PricingFacadeService } from '../pricing/services/pricing-facade.service';
 

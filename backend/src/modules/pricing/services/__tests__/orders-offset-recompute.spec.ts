@@ -42,6 +42,25 @@ describe('OrdersService — recompute offset (chống sửa giá)', () => {
         expect(items[0].item_total).toBe(500);
     });
 
+    it('nhận diện offset qua item_type dù client bỏ cờ printing_detail.offset → vẫn recompute', () => {
+        const expected = eng.calculate(baseConfig).data!;
+        const net = expected.tongChuaVAT - expected.chietKhau;
+        const items: any[] = [
+            // KHÔNG có pd.offset (client cố tình bỏ), nhưng item_type='offset' → server vẫn tính lại.
+            { product_name: 'SP', item_type: 'offset', quantity: baseConfig.soLuong, item_total: 1, printing_detail: { config: baseConfig } },
+        ];
+        const agg = (svc as any).recomputeOffsetItems(items);
+        expect(agg.count).toBe(1);
+        expect(items[0].item_total).toBeCloseTo(net, 2);
+    });
+
+    it('item offset (theo product_type) THIẾU config → ném lỗi (chống gửi giá offset không có cơ sở)', () => {
+        const items: any[] = [
+            { product_name: 'Gian lận', item_type: 'offset', product_type: 'to_roi', item_total: 999999, printing_detail: {} },
+        ];
+        expect(() => (svc as any).recomputeOffsetItems(items)).toThrow(/Thiếu cấu hình để xác thực giá offset/);
+    });
+
     it('cấu hình lỗi → ném lỗi (không âm thầm tin giá client)', () => {
         const items: any[] = [
             { product_name: 'Lỗi', printing_detail: { offset: true, config: { type: 'sp_khac', khoIn: 'KHONG_TON_TAI', materialCode: 'X', soMatIn: 2, soLuong: 1000, soMau: 4, vatTuBeMat: 'Không', be: false, thanhPham: 'khong', catXen: false, dongGoi: false, epKimViTri: 'Không' } } },

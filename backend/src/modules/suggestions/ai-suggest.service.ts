@@ -39,6 +39,7 @@ import { ConversationSummaryService } from './conversation-summary.service';
 import { OutcomeLearningService } from './outcome-learning.service';
 import { ConversationSearchService } from './conversation-search.service';
 import { AiMemoryService } from './ai-memory.service';
+import { ProductsService } from '../pricing/services/products.service';
 import {
     detectProduct, loadProductTemplates, findProductTemplateById,
     type ProductTemplate,
@@ -100,23 +101,18 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         private outcomeLearning: OutcomeLearningService,
         private convSearch: ConversationSearchService,
         private aiMemory: AiMemoryService,
+        private productsService: ProductsService,
     ) { }
-
-    private getPricingApiUrl(): string {
-        // Phase 6: fetch from local NestJS instead of PHP
-        return 'http://localhost:4000/api/v1';
-    }
 
     async onModuleInit() {
         // Load product templates (non-critical — AI detection works without them)
         const loadTemplatesWithRetry = async (retries = 1, delayMs = 2000) => {
             try {
-                const pricingApi = this.getPricingApiUrl();
-
-                const res = await fetch(`${pricingApi}/erp/products`); // Fetching consolidated products
-                if (res.ok) {
-                    const data: any = await res.json();
-                    const templates = (data.data || data || []).map((t: any) => ({
+                // Gọi thẳng ProductsService (cùng process) thay vì fetch HTTP tới chính app.
+                // Trước đây fetch `/erp/products` KHÔNG kèm token → sau khi controller siết
+                // AuthGuard('jwt') thì nhận 401. Gọi service trực tiếp: không round-trip, không auth.
+                const rows: any[] = await this.productsService.findAllProducts();
+                const templates = (rows || []).map((t: any) => ({
                         id: t.id,
                         code: t.code,
                         name: t.nameVi || t.name_vi || t.name || t.code,
@@ -143,12 +139,9 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                             source_table: f.source_table,
                         })),
                     }));
-                    loadProductTemplates(templates);
-                    this.logger.log(`🏭 Loaded ${templates.length} Pricing product templates for AI detection`);
-                    return true;
-                } else {
-                    throw new Error(`HTTP ${res.status}`);
-                }
+                loadProductTemplates(templates);
+                this.logger.log(`🏭 Loaded ${templates.length} Pricing product templates for AI detection`);
+                return true;
             } catch (err: any) {
                 if (retries > 0) {
                     this.logger.warn(`⚠️ Could not load Pricing templates (${err.message}). Retrying in ${delayMs / 1000}s... (${retries} retries left)`);

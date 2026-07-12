@@ -1,12 +1,13 @@
 import { Controller, Get, Post, Body, Logger, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { PermissionsGuard, Permissions } from '../../auth/permissions.guard';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { SystemSetting } from '../../../entities/system-setting.entity';
 import { SiteSetting, PricingConfig } from '../../../entities';
 
 @Controller('erp')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 export class SettingsController {
     private readonly logger = new Logger(SettingsController.name);
 
@@ -67,6 +68,7 @@ export class SettingsController {
     }
 
     @Post('company-info')
+    @Permissions('settings.edit')
     async updateCompanyInfo(@Body() data: Record<string, unknown>) {
         try {
             const mapping: Record<string, string> = {
@@ -110,12 +112,12 @@ export class SettingsController {
 
                 if (existing.length > 0) {
                     await this.dataSource.query(
-                        "UPDATE pricing_config SET config_value = $2 WHERE config_key = 'vat_rate'",
+                        "UPDATE pricing_config SET config_value = $1 WHERE config_key = 'vat_rate'",
                         [vatValue],
                     );
                 } else {
                     await this.dataSource.query(
-                        "INSERT INTO pricing_config (config_key, config_value, description) VALUES ('vat_rate', ?, 'Thuế GTGT (%)')",
+                        "INSERT INTO pricing_config (config_key, config_value, description) VALUES ('vat_rate', $1, 'Thuế GTGT (%)')",
                         [vatValue],
                     );
                 }
@@ -166,6 +168,7 @@ export class SettingsController {
     }
 
     @Post('pricing-markup')
+    @Permissions('pricing.edit')
     async updatePricingMarkup(@Body() data: Record<string, unknown>) {
         try {
             if (data.pricing_method !== undefined) {
@@ -237,6 +240,7 @@ export class SettingsController {
     }
 
     @Post('waste-config')
+    @Permissions('pricing.edit')
     async updateWasteConfig(@Body() config: { [key: string]: unknown }) {
         try {
             // Ghi vào pricing_config — bảng engine đọc (sửa split-brain: trước đây ghi system_settings nên không tác động giá).

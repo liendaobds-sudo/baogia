@@ -2,7 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } fro
 import { AuthGuard } from '@nestjs/passport';
 import { PermissionsGuard, Permissions } from '../../auth/permissions.guard';
 import { SystemSettingsService } from '../services/system-settings.service';
-import { PricingConfig, ProductionCost } from '../../../entities';
+import { PricingConfig } from '../../../entities';
 
 @UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/system-settings')
@@ -92,36 +92,20 @@ export class ErpSetupFeesController {
     }
 }
 
+// Chi phí mực in (ink_costs) — dữ liệu live cho deriveTierCost (master-data.service).
+// Cụm production_costs singleton (findAllCosts/saveCosts/calculateCostPerSheet/generatePricingTiers)
+// đã bị gỡ: tầng chi phí chuyển sang hồ sơ per-máy (printers) + deriveTierCost.
 @UseGuards(AuthGuard('jwt'))
 @Controller('erp/production-costs')
 export class ErpProductionCostsController {
     constructor(private readonly service: SystemSettingsService) {}
 
     @Get()
-    async findAll(
-        @Query('action') action?: string,
-        @Query('material_id') materialId?: string,
-        @Query('paper_size') paperSize?: string,
-        @Query('print_type') printType?: string,
-        @Query('sides') sides?: string,
-        @Query('quantity') quantity?: string,
-    ) {
+    async findAll(@Query('action') action?: string) {
         if (action === 'ink_costs') {
             return { success: true, data: await this.service.findAllInkCosts() };
         }
-        if (action === 'calculate') {
-            try {
-                return {
-                    success: true,
-                    data: await this.service.calculateCostPerSheet({
-                        material_id: materialId, paper_size: paperSize,
-                        print_type: printType, sides: sides ? parseInt(sides) : 1,
-                        quantity: quantity ? parseInt(quantity) : 1000,
-                    }),
-                };
-            } catch (e: unknown) { return { success: false, error: e instanceof Error ? e.message : 'Unknown error' }; }
-        }
-        return { success: true, data: await this.service.findAllCosts() };
+        return { success: false, error: 'Unsupported action' };
     }
 
     @Post()
@@ -135,17 +119,7 @@ export class ErpProductionCostsController {
                 await this.service.saveInkCosts(body.items);
                 return { success: true, message: 'Đã lưu chi phí mực in' };
             }
-            if (action === 'generate_tiers') {
-                const result = await this.service.generatePricingTiers(body);
-                return { success: true, data: result, message: `Đã tạo ${result.generated} định mức giá` };
-            }
-            await this.service.saveCosts(body as Record<string, string | number>);
-            return { success: true, message: 'Đã lưu cấu hình chi phí sản xuất' };
+            return { success: false, error: 'Unsupported action' };
         } catch (e: unknown) { return { success: false, error: e instanceof Error ? e.message : 'Unknown error' }; }
-    }
-
-    @Put(':id')
-    async update(@Param('id') id: string, @Body() body: Partial<ProductionCost>) {
-        return { success: true, data: await this.service.updateCost(id, body), message: 'Production cost updated' };
     }
 }

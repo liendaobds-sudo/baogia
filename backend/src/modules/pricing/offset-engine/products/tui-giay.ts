@@ -5,10 +5,15 @@
  *  - "Bài in" chọn từ bảng xếp con; số con/bài qua hàm xếp con (khe hở 0.3cm); dán nối thì /2.
  *  - giấy theo TỜ gross; cán theo tỷ lệ tờ; XLBM/bế/TP túi/đóng gói theo SỐ CON. Dây xách/thùng/kẽm gốc.
  */
-import { PricingData, QuoteLine, QuoteResult, OffsetPricingError } from '../pricing-data';
+import { PricingData, QuoteLine, QuoteResult, OffsetPricingError, KhoIn, MarginConfig, Params, numParam } from '../pricing-data';
 import { giaGiay, dienTichKho, pickRate, docKichThuocCm, soConTrenKho, chuanHoaKho } from '../lookups';
 import { tongHopKetQua } from '../totals';
 import { buildWaste, stageCostAt, extraProcessingLines } from './_waste-stages';
+import { ImpositionSource, readImpositionSource } from '../imposition-selector';
+import { ItemPosition, imposeUnified, resolveMarginConfig } from '../imposition';
+
+/** Hệ số đổi đơn vị cm → mm (Imposition_Service làm việc bằng mm). */
+const CM_TO_MM = 10;
 
 export interface TuiGiayInput {
     type: 'tui_giay';
@@ -39,6 +44,11 @@ interface NestOption {
     khoArea: string;
     danNoi: boolean;
     kemLon: boolean;
+    /**
+     * Bản ghi khổ in nguồn (khi sinh ĐỘNG từ `d.khoIn`) — cung cấp lề/gripper/gutter cho
+     * primitive `imposeUnified` ở chế độ `unified`. Thiếu (bảng tĩnh) → dùng lề mặc định từ params.
+     */
+    kho?: KhoIn;
 }
 
 /**
@@ -80,8 +90,8 @@ export function buildTuiOptions(d: PricingData, gripperCm?: number): NestOption[
         const numW = Math.max(0, bai.w - (mW || grip));
         const numH = Math.max(0, bai.h - (mH || grip));
         const kemLon = kho.loaiKem === 'Kẽm lớn';
-        out.push({ label: kho.khoIn, numW, numH, heSo, khoArea: kho.khoIn, danNoi: false, kemLon });
-        out.push({ label: `${kho.khoIn} (dán nối)`, numW, numH, heSo, khoArea: kho.khoIn, danNoi: true, kemLon });
+        out.push({ label: kho.khoIn, numW, numH, heSo, khoArea: kho.khoIn, danNoi: false, kemLon, kho });
+        out.push({ label: `${kho.khoIn} (dán nối)`, numW, numH, heSo, khoArea: kho.khoIn, danNoi: true, kemLon, kho });
     }
     return out;
 }
@@ -116,6 +126,42 @@ export function soConBai(opt: NestOption, kt: ReturnType<typeof khoTraiTui>, gap
     return opt.danNoi ? base / 2 : base;
 }
 
+/**
+ * Số con/bài THỐNG NHẤT (chế độ `unified`) — áp Margin_Config (lề/gripper/gutter) qua primitive
+ * `imposeUnified` thay khe hở phẳng, trên khổ bài in ĐẦY ĐỦ (`opt.khoArea`, KHÔNG dùng `numW/numH`
+ * vì primitive tự trừ lề). Khổ trải túi (`khoTraiTui`) vẫn là kích thước con đặc thù — chỉ đổi
+ * CÁCH XẾP CON lên khổ để tôn trọng ràng buộc máy in vật lý (Req 9.2, 9.3).
+ *
+ * Trả thêm `positions`/`marginConfig` (mm) cho parity preview. Lỗi hình học (vùng in ≤ 0 sau khi
+ * trừ lề) → trả `count = 0` (không ném) để vòng tự chọn bài in không vỡ; fail-fast ở giá xảy ra
+ * ở tầng cascade khi số con cuối = 0, đồng nhất hành vi flat-gap cũ.
+ */
+export function soConBaiUnified(
+    opt: NestOption,
+    kt: ReturnType<typeof khoTraiTui>,
+    params: Params,
+): { count: number; positions?: ItemPosition[]; marginConfig?: MarginConfig } {
+    const press = docKichThuocCm(opt.khoArea);
+    if (!press) return { count: 0 };
+    const caoCon = opt.danNoi ? kt.danNoiCao : kt.caoTrai;   // chiều cao con (cm)
+    const rongCon = opt.danNoi ? kt.danNoiRong : kt.rongTrai; // chiều rộng con (cm)
+    const margins = resolveMarginConfig(opt.kho ?? { khoIn: opt.khoArea }, params);
+    try {
+        const imp = imposeUnified({
+            itemWmm: rongCon * CM_TO_MM,
+            itemHmm: caoCon * CM_TO_MM,
+            sheetWmm: press.w * CM_TO_MM,
+            sheetHmm: press.h * CM_TO_MM,
+            margins,
+        });
+        const base = imp.soConToLon;
+        return { count: opt.danNoi ? base / 2 : base, positions: imp.positions, marginConfig: margins };
+    } catch (err) {
+        if (err instanceof OffsetPricingError) return { count: 0, marginConfig: margins };
+        throw err;
+    }
+}
+
 const phi = (code: string, d: PricingData): number => d.phiCoDinh.find((p) => p.code === code)?.giaTri ?? 0;
 
 export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
@@ -124,12 +170,19 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
     const sl = input.soLuong;
     const params = d.tyLe.params;
     const MOQ = params.MOQ_GiaCong;
-    const gap = params.Gap_Cm || 0.3;
+    const gap = numParam(params, 'Gap_Cm') || 0.3;
+    // Nguồn imposition (Req 6.1) — đọc theo CÙNG quy tắc selector. Mặc định an toàn 'legacy'
+    // (giữ giá live + golden không đổi); 'unified' áp Margin_Config qua primitive imposeUnified.
+    const source: ImpositionSource = readImpositionSource(params);
     const kt = khoTraiTui(input, {
-        gapDay: Number.isFinite(params.Tui_HeSoGapDay) ? params.Tui_HeSoGapDay : TUI_COEF_DEFAULT.gapDay,
-        mepHong: Number.isFinite(params.Tui_MepDanHong_Cm) ? params.Tui_MepDanHong_Cm : TUI_COEF_DEFAULT.mepHong,
-        mepNoi: Number.isFinite(params.Tui_MepDanNoi_Cm) ? params.Tui_MepDanNoi_Cm : TUI_COEF_DEFAULT.mepNoi,
+        gapDay: numParam(params, 'Tui_HeSoGapDay') ?? TUI_COEF_DEFAULT.gapDay,
+        mepHong: numParam(params, 'Tui_MepDanHong_Cm') ?? TUI_COEF_DEFAULT.mepHong,
+        mepNoi: numParam(params, 'Tui_MepDanNoi_Cm') ?? TUI_COEF_DEFAULT.mepNoi,
     });
+
+    /** Số con/bài theo nguồn đang chọn — dùng đồng nhất cho tự-chọn bài in VÀ tính giá. */
+    const countOf = (o: NestOption): number =>
+        source === 'unified' ? soConBaiUnified(o, kt, params).count : soConBai(o, kt, gap);
 
     // Bài in: nguồn ĐỘNG từ khổ giấy cấu hình (fallback bảng tĩnh nếu chưa cấu hình khổ nào).
     // Nếu loại 'tui_giay' có whitelist khổ in → chỉ duyệt trong các khổ cho phép (engine tôn trọng cấu hình).
@@ -151,11 +204,22 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
     if (input.baiIn && !opt) throw new OffsetPricingError(`Bài in túi không hợp lệ: ${input.baiIn}`);
     if (!opt) {
         opt = [...candidates]
-            .sort((a, b) => (soConBai(b, kt, gap) * b.heSo) - (soConBai(a, kt, gap) * a.heSo))[0];
+            .sort((a, b) => (countOf(b) * b.heSo) - (countOf(a) * a.heSo))[0];
     }
     if (!opt) throw new OffsetPricingError('Không có bài in túi phù hợp');
 
-    const soConBaiVal = soConBai(opt, kt, gap);
+    // Số con/bài theo nguồn đang chọn; ở 'unified' lấy thêm positions/marginConfig cho preview.
+    let soConBaiVal: number;
+    let positions: ItemPosition[] | undefined;
+    let marginConfig: MarginConfig | undefined;
+    if (source === 'unified') {
+        const u = soConBaiUnified(opt, kt, params);
+        soConBaiVal = u.count;
+        positions = u.positions;
+        marginConfig = u.marginConfig;
+    } else {
+        soConBaiVal = soConBai(opt, kt, gap);
+    }
     const soCon = soConBaiVal * opt.heSo;
     const luotIn = soConBaiVal === 0 ? 0 : sl / soConBaiVal;
     const loaiKem = opt.kemLon ? 'Kẽm lớn' : 'Kẽm nhỏ';
@@ -248,6 +312,9 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
     res.meta = {
         khoBinh: opt.label, khoGiayLon: opt.khoArea, soConBaiIn: soConBaiVal, soConToLon: soCon, soToLon: sheetsGross, luotIn,
         soKem: input.soKem, loaiKem, sheetW: sheet?.w, sheetH: sheet?.h, itemW: kt.rongTrai, itemH: kt.caoTrai,
+        impositionSource: source,
+        ...(marginConfig ? { marginConfig } : {}),
+        ...(positions ? { positions } : {}),
     };
     return res;
 }

@@ -1,10 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { KbDocument, KbDocStatus } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -27,6 +28,7 @@ export class KnowledgeBaseService {
         @InjectRepository(KbChunk) private chunkRepo: Repository<KbChunk>,
         private readonly httpService: HttpService,
         private readonly configService: ConfigService,
+        private readonly tenant: TenantContextService,
     ) {
         this.uploadDir = path.resolve(process.cwd(), 'uploads', 'kb');
         if (!fs.existsSync(this.uploadDir)) {
@@ -34,24 +36,47 @@ export class KnowledgeBaseService {
         }
     }
 
+    /**
+     * tenantId concrete để GHI: chỉ khi đang trong một tenant thật (non-bypass).
+     * Ngoài scope hoặc bypass (system/cron/cross-tenant) → null = bản dùng chung.
+     */
+    private writeTenantId(): number | null {
+        const ctx = this.tenant.get();
+        return ctx && !ctx.bypass ? ctx.tenantId : null;
+    }
+
+    /**
+     * Điều kiện lọc tenant cho KB (lưới an toàn tầng ứng dụng khi RLS chưa flip):
+     *  - Trong request của một tenant thật → chỉ thấy tài liệu của tenant đó HOẶC bản
+     *    dùng chung (tenant_id NULL) → KHÔNG rò rỉ tài liệu riêng của tenant khác.
+     *  - Ngoài context HOẶC bypass (job nền/seed/system/cross-tenant) → không lọc, để
+     *    tooling nội bộ (auto-kb, reindex khởi động) hoạt động như cũ.
+     */
+    private tenantWhere<T extends Record<string, any>>(extra: T): T | T[] {
+        const ctx = this.tenant.get();
+        if (!ctx || ctx.bypass) return extra;
+        return [{ ...extra, tenantId: ctx.tenantId }, { ...extra, tenantId: IsNull() }];
+    }
+
     // ===== Document CRUD =====
 
     async findAll() {
         return this.docRepo.find({
+            where: this.tenantWhere({}),
             order: { createdAt: 'DESC' },
             select: ['id', 'title', 'fileType', 'fileSize', 'tags', 'status', 'chunkCount', 'errorMessage', 'createdAt'],
         });
     }
 
     async findOne(id: string) {
-        const doc = await this.docRepo.findOne({ where: { id } });
+        const doc = await this.docRepo.findOne({ where: this.tenantWhere({ id }) });
         if (!doc) throw new NotFoundException('Tài liệu không tồn tại');
         return doc;
     }
 
     async getChunks(docId: string) {
         return this.chunkRepo.find({
-            where: { documentId: docId, isActive: true },
+            where: this.tenantWhere({ documentId: docId, isActive: true }),
             order: { chunkIndex: 'ASC' },
             select: ['id', 'chunkIndex', 'content', 'tokenCount', 'tags', 'createdAt'],
         });
@@ -76,7 +101,7 @@ export class KnowledgeBaseService {
         const filePath = path.join(this.uploadDir, filename);
         fs.writeFileSync(filePath, file.buffer);
 
-        // Create document record
+        // Create document record — gán tenant hiện hành (NULL nếu chạy ngoài HTTP context).
         const doc = this.docRepo.create({
             title: file.originalname.replace(ext, ''),
             fileUrl: filePath,
@@ -85,6 +110,7 @@ export class KnowledgeBaseService {
             tags,
             status: KbDocStatus.PROCESSING,
             uploadedById,
+            tenantId: this.writeTenantId(),
         });
         await this.docRepo.save(doc);
         this.logger.log(`📄 KB document created: ${doc.title} (${doc.id})`);
@@ -135,6 +161,7 @@ export class KnowledgeBaseService {
 
             const chunk = this.chunkRepo.create({
                 documentId: doc.id,
+                tenantId: doc.tenantId ?? null, // kế thừa tenant của document
                 chunkIndex: i,
                 content: chunks[i].content,
                 tokenCount: Math.ceil(chunks[i].content.length / 4), // rough estimate
@@ -386,7 +413,7 @@ export class KnowledgeBaseService {
         // NAY: lấy TOÀN BỘ chunk active làm ứng viên, để điểm dense (vector) có thể
         //   đưa chunk gần nghĩa vào kết quả dù KHÔNG trùng từ khóa nào.
         //   (KB nhỏ/markdown nên quét toàn bộ chấp nhận được; khi scale → pgvector/HNSW.)
-        const relevantChunks = await this.chunkRepo.find({ where: { isActive: true } });
+        const relevantChunks = await this.chunkRepo.find({ where: this.tenantWhere({ isActive: true }) });
         const totalDocs = relevantChunks.length;
         if (totalDocs === 0) return [];
         // Không early-return khi words rỗng: vẫn truy hồi được bằng dense-only.

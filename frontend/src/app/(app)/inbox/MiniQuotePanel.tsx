@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { API_URL } from '@/lib/api';
 import { useQuoteData } from './components/quote/useQuoteData';
 import { useQuoteCalculator } from './components/quote/useQuoteCalculator';
 import { QuoteProductSelector } from './components/quote/QuoteProductSelector';
@@ -25,6 +26,17 @@ export default function MiniQuotePanel({ token, messages, onInsertText }: MiniQu
     const [selectedProcessing, setSelectedProcessing] = useState<Array<{ id: number; name: string; price: number; qty?: number; unit?: string; section?: 'cover' | 'inner' }>>([]);
     const [pendingProcessingId, setPendingProcessingId] = useState('');
 
+    // VAT cấp báo giá mini: NGUỒN DUY NHẤT là ô VAT này (mặc định kéo từ company-info, sửa được).
+    // Giá trị % được gửi xuống facade làm vat_rate — KHÔNG lấy VAT từ pricing_config.
+    const [vatRate, setVatRate] = useState(0);
+    useEffect(() => {
+        if (!token) return;
+        fetch(`${API_URL}/erp/company-info`, { headers: { Authorization: `Bearer ${token}` } })
+            .then(r => r.json())
+            .then(res => { if (res?.success && res.data?.vat_rate != null) setVatRate(Number(res.data.vat_rate) || 0); })
+            .catch(() => {});
+    }, [token]);
+
     const {
         templates,
         selectedTemplate,
@@ -43,7 +55,8 @@ export default function MiniQuotePanel({ token, messages, onInsertText }: MiniQu
         formData,
         masterData,
         selectedAccessories,
-        selectedProcessing
+        selectedProcessing,
+        vatRate
     );
 
     const mergedHandleFieldChange = (code: string, val: string) => {
@@ -309,6 +322,23 @@ export default function MiniQuotePanel({ token, messages, onInsertText }: MiniQu
                             )}
                         </div>
                     )}
+
+                    {/* VAT cấp báo giá mini — nguồn duy nhất, mặc định từ company-info, sửa được */}
+                    <div className="flex items-center justify-between gap-2 mb-3 px-1">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                            <span>🧾</span> Thuế VAT
+                        </label>
+                        <select
+                            value={vatRate}
+                            onChange={e => { setVatRate(parseFloat(e.target.value) || 0); calculator.setQuoteResult(null); }}
+                            className="text-[12px] font-semibold border border-slate-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        >
+                            <option value={0}>Không VAT (0%)</option>
+                            <option value={5}>5%</option>
+                            <option value={8}>8%</option>
+                            <option value={10}>10%</option>
+                        </select>
+                    </div>
 
                     <QuoteResultDisplay
                         quoteResult={calculator.quoteResult}

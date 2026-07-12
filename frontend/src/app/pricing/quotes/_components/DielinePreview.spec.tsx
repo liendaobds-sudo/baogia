@@ -51,4 +51,29 @@ describe('DielinePreview', () => {
         render(<DielinePreview boxType="rte" rong={8} hong={4} cao={10} />);
         await screen.findByText('Loại hộp không hợp lệ');
     });
+
+    /**
+     * Khi engine giá truyền `engineSoConBaiIn` (Imposition_Service — số con/KHỔ BÀI IN,
+     * đúng cơ sở tính giá) cho khổ đang chọn, preview PHẢI hiển thị con số NÀY thay vì đếm lại từ
+     * nesting (`countPerSheet`) → parity giá ≡ preview. Khổ tối ưu (index 0) là khổ engine dùng.
+     */
+    it('ưu tiên engineSoConBaiIn cho khổ đang chọn (parity giá ≡ preview, không dùng countPerSheet)', async () => {
+        mockPost.mockResolvedValue({ success: true, data: SAMPLE });
+        // SAMPLE: khổ tối ưu (chọn) có countPerSheet=12; engine giá trả 7 → preview phải hiện 7, KHÔNG 12.
+        render(<DielinePreview boxType="rte" rong={8} hong={4} cao={10} engineSoConBaiIn={7} />);
+
+        await waitFor(() => expect(mockPost).toHaveBeenCalled());
+        // Số con engine (7) hiện trên nhãn tab "Xếp khuôn" của khổ đang chọn.
+        await screen.findAllByText(/7 con\/tờ/);
+        // KHÔNG còn hiển thị số đếm nesting (12) cho khổ đang chọn — đã bị engineSoConBaiIn ghi đè.
+        expect(screen.queryByText(/12 con\/tờ/)).not.toBeInTheDocument();
+    });
+
+    it('thiếu engineSoConBaiIn → fallback countPerSheet từ nesting (quote legacy/chưa có meta)', async () => {
+        mockPost.mockResolvedValue({ success: true, data: SAMPLE });
+        render(<DielinePreview boxType="rte" rong={8} hong={4} cao={10} />);
+        await waitFor(() => expect(mockPost).toHaveBeenCalled());
+        // Không có engineSoConBaiIn → giữ số đếm nesting của khổ tối ưu (12).
+        await screen.findAllByText(/12 con\/tờ/);
+    });
 });

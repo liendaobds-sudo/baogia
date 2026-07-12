@@ -2,19 +2,24 @@
 inclusion: manual
 ---
 
-# Quy tắc Audit / Review (BẮT BUỘC)
+# Quy tắc Audit / Review — ZeplaoPrint (BẮT BUỘC)
 
 > Kích hoạt file này bằng `#audit-rules` mỗi khi được yêu cầu "audit", "review",
 > "đánh giá", "rà soát" một tính năng hoặc một vùng code.
 >
 > Mục tiêu: KHÔNG được kết luận sơ sài. Mọi nhận định phải truy đến tận cùng
 > (verify-to-ground-truth) trước khi gắn mức độ nghiêm trọng.
+>
+> Stack dự án: **Backend** NestJS + TypeORM + PostgreSQL (multi-tenant RLS) tại `backend/`;
+> **Frontend** Next.js (App Router) + React tại `frontend/`. KHÔNG có Python/venv,
+> KHÔNG có Rust, KHÔNG phải app desktop/anticrack — nếu thấy quy tắc nào nhắc tới
+> những thứ đó là tàn dư, bỏ qua.
 
 ---
 
 ## 0. Nguyên tắc cốt lõi
 
-1. **Không suy đoán từ bề mặt.** Một dòng `import`, một tên hàm, một docstring
+1. **Không suy đoán từ bề mặt.** Một dòng `import`, một tên hàm, một docstring/JSDoc
    KHÔNG đủ để kết luận hành vi. Phải đọc tới phần thân thực thi.
 2. **Không gắn severity trước khi xác minh.** Cấm dùng nhãn 🔴/🟠/Nghiêm trọng
    cho tới khi đã chứng minh bằng code thật (đường chạy + thân hàm + dữ liệu).
@@ -22,6 +27,8 @@ inclusion: manual
    `[VERIFIED]` (đã đọc/chạy chứng minh) hay `[SUSPECTED]` (mới thấy dấu hiệu).
 4. **Sai thì sửa ngay, không phòng thủ.** Nếu user hoặc bằng chứng mới phủ nhận
    một finding, rút lại công khai và ghi lý do.
+5. **Tiền bạc/giá là vùng tới hạn.** Mọi thay đổi chạm engine giá, VAT, chiết khấu,
+   markup, bù hao phải xác minh bằng test hồi quy (golden/property) + đối chiếu số thật.
 
 ---
 
@@ -29,47 +36,59 @@ inclusion: manual
 
 Trước khi nói "X gây ra Y" hoặc "đường chạy là Z", phải đi HẾT chuỗi:
 
-1. **Tìm entry point thật:** HTTP route / CLI / event handler / nút bấm UI.
-2. **Lần theo từng mắt xích** tới nơi thực sự làm việc (sink): entry → handler →
-   service → worker → hàm lõi. Ghi lại số dòng từng bước.
-3. **Phân giải re-export / wrapper / alias ĐẾN CÙNG.** Khi gặp
-   `from .x import f`, mở `x` ra xem `f` là bản gốc hay lại re-export tiếp.
-   Module tên `*_old`, `*_pkg`, `thin wrapper`, `__init__ re-export` đặc biệt
-   dễ đánh lừa.
-4. **Xác nhận live vs dead:** một file/hàm chỉ "đáng lo" nếu nằm trên đường chạy
-   thực. Kiểm tra: ai import nó? Đường chạy từ entry point có chạm tới không?
-   File trong `sandbox/`, `old_*`, `*.bak`, file gitignored, file untracked rác
-   thường là CHẾT — không tính là lỗi production.
+1. **Tìm entry point thật:** HTTP route (`@Controller`/`@Post`), event/queue handler
+   (BullMQ), interceptor, hoặc nút bấm/hook ở frontend.
+2. **Lần theo từng mắt xích** tới nơi thực sự làm việc (sink): controller → service →
+   engine/calculator → repository/SQL. Ghi lại `file:line` từng bước.
+3. **Phân giải re-export / wrapper / facade ĐẾN CÙNG.** Khi gặp `export { x } from './y'`
+   hay một `*.facade.service.ts` / `*-api.service.ts` (vd `PricingApiService` gọi
+   `PricingFacadeService`), mở ra xem hàm gốc nằm đâu. Đặc biệt cảnh giác các lớp
+   "thin wrapper" và `index.ts` re-export.
+4. **Xác nhận live vs dead:** một file/hàm chỉ "đáng lo" nếu nằm trên đường chạy thực.
+   Kiểm: ai import nó? Route nào chạm tới? Code trong `dist/`, `*.spec.ts` fixtures,
+   file untracked rác, hoặc module legacy không còn được module nào nạp = KHÔNG tính
+   là lỗi production (nhưng ghi nhận để dọn).
 5. Chỉ khi đã nối được entry → sink mới được phát biểu về hành vi/ảnh hưởng.
 
-> Bài học thực tế: từng kết luận "preview ≠ output do khác solver" chỉ vì 2 file
-> import khác alias — nhưng cả hai cùng re-export về một `orchestrator` (Rust).
-> Lẽ ra phải mở file wrapper ra trước. ĐỪNG lặp lại.
+> Lưu ý ZeplaoPrint có NHIỀU đường vào cùng một engine (xem §6). Trước khi kết luận
+> "luồng tính giá là …", phải xác định đang nói về đường nào (chatbot / mini / chi tiết).
 
 ---
 
-## 2. Xác minh bằng thực thi (khi có thể)
+## 2. Xác minh bằng thực thi — đúng stack ZeplaoPrint
 
-- **Dùng đúng môi trường chạy** của dự án (vd `backend/venv/Scripts/python.exe`),
-  KHÔNG dùng python global → kết quả import/deps sẽ sai lệch.
-- Reproduce lỗi/crash bằng harness nhỏ với nhiều tổ hợp tham số + ca biên
-  (rỗng, 0 byte, không contour, file lớn, unicode, đa trang).
-- Build/typecheck/test thật: backend (`pytest`, import smoke test),
-  frontend (`npm run typecheck`, `npm run build`).
-- Dọn sạch file tạm/harness sau khi xong.
+- **Đúng workspace + đúng lệnh.** Lệnh phải chạy trong thư mục con đúng (`backend/`
+  hoặc `frontend/`), KHÔNG ở gốc repo. Dùng script trong `package.json` của workspace
+  đó, không giả định môi trường toàn cục.
+- **Backend** (cwd `backend/`):
+  - Typecheck: `npx tsc --noEmit -p tsconfig.json` → phải 0 lỗi.
+  - Test: `npx jest --runInBand` (suite chuẩn hiện tại ~**789 test / 87 suite**; mốc này
+    là Backend_Test_Count — kết quả < mốc sau thay đổi phải truy nguyên test mất/skip).
+  - Property test (fast-check) nằm trong suite jest — xem §8.2 về seed.
+- **Frontend** (cwd `frontend/`):
+  - Typecheck: `npx tsc --noEmit`.
+  - Build production: `npm run build` (Next/Turbopack).
+  - Test: `npx jest` (suite hiện tại ~**307 test / 55 suite**).
+- **Cài đặt sạch:** `npm ci` thuần (KHÔNG `--legacy-peer-deps`) phải chạy được từ lockfile
+  ở cả hai workspace (xem §12.2). ERESOLVE = tín hiệu lệch peer cần truy nguyên.
+- Reproduce lỗi bằng test/ca biên: số lượng = 0/âm, thiếu vật liệu, khổ quá nhỏ,
+  VAT 0%, đa item trộn offset+digital, tenant khác nhau.
+- Dọn sạch file tạm/log sau khi xong.
+- Mọi kết luận "đã đóng / đã xanh / không hồi quy" phải `[VERIFIED]` bằng output lệnh
+  THẬT (đúng cwd), chưa chỉnh sửa, kèm timestamp.
 
 ---
 
 ## 3. Phân biệt code sống / chết / trùng lặp
 
-- Trùng lặp: nếu thấy 2 hàm cùng tên/cùng docstring, **diff chúng** (Compare-Object)
-  rồi xác định khác biệt thực chất (bỏ qua dòng trống/format). Nói rõ là
-  "trùng lặp gây rủi ro bảo trì" KHÁC với "gây sai kết quả" — chỉ gọi là bug
-  correctness khi chứng minh được hai bên cho kết quả khác nhau trên đường chạy.
-- Orphan `.pyc` (còn `__pycache__/x.cpython-*.pyc` nhưng mất `x.py`) → tàn dư,
-  liệt kê để dọn.
-- Dấu vết thư viện cũ (vd `fitz`/PyMuPDF, shim): tìm cả ở source, `.pyc`,
-  requirements, và file sandbox/test.
+- Trùng lặp: nếu thấy 2 hàm/2 service cùng vai trò, **diff** rồi xác định khác biệt thực
+  chất. "Trùng lặp gây rủi ro bảo trì" KHÁC "gây sai kết quả" — chỉ gọi là bug correctness
+  khi chứng minh được hai bên cho kết quả khác nhau trên đường chạy.
+- Tàn dư build: `backend/dist/` là output biên dịch — KHÔNG audit như source, KHÔNG sửa
+  trực tiếp. Sửa ở `src/`.
+- File untracked/`.bak`/scratch → liệt kê để dọn, không tính lỗi production.
+- Migration/seed cũ trong `db/`, `migrations/` đã chạy: phân biệt "lịch sử đã áp" với
+  "còn được nạp lúc bootstrap".
 
 ---
 
@@ -77,10 +96,14 @@ Trước khi nói "X gây ra Y" hoặc "đường chạy là Z", phải đi HẾ
 
 - Trước khi xóa: phân loại **tracked vs untracked** (`git ls-files`).
   - Tracked → khôi phục được bằng `git checkout` (rủi ro thấp).
-  - Untracked + gitignored → **mất vĩnh viễn**, phải cảnh báo rõ và confirm.
+  - Untracked + gitignored → **mất vĩnh viễn**, cảnh báo rõ và confirm.
 - Xóa hàng loạt / blast radius rộng → liệt kê danh sách + confirm trước.
-- Sửa nhạy cảm về kết quả (thuật toán layout, solver, parity) → trình bày diff
-  dự kiến và xin xác nhận hướng trước khi áp dụng.
+- **Sửa nhạy cảm về GIÁ** (engine offset/digital, VAT, chiết khấu, markup, bù hao,
+  dieline/khổ) → trình bày diff dự kiến + ảnh hưởng tới golden/property test, xin xác
+  nhận hướng trước khi áp dụng. Nếu golden đổi số: phải giải thích vì sao đổi là đúng,
+  KHÔNG sửa expected/tolerance để "cho xanh".
+- **Sửa nhạy cảm về CÔ LẬP DỮ LIỆU** (tenant context, RLS, `SET LOCAL app.current_tenant`,
+  bypass) → coi như high-risk, xác minh bằng test tenant + RLS runbook.
 
 ---
 
@@ -101,293 +124,226 @@ Trước khi nói "X gây ra Y" hoặc "đường chạy là Z", phải đi HẾ
 ```
 
 Quy ước mức độ (chỉ gắn sau khi `[VERIFIED]`):
-- 🔴 lỗi correctness / crash / mất dữ liệu trên đường chạy thật.
-- 🟠 rủi ro bảo trì / hiệu năng / rác / nợ kỹ thuật.
+- 🔴 lỗi correctness / crash / mất dữ liệu / rò rỉ tenant / sai tiền trên đường chạy thật.
+- 🟠 rủi ro bảo trì / hiệu năng / nợ kỹ thuật / CVE phụ thuộc.
 - 🟢 nhận xét nhỏ, gợi ý cải thiện.
 
 ---
 
-## 6. Lỗi HÌNH HỌC / TOẠ ĐỘ / PARITY (preview ≡ output) — bài học đắt giá
+## 6. Bối cảnh dự án — kiến trúc tính giá (BẮT BUỘC nắm trước khi audit giá)
 
-Đây là nhóm lỗi tốn NHIỀU lượt nhất vì dễ "tự chứng minh là đúng" bằng công thức
-sai. Quy tắc bắt buộc khi đụng layout/bình/nesting/render/preview:
+ZeplaoPrint có **3 đường vào** cùng cụm engine giá (xem `STRUCTURE.md`):
 
-1. **XÁC MINH QUY ƯỚC TRỤC bằng THỰC NGHIỆM, không suy từ công thức.** Trước khi
-   so 2 biểu diễn (preview vs output, A vs B), phải biết chắc mỗi bên dùng:
-   - gốc toạ độ ở đâu (đỉnh-trái hay đáy-trái), y tăng lên hay xuống (top-down vs
-     bottom-up), đơn vị (mm/point/px).
-   - Cách XÁC MINH: render thật rồi **raster hoá** (vd pypdfium2) và đo "ô có toạ
-     độ nhỏ nằm TRÊN hay DƯỚI". KHÔNG được giả định `y` là bottom-up rồi tính
-     `sheet_h - (y+h)` để "chứng minh khớp" — chính giả định đó từng che mất việc
-     output bị **lật dọc** suốt nhiều lượt.
-   > Bài học: `build_cnc_front_layout` tính `original_cell_y` kiểu bottom-up,
-   > nhưng `show_pdf_page` đọc Rect theo TOP-DOWN → output lật dọc so với preview.
-   > Chỉ lộ ra khi raster hoá và đo vị trí thật.
+```
+(1) Chatbot AI        quote/extractors → QuoteService.calculateFromParsed ─┐
+(2) Mini báo giá      POST /quote/pricing-calc → QuoteService.calculateMiniQuote ─┼─► PricingApiService → PricingFacadeService
+(3) Báo giá chi tiết  POST /pricing/calculate (facade) ; offset: POST /pricing/offset/calculate (EngineOffset) ┘
+```
 
-2. **So bằng ARTIFACT THẬT, không chỉ bằng data trung gian.** "Dữ liệu khớp"
-   (cùng số ô, cùng toạ độ trong log) KHÁC "hình khớp". Với lỗi thị giác, phải
-   render output (PDF→ảnh) và đối chiếu trực tiếp; phân biệt **vị trí** (layout)
-   với **loại hình** (preview vẽ hình schematic đã phân loại, output vẽ artwork
-   thật — phân loại sai sẽ khác hình nhưng vị trí vẫn đúng).
+Hai họ engine:
+- **Digital / In nhanh (loose/bound/large_format):** `PricingFacadeService.calculatePrice`
+  (`backend/src/modules/pricing/services/pricing-facade.service.ts`). Trả `total` = **giá vốn**,
+  `selling_subtotal` = giá bán trước VAT (markup), `grand_total` = giá bán + VAT.
+- **Offset:** `EngineOffsetService` + `offset-engine/` (lookups, totals, products/*). `totals.ts`
+  trả `tongChuaVAT → vat → tongGomVAT → chietKhau → khachTra → donGia1SP`.
 
-3. **PARITY là ĐA TRỤC — phải khớp ĐỒNG THỜI:** (a) cùng INPUT (giá trị **và**
-   thứ tự phép tính float), (b) cùng THUẬT TOÁN, (c) cùng QUY ƯỚC TOẠ ĐỘ,
-   (d) cùng cách RENDER (frontend vẽ vs backend xuất). Sửa 1 trục có thể **lộ ra**
-   sai ở trục kế. KHÔNG tuyên bố "đã khớp" cho tới khi xác minh end-to-end trên
-   artifact thật.
+Luồng báo giá hợp nhất (`backend/src/quote/*`): mỗi method (offset/digital) được bọc thành
+plugin **VAT-exclusive** (engine `vatRate = 0`); VAT áp MỘT LẦN ở tầng báo giá qua
+`applyQuoteVat` (`backend/src/quote/vat.ts`).
 
-4. **Float order-of-operations có thể LẬT quyết định rời rạc.** `(a-b)*k` và
-   `a*k - b*k` lệch ~1e-13, đủ làm bin-packing "vừa/không vừa" thêm 1 ô → preview
-   (frontend tính kiểu này) ≠ output (backend tính kiểu kia). Khi 2 đường tính
-   cùng một đại lượng theo thứ tự khác nhau → **làm tròn/snap** ở biên (vd round
-   6 chữ số) để triệt nhiễu.
+Frontend: VAT cấp báo giá ở store `useQuoteCart.vatRate` (mục thông tin khách hàng,
+`CustomerInfo.tsx`); offset configurator truyền `vatRate` xuống engine; mini báo giá có
+ô VAT riêng (`MiniQuotePanel.tsx`, mặc định từ company-info).
 
-5. **Nhánh điều kiện = bẫy regression.** Thêm nhánh đổi hành vi theo điều kiện
-   (vd "có boong thì KHÔNG căn giữa") dễ làm 1 chế độ lệch chế độ kia. Ưu tiên
-   MỘT đường nhất quán; nếu buộc phải có special-case, phải chứng minh nó giữ
-   đúng bất biến của đường chung (vị trí, căn giữa, đối xứng).
-
-6. **Mirror/lật 2 mặt = PHẢN CHIẾU, không phải XOAY.** Mặt sau duplex là ảnh
-   phản chiếu quanh trục/tâm; dùng toggle xoay 180°/90° để "giả lập" sẽ sai với
-   hình bất đối xứng. Phản chiếu phải quanh đúng tâm (tâm TỜ, không phải tâm rect
-   trang nguồn — nếu trim lệch tâm sẽ bị dịch).
+> Trước khi nói bất cứ điều gì về VAT/giá, xác định đang ở đường nào và engine nào — sai
+> đường = kết luận sai.
 
 ---
 
-## 7. Khi QUAN SÁT của user mâu thuẫn với phân tích của mình
+## 7. BẤT BIẾN VAT — "VAT chỉ một nguồn" (canonical, 2026-06-28)
 
-- Nếu user **lặp lại** "vẫn lỗi / vẫn lệch" trong khi mình "đã chứng minh khớp"
-  → **giả định của mình gần như chắc chắn sai**, KHÔNG phải user nhìn nhầm.
-  Dừng lặp lại lập luận cũ; **đổi phương pháp**: render artifact thật, raster,
-  đo lại từ gốc. (Phản pattern: bám "log nói khớp" rồi bảo user nhìn kỹ lại.)
-- Khi user chỉ vào một chi tiết cụ thể (vd "3 ô trên cùng lại nằm dưới"), DÙNG
-  ngay chi tiết đó làm mốc kiểm chứng — nó là ground truth nhanh nhất.
-- Nếu một hướng đã thất bại 2 lần, chẩn đoán lại ROOT CAUSE từ đầu (đo thực
-  nghiệm), đừng vá tiếp lớp ngọn.
+> Đây là quy ước bắt buộc sau phiên enforce VAT. Mọi audit chạm VAT phải kiểm theo mục này.
 
----
+**Quy ước:** VAT chỉ đến từ **thông số VAT nhập lúc báo giá** (mục thông tin khách hàng cho
+báo giá chi tiết; ô VAT riêng cho mini). Engine giá phải **VAT-exclusive**; VAT áp đúng MỘT
+LẦN ở tầng báo giá. **CẤM** lấy VAT từ `pricing_config`, từ tenant settings, hay hardcode.
 
-## 8. Instrument tại ĐƯỜNG CHẠY THẬT, không chỉ replicate
+Điểm đã enforce (kỳ vọng khi audit):
+- `offset-engine/totals.ts`: `vatPct = vatRate ?? 0` (KHÔNG fallback `TyLe_VAT` của pricebook).
+- `pricing-facade.service.ts`: VAT lấy từ `input.vat_rate` (request), thiếu/≤0 ⇒ 0; KHÔNG đọc
+  `config.vat_rate`. `grand_total = selling_subtotal + VAT`.
+- `quote-pdf.service.ts`: VAT lấy từ `quote.vat_rate` qua `Number.isFinite` (0% được tôn trọng,
+  KHÔNG dùng `||` coi 0 là thiếu); KHÔNG fallback `pricing_config`.
+- `orders.service.ts` `createQuote` + `recomputeOffsetItems`: item lưu **trước VAT**
+  (`net = tongChuaVAT − chietKhau`); header VAT = `data.vat_rate` (khách nhập), áp 1 lần.
+- `quote/vat.ts applyQuoteVat`, `quote.controller /compare` (`dto.vat_rate ?? 0`),
+  offset/digital method plugin (engine `vatRate = 0`): đã đúng — giữ nguyên.
+- `tenant.service.ts` default settings `vat_rate: 0` (không gán cứng 10).
+- DB `quotes.vat_rate` default 0.
 
-- Replicate hàm lõi in-process rồi thấy "khớp" có thể đánh lừa, vì đường thật
-  còn qua tầng render/đổi toạ độ khác. Hãy **chèn log/đo tại đúng sink thật**
-  (vd ghi placements thực render ra file để đối chiếu) thay vì chỉ gọi lại hàm
-  con với input mình tự dựng.
-- Khi cần debug lâu: ghi 1 file log gọn ra nơi dễ lấy (vd Desktop) chứa cả 2 phía
-  (preview + output) + toạ độ từng phần tử → so trực tiếp. Gỡ sạch sau khi xong.
+Hệ quả hành vi đã chấp nhận:
+- **Mini báo giá & chatbot** không có mục khách hàng → mini có ô VAT riêng (mặc định
+  company-info, gửi `vat_rate` xuống facade → `grand_total` gồm VAT); chatbot
+  (`calculateFromParsed`) báo giá bán **chưa VAT** trừ khi truyền rate.
+- Test khoá VAT từ config cũ đã được cập nhật để **truyền `vat_rate` tường minh** (giữ
+  nguyên số), KHÔNG hạ assertion. Golden offset truyền `vatRate: 0.08` để bảo toàn giá pin.
 
----
-
-## 9. Kỷ luật logging (ảnh hưởng hiệu năng + nhiễu audit)
-
-- Log debug/trace PHẢI dùng `logger.debug`, KHÔNG dùng `warning/error/info`.
-  Log mức `warning`/`error` luôn xuất → flood console + tốn I/O mỗi item/candidate
-  → kéo chậm rõ rệt ở vòng lặp nóng (nesting/collision/NFP).
-- Vòng lặp in nhiều phần tử → guard bằng `if logger.isEnabledFor(logging.DEBUG)`
-  để khỏi format f-string khi không cần.
-- Khi audit hiệu năng: rà các log mức cao nằm trong vòng lặp nóng — đó thường là
-  thủ phạm chậm dễ sửa.
+Khi audit VAT, BẮT BUỘC grep các nguồn cấm: `config.vat_rate`, `pricing_config` + `vat`,
+`TyLe_VAT` (chỉ được dùng làm dữ liệu cấu hình, KHÔNG được làm nguồn VAT cho `totals`),
+hardcode `* 0.08 / * 1.08 / vat.*10`. Mỗi nơi áp VAT phải truy được về `vat_rate` nhập lúc báo giá.
 
 ---
 
-## 10. So sánh "nhanh hơn / dày hơn" giữa 2 luồng tương tự
+## 8. Parity & golden — engine giá và preview offset
 
-- Khi 2 tính năng làm việc giống nhau nhưng khác tốc độ/chất lượng rõ rệt → tìm
-  xem chúng dùng **thuật toán khác nhau** không (vd bin-pack chữ nhật bbox vs
-  nesting NFP đa giác). Đo bằng số thật (đếm item, %lãi) trên cùng dữ liệu, đừng
-  kết luận "nesting không chạy" chỉ vì cảm giác — có thể lợi ích bị **pha loãng**
-  bởi tầng khác (vd chia dải/zone) chứ thuật toán vẫn đúng.
+### 8.1 Golden / price-preservation là lưới an toàn — đừng làm yếu
+- `offset-price-preservation.golden.spec.ts` pin giá engine offset trên input cố định
+  (chênh lệch = 0). Nếu một thay đổi làm lệch số → test gãy = TÍN HIỆU, không phải phiền toái.
+- Sửa golden CHỈ khi thay đổi hành vi là CHỦ ĐÍCH và đúng: ưu tiên cách **giữ nguyên số pin**
+  (vd truyền tham số tường minh) thay vì sửa con số kỳ vọng. Nếu buộc đổi số, giải thích vì sao.
+- Property test giá (`break-even.property`, `totals.property`, `vat.property`…): coi fail flaky
+  của fast-check là lỗi thật phải đào; CẤM giảm NUM_RUNS / nâng tolerance để dập.
 
----
+### 8.2 PBT seed ngẫu nhiên: 1 lần xanh KHÔNG phải bằng chứng
+fast-check không pin seed → một run xanh chỉ là "may seed". Chạy nhiều lần (hoặc pin seed)
+mới kết luận pass. Một fail flaky là tín hiệu lỗi thật.
 
-## 11. Checklist tự kiểm trước khi gửi báo cáo
+### 8.3 Float order-of-operations có thể LẬT quyết định rời rạc
+`(a-b)*k` và `a*k - b*k` lệch ~1e-13, đủ làm bin-packing/snap khổ "vừa/không vừa" thêm 1 con
+→ preview (frontend tính) ≠ kết quả (backend tính). Khi 2 đường tính cùng đại lượng theo thứ
+tự khác nhau → snap/round ở biên để triệt nhiễu.
 
-- [ ] Mỗi finding đều có `[VERIFIED]`/`[SUSPECTED]` rõ ràng.
-- [ ] Mỗi nhãn 🔴/🟠 đều kèm bằng chứng code (file:line) + đã trace tới sink.
-- [ ] Đã phân giải hết re-export/wrapper liên quan.
-- [ ] Đã phân biệt live vs dead code.
-- [ ] Claim về deps/môi trường đã chạy bằng venv của dự án.
-- [ ] Đề xuất xóa đã nêu tracked/untracked + mức khôi phục.
-- [ ] Không có nhãn nghiêm trọng nào chỉ dựa trên suy đoán bề mặt.
-- [ ] (Layout/hình học) Đã xác minh QUY ƯỚC TOẠ ĐỘ bằng raster thực nghiệm, không
-      bằng công thức giả định.
-- [ ] (Parity) Đã so trên ARTIFACT THẬT (render/raster), khớp đủ 4 trục: input +
-      thuật toán + toạ độ + render.
-- [ ] (Float) Đã cân nhắc nhiễu order-of-operations ở quyết định rời rạc/biên.
-- [ ] Quan sát của user không bị bác bằng "log nói khớp" — nếu mâu thuẫn đã đo lại.
-- [ ] Với "bug truyền sai tham số / sai giá trị": đã xác minh có CONSUMER trên
-      đường live ĐỌC giá trị đó (giá trị sinh ra nhưng không ai đọc = moot, hạ severity).
-- [ ] Trước khi nói "test/lệnh không chạy được / thiếu dep": đã thử bằng venv
-      dự án (`backend\venv\Scripts\python.exe`) — không kết luận từ python global.
-- [ ] Đã làm lượt sâu NGAY từ đầu, không đợi user hỏi lại mới đào kỹ.
+### 8.4 Preview offset ≡ kết quả (dieline/khổ) — xác minh bằng artifact, không bằng công thức
+ZeplaoPrint có preview dàn khổ/dieline offset (`OffsetPreviewSVG`, `DielinePreview`,
+`imposeFromKhoIn`, `soConKhoTinh`). Khi nghi preview lệch kết quả/PDF:
+- XÁC MINH QUY ƯỚC TRỤC (gốc toạ độ, chiều y, đơn vị cm/mm) bằng quan sát artifact thật,
+  KHÔNG giả định rồi tự "chứng minh khớp".
+- So bằng **số con/tờ, khổ bình, vị trí thật**, không chỉ data trung gian trong log.
+- Parity đa trục: cùng INPUT (giá trị + thứ tự float), cùng THUẬT TOÁN dàn khổ, cùng QUY ƯỚC
+  toạ độ, cùng cách RENDER (SVG frontend vs PDF backend `quote-pdf.service`). Sửa 1 trục có thể
+  lộ sai trục kế — không tuyên bố "đã khớp" tới khi kiểm end-to-end.
 
 ---
 
-## 12. Production Readiness (audit go/no-go cho cả dự án)
+## 9. Multi-tenant / RLS / Auth (vùng tới hạn)
 
-> Mục 0–11 dùng cho audit correctness một tính năng. Mục này dùng khi câu hỏi là
-> "dự án đã SẴN SÀNG PHÁT HÀNH chưa?". Vẫn áp dụng verify-to-ground-truth: mọi
-> nhãn 🔴/🟠 phải có bằng chứng (file:line / kết quả lệnh), tách
-> `[VERIFIED]`/`[SUSPECTED]`. Một mục "đạt" chỉ khi đã CHỨNG MINH, không phải
-> "thấy có vẻ ổn".
+- ZeplaoPrint là SaaS đa tenant dùng PostgreSQL RLS (xem `backend/db/TENANT-RLS-RUNBOOK.md`,
+  `common/tenant/*`, migration `*_tenant_*`). Mỗi request set tenant context
+  (`SET LOCAL app.current_tenant`) qua interceptor + transaction.
+- Khi audit truy vấn/route trả dữ liệu: kiểm có lọc theo tenant không, hoặc dựa RLS — và RLS
+  có thực sự bật cho bảng đó không. Truy vấn bỏ qua tenant context = 🔴 rò rỉ dữ liệu.
+- `bypass` RLS (admin/cron) phải có chủ đích và giới hạn; audit xem ai gọi đường bypass.
+- Auth: route nhạy cảm phải có guard (JWT/role). Endpoint mới mở mạng mà thiếu auth = 🔴 —
+  nêu rõ kể cả khi không được hỏi.
+
+---
+
+## 10. Khi QUAN SÁT của user mâu thuẫn với phân tích của mình
+
+- User **lặp lại** "vẫn sai / vẫn lệch" trong khi mình "đã chứng minh khớp" → giả định của
+  mình gần như chắc sai. Dừng lập luận cũ; đổi phương pháp: chạy lại số thật / render artifact.
+- User chỉ vào chi tiết cụ thể (vd "giá lệch đúng phần VAT", "offset gồm VAT mà digital không")
+  → dùng ngay chi tiết đó làm mốc ground truth.
+- Một hướng thất bại 2 lần → chẩn đoán lại ROOT CAUSE từ đầu, đừng vá lớp ngọn.
+
+---
+
+## 11. Kỷ luật logging
+
+- Dùng Nest `Logger` đúng mức: debug/trace dùng `logger.debug`, KHÔNG dùng `warn/error` cho
+  log thường (flood + tốn I/O ở vòng lặp nóng như tính nhiều item/candidate khổ).
+- Không nuốt lỗi (`catch {}` trống) trên đường chạy thật; cũng không lộ stacktrace/đường dẫn
+  nội bộ ra client.
+- Khi audit hiệu năng: rà log mức cao trong vòng lặp nóng (offset cascade, sheet-optimizer).
+
+---
+
+## 12. Production Readiness (go/no-go cho web SaaS)
+
+> Vẫn verify-to-ground-truth: mọi nhãn 🔴/🟠 phải có bằng chứng (file:line / output lệnh),
+> tách `[VERIFIED]`/`[SUSPECTED]`. "Đạt" chỉ khi đã CHỨNG MINH.
 
 ### 12.1 Secrets & Config
-- Quét bí mật bị commit: `git ls-files | grep -iE '\.env$|secret|key|token|\.pem'`.
-  `.env` thật **không được** tracked; chỉ `.env.example` (toàn placeholder) được phép.
-  Nếu secret đã từng vào lịch sử → coi như **đã lộ**, phải xoay vòng key, không chỉ xoá file.
-- Mọi config production phải đến từ biến môi trường / file ngoài repo, không hardcode.
-- Phân biệt giá trị dev-default vs production-required; thiếu biến bắt buộc phải fail-fast khi khởi động.
+- Quét secret tracked: `git ls-files | Select-String -Pattern '\.env$|secret|key|token|\.pem'`.
+  `.env` thật KHÔNG được tracked; chỉ `.env.example` (placeholder). Secret từng vào lịch sử =
+  coi như **đã lộ** → xoay key, không chỉ xoá file. Lưu ý repo có `.env`, `backend/.env`.
+- Config production từ biến môi trường; thiếu biến bắt buộc phải fail-fast khi khởi động.
+- `ai-config.json` / `pricing_config` là cấu hình nghiệp vụ — KHÔNG được trở thành nguồn VAT (§7).
 
 ### 12.2 Dependencies & Supply Chain
-- Có lockfile và được commit? (`requirements.txt`/pinned, `package-lock.json`,
-  `Cargo.lock`, `poetry.lock`). Version thả nổi (`>=`, `*`) trên đường production = 🟠.
-- Quét lỗ hổng: `pip-audit`/`npm audit`/`cargo audit` nếu có; báo CVE mức cao.
-- Tàn dư thư viện đã bỏ (vd `fitz`/PyMuPDF) còn sót trong deps/`.pyc` (đã có ở mục 3).
+- Lockfile (`backend/package-lock.json`, `frontend/package-lock.json`) phải tracked.
+  Version thả nổi trên đường production = 🟠.
+- `npm audit --omit=dev` (backend) + `npm audit` (frontend): mục tiêu **0 HIGH**. Hiện trạng
+  đã đóng HIGH bằng nâng cấp + `overrides` (backend `multer ^2.2.0`, `tar ^7.5.19`;
+  frontend `next 16.2.9`); `sqlite3` ghim `^5.1.7` (khớp peer typeorm, chỉ driver dev/fallback,
+  production dùng `pg`). CVE còn lại là moderate/low build-time hoặc dev-only (ghi reachability).
+- `npm ci` thuần (không `--legacy-peer-deps`) phải sạch — CI (`.github/workflows/ci.yml`) đã bỏ cờ.
+- Stack đã ở NestJS 11 / next 16.2.9 / react 19.2.3 — bump phá vỡ phải đi kèm regression đầy đủ.
 
-### 12.3 Build / Release / Anticrack
-- Build production tái lập được từ script sạch (`build_production.ps1`,
-  `release_update.ps1`) — không phụ thuộc trạng thái máy dev.
-- Cơ chế license/anticrack (xem `HYBRID_ANTICRACK_REPORT.md`,
-  `SECURITY_ARCHITECTURE.md`) phải được xác minh **chạy thật**, không chỉ tồn tại
-  trên giấy: thử bypass đường tắt rõ ràng, kiểm tra fail-closed (lỗi check → CẤM, không cho qua).
-- Artifact gửi khách (`DONG_GOI_GUI_KHACH.bat`) không kèm source nhạy cảm / secret / file tạm.
+### 12.3 Error Handling & Observability
+- Lỗi đường chạy thật được bắt và báo có nghĩa (xem `all-exceptions.filter.ts`), không nuốt im,
+  không lộ nội bộ ra client.
+- Có log lỗi production để chẩn đoán; tài nguyên (transaction, queue job, file) giải phóng cả nhánh lỗi.
 
-### 12.4 Error Handling & Observability
-- Lỗi trên đường chạy thật được bắt và báo có ý nghĩa, không nuốt im (`except: pass`)
-  cũng không lộ stacktrace/đường dẫn nội bộ ra người dùng cuối.
-- Có nơi ghi log lỗi production (file/sink) để chẩn đoán sau sự cố.
-- Tài nguyên (file handle, temp, process con) được giải phóng trên cả nhánh lỗi.
+### 12.4 Tests & CI
+- Test chạy bằng đúng workspace và đang xanh: backend `npx jest` (~789), frontend `npx jest`
+  (~307), `npx tsc --noEmit` cả hai, `npm run build` frontend. Dán output thật.
+- CI có chặn merge khi fail (không chỉ trang trí).
+- Vùng lõi (engine giá, VAT một nguồn, parity offset, tenant/RLS) phải có test hồi quy.
 
-### 12.5 Tests & CI
-- Test có chạy được bằng venv dự án và **đang xanh** (`pytest`, `npm run typecheck/build`,
-  `cargo test`). Kết quả thật, dán output — không tự nhận "có test là đủ".
-- CI (`.github/`) có chặn merge khi fail không, hay chỉ trang trí.
-- Chỉ ra vùng lõi (imposition/parity/license) thiếu test hồi quy.
+### 12.5 Data Safety & Tenant Isolation
+- Ghi/đè/xoá dữ liệu có transaction + đường khôi phục.
+- Cô lập tenant (§9) là tiêu chí GO: rò rỉ chéo tenant = NO-GO.
 
-### 12.6 Data Safety
-- Ghi đè / xoá dữ liệu người dùng có atomic + có đường khôi phục không.
-- Xử lý input độc/ca biên đã nêu ở mục 2 (file 0 byte, unicode, đa trang, file lớn).
-
-### 12.7 Kết luận GO / NO-GO
-Chấm theo từng nhóm 12.1–12.6: **PASS / WARN / FAIL** kèm bằng chứng. Quy ước:
-- **NO-GO** nếu có bất kỳ 🔴 nào: secret đã lộ, anticrack fail-open, mất/hỏng dữ liệu,
-  crash trên đường chạy chính, build không tái lập được.
-- **GO có điều kiện** nếu chỉ còn 🟠: liệt kê việc phải làm + mức rủi ro nếu ship luôn.
+### 12.6 Kết luận GO / NO-GO
+- **NO-GO** nếu có 🔴: secret đã lộ, sai tiền/VAT trên đường chính, rò rỉ tenant, mất/hỏng dữ
+  liệu, crash đường chính, build/`npm ci` không tái lập.
+- **GO có điều kiện** nếu chỉ còn 🟠: liệt kê việc phải làm + rủi ro nếu ship luôn.
 - **GO** nếu mọi nhóm PASS và test lõi xanh.
-> Không được tuyên bố GO chỉ vì "không thấy lỗi" — phải đã CHỦ ĐỘNG kiểm từng nhóm trên.
+> Không tuyên bố GO chỉ vì "không thấy lỗi" — phải CHỦ ĐỘNG kiểm từng nhóm.
 
 ---
 
-## 13. Bài học phiên audit shape-detection (chống tái phạm CỤ THỂ)
+## 13. Severity = correctness × REACHABILITY × CONSUMPTION
 
-> Ba lỗi thật đã xảy ra; ghi lại để KHÔNG lặp. Đây là cụ thể hoá của §1, §2, §0.
+Một finding "đúng ở mức code" CHƯA chắc là lỗi production. Nhân thêm 2 yếu tố:
+- **Reachability:** đoạn code có nằm trên đường chạy live không (§1.4)?
+- **Consumption:** với lỗi "gán/truyền SAI một giá trị", tìm xem **ai ĐỌC** giá trị đó. Sinh ra
+  nhưng không consumer live nào đọc → **moot**, hạ severity. (Vd: một field trên facade result
+  nhưng FE chỉ đọc field khác.)
 
-### 13.1 Severity = correctness × REACHABILITY × CONSUMPTION (không chỉ correctness)
+Với mỗi finding về dữ liệu/tham số, ghi thêm:
+`Consumer (live): <file:line đọc giá trị>` hoặc `Consumer: KHÔNG → moot`.
 
-Một finding "đúng ở mức code" CHƯA chắc là lỗi production. Phải nhân thêm 2 yếu tố:
+Không tin claim của sub-agent / báo cáo cũ — `[SUSPECTED]` cho tới khi TỰ chạy lại artifact và
+xác minh đúng số/đúng dòng. Độ sâu mặc định = SÂU ngay lượt đầu, không đợi bị hỏi "kỹ chưa".
 
-- **Reachability:** đoạn code đó có nằm trên đường chạy live không (§1.4)?
-- **Consumption:** với lỗi kiểu "gán/truyền SAI một giá trị", phải tìm xem **ai
-  ĐỌC** giá trị đó. Nếu giá trị được sinh ra nhưng **không consumer live nào đọc**
-  → lỗi là **moot** (P4/cosmetic), KHÔNG phải P0.
-
-> Bài học đắt: đã xếp `effective_body_w_ratio = bigEndAxisFrac` lên **P0** và dẫn
-> chứng bằng `NupGridSolver.effectiveW` (TS). Nhưng (a) TS đó là orphan, và (b)
-> solver Python LIVE (`asymmetric_layouts.py`) chỉ đọc `waistRatio/bigEndFirst/
-> bigEndAxisFrac` — **không hề đọc** `effective_body_w_ratio`. ⟹ thực chất moot.
-> Quy tắc: trước khi gắn severity cho "bug truyền tham số", **grep ngược consumer**
-> của ĐÚNG key/biến đó trên ĐÚNG engine live, rồi mới chấm điểm.
-
-Hệ quả thao tác: với mỗi finding về dữ liệu/tham số, ghi thêm dòng
-`Consumer (live): <file:line đọc giá trị>` hoặc `Consumer: KHÔNG có → moot`.
-
-### 13.2 venv-first là quy tắc CỨNG, không phải gợi ý
-
-- **CẤM** kết luận "thiếu dep / test không chạy được / module not found" khi mới
-  chỉ thử bằng `python` toàn cục. Bước 0 trước khi chạy bất kỳ lệnh Python nào:
-  tìm interpreter dự án (`backend\venv\Scripts\python.exe`; nếu không có thì
-  `where python` + đọc README/run_dev.bat) và DÙNG nó.
-- Nếu một lệnh "không chạy được", coi đó là **nghi vấn của chính mình** cần truy
-  nguyên (sai interpreter? sai cwd? thiếu PYTHONPATH?), KHÔNG phải kết luận về dự án.
-
-> Bài học: báo "thiếu `hypothesis`, không chạy được PBT" trong khi
-> `backend\venv` có sẵn `hypothesis 6.155.3` — chạy lại bằng venv: **13 passed**.
-
-### 13.3 Độ sâu mặc định = SÂU; không đợi bị hỏi "kỹ chưa"
-
-- Lượt audit ĐẦU TIÊN đã phải trace-to-ground-truth (§1) + verify consumer (§13.1)
-  + chạy test bằng venv (§13.2). KHÔNG nộp bản nông rồi chờ user phản hồi mới đào.
-- Nếu phạm vi quá lớn để làm hết trong một lượt → nói rõ phần nào `[VERIFIED]`,
-  phần nào còn `[SUSPECTED]` + kế hoạch verify, thay vì im lặng để lại lỗ hổng.
-- Khi đã lỡ kết luận sơ sài: **rút lại công khai** (§0.4) kèm severity đã hiệu
-  chỉnh, đừng để trôi.
-
-### 13.4 Quy trình rút gọn cho mọi finding (dán vào báo cáo)
+Mẫu dán vào báo cáo:
 ```
 [VERIFIED|SUSPECTED] <severity> <mô tả>
   Sink/đường chạy: <entry → ... → file:line>
   Consumer (live): <file:line đọc giá trị>  | hoặc: KHÔNG → moot
-  Bằng chứng: <đọc code / lệnh đã chạy bằng venv + kết quả>
+  Bằng chứng: <đọc code / lệnh đã chạy đúng workspace + kết quả>
 ```
 
 ---
 
-## 14. Bài học phiên Production-Audit (2026-06-26) — chống tái phạm CỤ THỂ
+## 14. Checklist tự kiểm trước khi gửi báo cáo
 
-> Bảy lỗ hổng đã xảy ra THẬT trong một phiên audit toàn dự án. Mỗi mục gắn với
-> sự kiện thật; đây là cụ thể hoá của §0, §12, §13.
-
-### 14.1 Test ĐỎ ≠ lỗi production
-Trước khi gắn severity cho một test fail, PHẢI phân loại nó là:
-(a) lỗi correctness production, (b) lỗi **test-harness** (test tự sai), (c) **test-drift /
-mock cũ** (production đúng, kỳ vọng test lỗi thời), (d) **flaky / không tất định**.
-Cách phân loại = §1 trace-to-ground-truth: đọc xem *code-under-test THỰC SỰ ĐỌC dữ
-liệu nào*.
-> Bài học: gắn 🔴 "validator bỏ sót lỗ hở" cho test paper_bag fail, NHƯNG validator
-> chỉ đọc `model.allPaths` còn test tiêm lỗi vào `panel.paths` (bản sao clip) → no-op.
-> Đó là lỗi test-harness, KHÔNG phải lỗi production. Cùng tên test về sau LẠI lộ một
-> lỗi production thật (overlap hình học) — nên (a)…(d) không loại trừ nhau.
-
-### 14.2 PBT seed ngẫu nhiên: 1 lần xanh KHÔNG phải bằng chứng
-Với property test seed ngẫu nhiên (fast-check/hypothesis không pin seed), một run xanh
-chỉ là "may seed", KHÔNG chứng minh pass. Phải chạy NHIỀU lần (hoặc pin seed) mới kết
-luận. Ngược lại, một fail **flaky** là TÍN HIỆU lỗi thật phải đào tới cùng — CẤM dập
-bằng `-u` (update snapshot) hay nâng tolerance.
-> Bài học: overlap paper_bag chỉ fail 2/10 lần → suite "xanh" một lần tạo an toàn giả;
-> đào ra lỗi hình học thật (glueVat vượt crease → tab tự cắt & chồng).
-
-### 14.3 Supply-chain: quét MỌI hệ sinh thái; "chưa cài" không phải kết luận
-Repo có Rust/npm/pip thì phải chạy ĐỦ `cargo audit` + `npm audit` + `pip-audit`. Thiếu
-tool → CÀI rồi chạy (mirror venv-first §13.2), không được kết luận "không quét được".
-Dependency khai báo nhưng KHÔNG dùng vẫn mang CVE → grep call-site, nếu 0 thì đề xuất gỡ.
-> Bài học: `cargo audit` chưa từng chạy ở các audit trước → bỏ sót `lopdf 0.34` (7.5
-> HIGH) và `pyo3` buffer-overflow. lopdf còn là dep KHÔNG dùng (gỡ hẳn được).
-
-### 14.4 Không tin claim subagent / báo cáo cũ — reproduce đúng con số
-Mọi kết luận từ sub-agent hoặc báo cáo audit cũ là `[SUSPECTED]` cho tới khi TỰ chạy lại
-artifact và xác minh ĐÚNG cặp/số/dòng (không chỉ "kết luận đúng hướng").
-> Bài học: subagent báo cặp overlap "glue_flap∩bottom_glue_flap 201mm²" — nhưng cặp đó
-> bị `ancestorRelated` loại trừ; cặp gây fail THẬT là `bottom_glue_flap∩lip_glue_flap
-> = 0.1333mm²`. Chỉ lộ ra khi tự chạy đúng test.
-
-### 14.5 Audit phải KHÔNG phá môi trường dev của người dùng
-CẤM `taskkill` / kill tiến trình node/python, dừng dev server, hay sửa global state mà
-người dùng đang chạy. Chỉ chạy verify ở background process riêng; dọn process do CHÍNH
-mình tạo, không đụng của người khác.
-> Bài học: một subagent kill các tiến trình node "để đo sạch" → tắt luôn Vite dev server
-> của user (`ERR_CONNECTION_REFUSED`, dynamic import 3D fail).
-
-### 14.6 Chạy verify CÔ LẬP + đối soát số liệu mâu thuẫn
-Chạy suite verify khi KHÔNG có run khác đụng cùng file/snapshot. Nếu 2 lần đo ra số khác
-nhau → truy nguyên TRƯỚC khi báo cáo, đừng chọn số đẹp.
-> Bài học: vitest lần đầu 703/1, lần sau 698/6 — do process zombie `vitest -u` chạy song
-> song làm bẩn snapshot/đo lệch.
-
-### 14.7 Release reproducibility là tiêu chí GO (mở rộng §12.3)
-Production-readiness yêu cầu artifact build từ cây ĐÃ COMMIT, sạch:
-- `git status` phải sạch — file vá chưa commit = build từ checkout sạch THIẾU vá = 🔴 chặn.
-- MỌI lockfile phải tracked (kể cả của crate phụ, vd `imposition_core/Cargo.lock`).
-- Build script cho artifact giao khách phải **fail-fast** khi thiếu dep bundle bắt buộc
-  (pdfium/Ghostscript…) thay vì chỉ `WARNING` rồi build tiếp (ship artifact hỏng âm thầm).
-> Bài học: 146 file (gồm vá bảo mật) chưa commit; `build_production.ps1` chỉ WARNING khi
-> thiếu pdfium/Ghostscript.
+- [ ] Mỗi finding có `[VERIFIED]`/`[SUSPECTED]` rõ ràng.
+- [ ] Mỗi nhãn 🔴/🟠 kèm bằng chứng code (file:line) + đã trace tới sink.
+- [ ] Đã phân giải hết re-export/wrapper/facade liên quan.
+- [ ] Đã phân biệt live vs dead code (kể cả `dist/`, fixtures, untracked).
+- [ ] Lệnh verify chạy đúng workspace (`backend/` hoặc `frontend/`), dán output thật.
+- [ ] Đề xuất xóa đã nêu tracked/untracked + mức khôi phục.
+- [ ] (Giá/VAT) Đã kiểm bất biến §7: VAT chỉ từ thông số báo giá, engine VAT-exclusive, không
+      nguồn config/hardcode; golden/property giá còn xanh hoặc đổi số có giải trình.
+- [ ] (Parity offset) Đã so trên artifact thật (số con/tờ, khổ, vị trí), khớp đủ input + thuật
+      toán + toạ độ + render.
+- [ ] (Float) Đã cân nhắc nhiễu order-of-operations ở quyết định rời rạc/biên.
+- [ ] (Tenant) Truy vấn/route nhạy cảm đã kiểm lọc theo tenant / RLS bật thật.
+- [ ] (Auth) Route mạng mới có guard; thiếu auth đã nêu kể cả khi không được hỏi.
+- [ ] Với "bug truyền sai giá trị": đã xác minh CONSUMER live đọc giá trị đó (không ai đọc = moot).
+- [ ] PBT seed ngẫu nhiên: không kết luận pass từ 1 run; fail flaky đã đào tới gốc.
+- [ ] Quan sát của user không bị bác bằng "log/test nói khớp" — nếu mâu thuẫn đã đo lại.
+- [ ] Đã làm lượt sâu NGAY từ đầu, không đợi user hỏi lại mới đào kỹ.

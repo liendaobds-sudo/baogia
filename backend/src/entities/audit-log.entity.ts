@@ -41,6 +41,10 @@ export class AuditLog {
     @Column({ name: 'ip_address', nullable: true })
     ipAddress: string;
 
+    // Cô lập theo tenant (org-scoped). NULL = dùng chung/hệ thống. Cột do migration Pha A thêm.
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 }

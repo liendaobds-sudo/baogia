@@ -18,6 +18,17 @@ jest.mock('@/lib/scope/use-enabled-methods', () => ({
     }),
 }));
 
+// Mock hook Trục_Ứng_Dụng — điều khiển qua biến `mockEnabledApps` để test ẩn/hiện link
+// chéo "Inbox CSKH". Mặc định CSKH bật (giữ hành vi test cũ).
+let mockEnabledApps: string[] = ['baogia', 'cskh'];
+jest.mock('@/lib/scope/use-enabled-apps', () => ({
+    useEnabledApps: () => ({
+        enabledApps: mockEnabledApps,
+        loaded: true,
+        error: false,
+    }),
+}));
+
 // Mock next/link to just render anchor tags
 jest.mock('next/link', () => {
     return ({ children, href, className, ...rest }: any) => (
@@ -36,6 +47,19 @@ describe('PricingSidebar Component', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        mockEnabledApps = ['baogia', 'cskh']; // reset: CSKH bật mặc định
+    });
+
+    it('hiện link "Inbox CSKH" khi tenant bật CSKH', () => {
+        mockEnabledApps = ['baogia', 'cskh'];
+        render(<PricingSidebar {...defaultProps} />);
+        expect(screen.getByText('Inbox CSKH')).toBeInTheDocument();
+    });
+
+    it('ẩn link "Inbox CSKH" khi tenant TẮT CSKH', () => {
+        mockEnabledApps = ['baogia'];
+        render(<PricingSidebar {...defaultProps} />);
+        expect(screen.queryByText('Inbox CSKH')).not.toBeInTheDocument();
     });
 
     it('renders sidebar with user name and logo', () => {
@@ -61,16 +85,16 @@ describe('PricingSidebar Component', () => {
     it('toggles collapsible menus when clicked', () => {
         render(<PricingSidebar {...defaultProps} />);
         
-        // Expand the "Vật tư & Danh mục" menu
-        const settingsMenuHeader = screen.getByText('Vật tư & Danh mục').closest('a');
+        // Expand the "Vật tư & Cấu hình" menu
+        const settingsMenuHeader = screen.getByText('Vật tư & Cấu hình').closest('a');
         fireEvent.click(settingsMenuHeader!);
-        
+
         // Children should now be visible
-        expect(screen.getByText('Khổ Giấy')).toBeInTheDocument();
-        
+        expect(screen.getByText('Khổ giấy')).toBeInTheDocument();
+
         // Click again to collapse
         fireEvent.click(settingsMenuHeader!);
-        expect(screen.queryByText('Khổ Giấy')).not.toBeInTheDocument();
+        expect(screen.queryByText('Khổ giấy')).not.toBeInTheDocument();
     });
 
     it('calls onToggle when toggle button is clicked', () => {

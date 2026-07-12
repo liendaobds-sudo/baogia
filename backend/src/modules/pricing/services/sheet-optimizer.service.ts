@@ -187,6 +187,9 @@ export class SheetOptimizerService {
       };
     }
 
+    // Nạp trước cờ định mức cho mọi material ứng viên trong 1 query (tránh N+1 COUNT trong vòng lặp).
+    await this.primeMaterialPricingCache(materials.map((m: { id: number }) => Number(m.id)));
+
     const options: SheetOption[] = [];
     for (const material of materials) {
       const sheetWidth = Number(material.sheet_width);
@@ -415,6 +418,27 @@ export class SheetOptimizerService {
     const hasPricing = Number(res[0].count) > 0;
     this.cache.set(cacheKey, { value: hasPricing, expiry: Date.now() + 1000 * 60 * 5 });
     return hasPricing;
+  }
+
+  /**
+   * Nạp trước cờ "có định mức" cho nhiều material trong 1 query (thay vì N COUNT tuần tự
+   * trong vòng lặp findSheetOptions). Prime cache để checkMaterialHasPricing thành cache-hit.
+   */
+  private async primeMaterialPricingCache(materialIds: number[]): Promise<void> {
+    const missing = materialIds.filter((id) => {
+      const c = this.cache.get(`material_has_pricing:${id}`);
+      return !(c && c.expiry > Date.now());
+    });
+    if (!missing.length) return;
+    const rows = await this.dataSource.query(
+      'SELECT material_id, COUNT(*) as count FROM pricing_tiers WHERE material_id = ANY($1) GROUP BY material_id',
+      [missing],
+    );
+    const withTiers = new Set<number>(rows.map((r: { material_id: number }) => Number(r.material_id)));
+    const expiry = Date.now() + 1000 * 60 * 5;
+    for (const id of missing) {
+      this.cache.set(`material_has_pricing:${id}`, { value: withTiers.has(Number(id)), expiry });
+    }
   }
 
   async calculateBound(

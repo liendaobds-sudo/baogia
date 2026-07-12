@@ -1,9 +1,18 @@
+import { useEffect } from 'react';
+
 interface DeleteConfirmModalProps {
     onConfirm: () => void;
     onCancel: () => void;
 }
 
 export function DeleteConfirmModal({ onConfirm, onCancel }: DeleteConfirmModalProps) {
+    // Close on Escape key
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [onCancel]);
+
     return (
         <div
             className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"

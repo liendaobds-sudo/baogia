@@ -158,17 +158,19 @@ export class ErpOrdersController {
     }
 }
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/order-versions')
 export class ErpOrderVersionsController {
     constructor(private readonly service: OrdersService) { }
 
     @Get()
+    @Permissions('quote.view', 'order.view')
     async findByQuote(@Query('quote_id') quoteId: string) {
         if (!quoteId) return { success: false, error: 'quote_id is required' };
         return { success: true, data: await this.service.findVersionsByQuote(quoteId) };
     }
     @Post()
+    @Permissions('quote.edit')
     async createVersion(@Body() body: { quote_id: string; note?: string; created_by?: number }) {
         try {
             const data = await this.service.createVersion(body.quote_id, body.note || '', body.created_by || 0);
@@ -176,6 +178,7 @@ export class ErpOrderVersionsController {
         } catch (e: unknown) { return { success: false, error: e instanceof Error ? e.message : 'Unknown error' }; }
     }
     @Get(':id')
+    @Permissions('quote.view', 'order.view')
     async findOne(@Param('id') id: string) {
         const data = await this.service.findVersionById(id);
         if (!data) return { success: false, error: 'Version not found' };
@@ -183,12 +186,13 @@ export class ErpOrderVersionsController {
     }
 }
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/order-pdf')
 export class ErpOrderPdfController {
     constructor(private readonly service: OrdersService) { }
 
     @Get(':id')
+    @Permissions('quote.view', 'order.view')
     async getQuotePdf(@Param('id') id: string) {
         const data = await this.service.getQuotePdf(id);
         if (!data) return { success: false, error: 'Quote not found' };

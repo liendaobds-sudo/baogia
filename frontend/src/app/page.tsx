@@ -3,6 +3,7 @@
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { resolveLandingPath } from '@/lib/scope/landing';
 
 export default function Home() {
   const { user, isLoading } = useAuth();
@@ -11,7 +12,7 @@ export default function Home() {
   useEffect(() => {
     if (!isLoading) {
       if (user) {
-        router.push('/inbox');
+        resolveLandingPath().then((path) => router.push(path));
       } else {
         router.push('/login');
       }

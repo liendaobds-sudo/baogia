@@ -36,3 +36,89 @@ jobs:
           node-version: 20
       - run: npm ci
       - run: npm run build
+
+  rls-e2e:
+    name: Tenant RLS isolation (e2e)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # Chứng minh RLS cô lập chéo tenant THẬT trên Postgres bằng role NOSUPERUSER.
+    # Suite tenant-isolation.e2e.spec.ts gated sau RLS_E2E=1 (không có DB → tự SKIP);
+    # job này dựng DB + áp Pha A/B nên chạy được thật. Thứ tự setup đã verify local:
+    # extensions → schema snapshot → Pha A → method_capability → app_scope → role → Pha B.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zeplao_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: zeplao_ci
+      # Bootstrap script đọc biến DB_* từ môi trường.
+      DB_TYPE: postgres
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE: zeplao_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # 1) Extensions mà schema snapshot cần (uuid-ossp cho uuid_generate_v4, pgcrypto).
+      - name: Create extensions
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
+          psql -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "pgcrypto";'
+      # 2) Schema production tái lập (69 bảng) từ snapshot.
+      - name: Bootstrap schema
+        run: node db/bootstrap-schema.js
+      # 3) Pha A: thêm cột tenant_id (nullable) cho bảng org-scoped.
+      - name: Phase A (add tenant_id)
+        run: psql -v ON_ERROR_STOP=1 -f db/2026-06-26_tenant_phaseA_add_tenant_id.sql
+      # 4) 2 bảng RLS đặc biệt (baseline NULL) tạo sau snapshot — cần cho khối riêng của Pha B.
+      - name: Method-capability + app-scope tables
+        run: |
+          psql -v ON_ERROR_STOP=1 -f db/2026-07-01_tenant_method_capability.sql
+          psql -v ON_ERROR_STOP=1 -f db/2026-07-02_tenant_app_scope.sql
+      # 5) Role ứng dụng NOSUPERUSER — bắt buộc để RLS có hiệu lực (superuser bỏ qua RLS).
+      - name: Create NOSUPERUSER app role
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE zeplao_app_test LOGIN PASSWORD 'rls_e2e_ci_pwd' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          GRANT USAGE ON SCHEMA public TO zeplao_app_test;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO zeplao_app_test;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO zeplao_app_test;
+          SQL
+      # 6) Pha B: bật RLS + policy + trigger (DB fresh, không dữ liệu → không cần backfill).
+      - name: Phase B (enable RLS)
+        run: psql -v ON_ERROR_STOP=1 -f db/2026-06-26_tenant_phaseB_enable_rls.sql
+      # 7) Chạy 8 e2e cô lập tenant bằng role NOSUPERUSER.
+      - name: Run tenant isolation e2e
+        env:
+          RLS_E2E: '1'
+          RLS_DB: zeplao_ci
+          RLS_DB_HOST: localhost
+          RLS_DB_PORT: '5432'
+          RLS_APP_USER: zeplao_app_test
+          RLS_APP_PWD: rls_e2e_ci_pwd
+          RLS_SU_USER: postgres
+          RLS_SU_PWD: postgres
+        run: npx jest tenant-isolation.e2e --runInBand

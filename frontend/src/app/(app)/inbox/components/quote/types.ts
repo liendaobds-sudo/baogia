@@ -31,6 +31,13 @@ export interface QuoteResult {
     total?: number;
     unitPrice?: number;
     price_per_item?: number;
+    // Giá bán/VAT từ facade (mini): grand_total = selling_subtotal + VAT (theo vat_rate của form mini).
+    selling_subtotal?: number;
+    selling_price_per_item?: number;
+    vat_rate?: number;
+    vat_amount?: number;
+    grand_total?: number;
+    grand_total_per_item?: number;
     breakdown?: Record<string, string | number>;
     leadtime?: {
         standardDays: number;

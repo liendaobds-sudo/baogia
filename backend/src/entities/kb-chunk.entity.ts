@@ -42,6 +42,11 @@ export class KbChunk {
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 
+    // Cô lập theo tenant (kế thừa từ document). NULL = bản dùng chung/nền tảng.
+    // Cột do migration Pha A thêm; ánh xạ để lọc tenant ở tầng ứng dụng.
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     // Smart chunking: content type classification
     @Column({ name: 'chunk_type', nullable: true, default: null })
     chunkType: string; // 'heading' | 'paragraph' | 'list' | 'table' | 'mixed'

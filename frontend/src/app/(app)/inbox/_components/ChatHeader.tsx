@@ -34,6 +34,9 @@ interface ChatHeaderProps {
     isSearchVisible: boolean;
     onToggleSearch: () => void;
     onToggleRightSidebar?: () => void;
+    /** Bo_Cuc_Hep: hien nut quay lai danh sach. */
+    showBackButton?: boolean;
+    onBack?: () => void;
 }
 
 export default function ChatHeader({
@@ -42,6 +45,8 @@ export default function ChatHeader({
     isSearchVisible,
     onToggleSearch,
     onToggleRightSidebar,
+    showBackButton,
+    onBack,
 }: ChatHeaderProps) {
     const toast = useToast();
     const zaloCallHandler = (isVideo: boolean) => {
@@ -58,8 +63,21 @@ export default function ChatHeader({
 
     return (
         <div className="px-5 py-3 bg-white border-b border-gray-200 flex justify-between items-center shrink-0 h-[68px]">
-            {/* Left: Avatar + Name + SLA */}
+            {/* Left: (Back on narrow) + Avatar + Name + SLA */}
             <div className="flex items-center gap-3">
+                {showBackButton && (
+                    <button
+                        onClick={onBack}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBack?.(); } }}
+                        title="Quay lại danh sách"
+                        aria-label="Quay lại danh sách"
+                        className="p-2 -ml-1 rounded-full flex items-center justify-center border-none cursor-pointer bg-transparent text-slate-600 hover:bg-slate-100 hover:text-[var(--brand-zalo)] transition-colors"
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 18 9 12 15 6" />
+                        </svg>
+                    </button>
+                )}
                 <div className="w-11 h-11 relative">
                     <HeaderAvatar url={selectedConversation.contact?.avatarUrl} name={selectedConversation.contact?.displayName || '?'} />
                     {selectedConversation.channel?.type === 'zalo_personal' && (
@@ -140,7 +158,7 @@ function HeaderIconButton({ onClick, title, icon, active, className }: {
         <button
             onClick={onClick}
             className={`p-2 rounded-full flex items-center justify-center border-none cursor-pointer transition-colors duration-150
-                ${active ? 'bg-slate-200 text-[#005ae0]' : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-[#005ae0]'}
+                ${active ? 'bg-slate-200 text-[var(--brand-zalo)]' : 'bg-transparent text-slate-500 hover:bg-slate-100 hover:text-[var(--brand-zalo)]'}
                 ${className || ''}`}
             title={title}
             aria-label={title}

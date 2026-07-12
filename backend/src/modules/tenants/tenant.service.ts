@@ -58,7 +58,9 @@ export class TenantService implements OnModuleInit {
                 planId: freePlan?.id || 1,
                 schemaName: 'public',  // All tables now in public schema
                 maxUsers: 10,
-                settings: { vat_rate: 10 },
+                // VAT mặc định 0 — VAT thực tế đi theo % nhập ở mục thông tin khách hàng lúc báo giá,
+                // không gán cứng ở cấp tenant để tránh trở thành nguồn VAT thứ hai.
+                settings: { vat_rate: 0 },
             });
             this.logger.log(`📦 Seeded default tenant: ${tenant.name} (schema: public)`);
         }

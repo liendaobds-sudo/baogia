@@ -41,6 +41,7 @@ import * as request from 'supertest';
 import { Repository } from 'typeorm';
 
 import { MethodCapability } from '../entities/method-capability.entity';
+import { PermissionsGuard } from '../modules/auth/permissions.guard';
 import { CapabilityService } from './capability.service';
 import { ComparatorService } from './comparator.service';
 import { MethodRegistry } from './method-registry.service';
@@ -186,8 +187,10 @@ describe('QuoteController (integration) — POST /quote-tool/calculate end-to-en
                 { provide: ConfigStore, useValue: {} },
             ],
         })
-            // Cô lập với JWT — guard luôn cho qua (test tập trung vào wiring tính giá).
+            // Cô lập với JWT + PermissionsGuard — guard luôn cho qua (test tập trung vào wiring tính giá).
             .overrideGuard(AuthGuard('jwt'))
+            .useValue({ canActivate: () => true })
+            .overrideGuard(PermissionsGuard)
             .useValue({ canActivate: () => true })
             .compile();
 

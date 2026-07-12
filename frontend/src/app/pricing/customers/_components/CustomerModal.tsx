@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { API_URL as API } from '@/lib/api';
 
@@ -12,6 +12,14 @@ export default function CustomerModal({ isOpen, onClose, onSuccess }: CustomerMo
     const { token } = useAuth();
     const [loading, setLoading] = useState(false);
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+
+    // Close on Escape key
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [isOpen, onClose]);
 
     const [formData, setFormData] = useState({
         customerType: 'individual',

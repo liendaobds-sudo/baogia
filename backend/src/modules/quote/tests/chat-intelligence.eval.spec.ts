@@ -24,10 +24,10 @@ const SAMPLE_PRICING_RESULT = {
     subtotal: 52800,
     total: 52800,            // giá vốn
     selling_subtotal: 79200,
-    vat_rate: 8,
-    vat_amount: 6336,
-    grand_total: 85536,      // giá bán (markup + VAT)
-    grand_total_per_item: 86,
+    vat_rate: 0,
+    vat_amount: 0,
+    grand_total: 79200,      // giá bán (markup, CHƯA VAT)
+    grand_total_per_item: 79,
     breakdown: { items_per_sheet: 23, sheets_needed: 44, total_sheets: 48, price_per_sheet: 1000 },
     processing_details: [],
 };
@@ -116,10 +116,10 @@ describe('Chat Intelligence Eval (deterministic)', () => {
 
     // ── 4. Giá BÁN (grand_total), không phải giá vốn ──
     describe('4. Trả giá bán', () => {
-        it('calculateFromParsed → total = grand_total (85.536), không phải 52.800', async () => {
+        it('calculateFromParsed → total = grand_total (79.200, chưa VAT), không phải 52.800', async () => {
             const { svc } = buildQuoteService(true);
             const res: any = await svc.calculateFromParsed(looseComplete());
-            check('total=grand_total', Number(res.total) === 85536);
+            check('total=grand_total', Number(res.total) === 79200);
             check('không trả giá vốn', Number(res.total) !== 52800);
         });
     });

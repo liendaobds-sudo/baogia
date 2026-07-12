@@ -151,6 +151,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (data.refreshToken) {
                 localStorage.setItem('zh_refresh_token', data.refreshToken);
             }
+            // Đăng nhập mới = phiên sạch: xóa mọi tàn dư impersonation của phiên trước
+            // (nếu token impersonate hết hạn → auto-logout → login lại, banner tenant cũ
+            // không được phép sót lại và đánh lừa về tenant đang thao tác).
+            localStorage.removeItem('imp_sa_token');
+            localStorage.removeItem('imp_sa_user');
+            localStorage.removeItem('imp_sa_refresh');
+            localStorage.removeItem('imp_tenant_name');
 
             // Schedule proactive refresh before expiry
             doScheduleRefresh(data.expiresIn || 604800);
@@ -171,6 +178,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('zh_token');
         localStorage.removeItem('zh_user');
         localStorage.removeItem('zh_refresh_token');
+        // Dọn phiên impersonation sót lại — nếu không, banner "đang truy cập tenant X"
+        // vẫn hiện dù đã về phiên thường, đánh lừa về tenant đang thao tác.
+        localStorage.removeItem('imp_sa_token');
+        localStorage.removeItem('imp_sa_user');
+        localStorage.removeItem('imp_sa_refresh');
+        localStorage.removeItem('imp_tenant_name');
         if (refreshTimerRef.current) {
             clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = null;

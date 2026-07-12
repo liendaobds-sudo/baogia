@@ -40,6 +40,7 @@ import { RedisModule } from './modules/redis/redis.module';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TenantContextModule } from './common/tenant/tenant-context.module';
+import { AppScopeModule } from './common/app-scope/app-scope.module';
 import { DataSource } from 'typeorm';
 import { addTransactionalDataSource } from 'typeorm-transactional';
 
@@ -52,6 +53,7 @@ import { addTransactionalDataSource } from 'typeorm-transactional';
         }),
         EventEmitterModule.forRoot(),
         TenantContextModule,
+        AppScopeModule,
         BullModule.forRootAsync({
             imports: [ConfigModule],
             inject: [ConfigService],

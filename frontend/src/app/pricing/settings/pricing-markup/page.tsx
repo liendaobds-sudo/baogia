@@ -85,7 +85,7 @@ export default function PricingMarkupPage() {
 
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Lợi nhuận & Làm tròn — In Nhanh</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Lợi nhuận & làm tròn — in nhanh</h1>
                     <p className="text-slate-500 text-sm mt-1">Cách quy đổi giá vốn → giá bán cho báo giá in nhanh. VAT đặt ở{' '}
                         <Link href="/pricing/settings/company-info" className="text-indigo-600 underline">Thông tin công ty</Link>.</p>
                 </div>

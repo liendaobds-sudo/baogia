@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../_components/apiClient';
+import { fetchQuoteMaterials } from '../../_components/fetchQuoteMaterials';
 
 interface PricingTier {
     id: number;
@@ -12,17 +13,43 @@ interface PricingTier {
     quantityFrom: number;
     quantityTo: number;
     pricePerSheet: number;
+    // Tách chi phí (tầng 2): giá vốn giấy dẫn từ materials.cost_price + mực nhập tay.
+    paperCost?: number;
+    inkCost?: number;
+    // Tầng 3: máy + công + overhead per-máy.
+    printerId?: number;
+    machineCost?: number;
+    laborCost?: number;
+    overheadCost?: number;
+    // Cột phái sinh từ backend (findAllTiers): cost_price hiện tại + cờ lệch.
+    current_cost_price?: number | null;
+    cost_drift?: boolean;
 }
 
-interface Material { id: number; name: string; }
+interface Material { id: number; name: string; cost_price?: number }
 interface PaperSize { id: number; name: string; }
+interface Printer { id: number; name: string; }
 
-const initFormTiers = [{ quantityFrom: 1, quantityTo: 999999, paperPrice: 0, inkPrice: 0 }] as Array<{ id?: number; quantityFrom: number | string | null; quantityTo: number | string | null; paperPrice: number | string | null; inkPrice: number | string | null }>;
+// Mốc giá form: 5 thành phần chi phí (giá vốn thuần). Tổng/tờ = paper+ink+machine+labor+overhead.
+type FormTier = {
+    id?: number;
+    quantityFrom: number | string | null;
+    quantityTo: number | string | null;
+    paperPrice: number | string | null;
+    inkPrice: number | string | null;
+    machinePrice: number | string | null;
+    laborPrice: number | string | null;
+    overheadPrice: number | string | null;
+};
+
+const initFormTiers: FormTier[] = [{ quantityFrom: 1, quantityTo: 999999, paperPrice: 0, inkPrice: 0, machinePrice: 0, laborPrice: 0, overheadPrice: 0 }];
 
 export default function PricingTiersPage() {
     const [tiers, setTiers] = useState<PricingTier[]>([]);
     const [materials, setMaterials] = useState<Material[]>([]);
     const [paperSizes, setPaperSizes] = useState<PaperSize[]>([]);
+    const [printers, setPrinters] = useState<Printer[]>([]);
+    const [suggesting, setSuggesting] = useState(false);
     const [loading, setLoading] = useState(true);
     const [filterScope, setFilterScope] = useState('');
     const [filterMaterial, setFilterMaterial] = useState('');
@@ -41,6 +68,7 @@ export default function PricingTiersPage() {
         technology: 'digital_toner',
         printSide: 'single',
         printType: '',
+        printerId: '',
         tiers: initFormTiers as any[]
     });
 
@@ -63,25 +91,92 @@ export default function PricingTiersPage() {
 
     const loadData = useCallback(async () => {
         setLoading(true);
-        const [tiersRes, matsRes, psRes] = await Promise.all([
+        // Vật tư: qua fetchQuoteMaterials (scope loose+bound, chỉ giấy tờ) — nguồn dùng chung,
+        // không tự ghép scope+category nữa. Khổ giấy: gọi loose+bound rồi hợp nhất theo id.
+        const dedupeById = <T extends { id: number }>(...lists: (T[] | undefined)[]): T[] => {
+            const byId = new Map<number, T>();
+            for (const list of lists) for (const item of list || []) byId.set(item.id, item);
+            return Array.from(byId.values());
+        };
+        const [tiersRes, mats, psLooseRes, psBoundRes, printersRes] = await Promise.all([
             api.get<PricingTier[]>('/erp/pricing-tiers'),
-            api.get<Material[]>('/erp/materials?category=substrate_sheet'),
-            api.get<PaperSize[]>('/erp/paper-sizes'),
+            fetchQuoteMaterials(['loose', 'bound'], ['substrate_sheet']),
+            api.get<PaperSize[]>('/erp/paper-sizes?scope=loose'),
+            api.get<PaperSize[]>('/erp/paper-sizes?scope=bound'),
+            api.get<Printer[]>('/erp/printers'),
         ]);
         if (tiersRes.success && tiersRes.data) setTiers(tiersRes.data);
-        if (matsRes.success && matsRes.data) setMaterials(matsRes.data);
-        if (psRes.success && psRes.data) setPaperSizes(psRes.data);
+        setMaterials(mats as unknown as Material[]);
+        setPaperSizes(dedupeById(psLooseRes.data, psBoundRes.data));
+        if (printersRes.success && printersRes.data) setPrinters(printersRes.data);
         setLoading(false);
     }, []);
 
     useEffect(() => { loadData(); }, [loadData]);
 
+    // Giá vốn giấy hiện tại của vật tư đang chọn (để auto-fill "Giá Giấy" + preview lệch trong form).
+    const selectedMaterialCost = (() => {
+        const m = materials.find(x => x.id === Number(formData.materialId));
+        return m?.cost_price != null ? Number(m.cost_price) : null;
+    })();
+
+    // Auto-fill "Giá Giấy" của mọi mốc từ cost_price vật tư đang chọn (nút "lấy từ giá vốn").
+    const fillPaperFromCost = () => {
+        if (selectedMaterialCost == null || selectedMaterialCost <= 0) {
+            alert('Vật tư chưa có giá vốn (cost_price). Nhập kho để cập nhật giá vốn trước.');
+            return;
+        }
+        setFormData(f => ({ ...f, tiers: f.tiers.map(t => ({ ...t, paperPrice: selectedMaterialCost })) }));
+    };
+
+    // Đồng bộ giá vốn giấy từ cost_price vào tier đã lưu (theo vật tư hoặc tất cả). Không tự đè —
+    // chỉ chạy khi bấm. Backend set paper_cost = cost_price, cập nhật tổng, ghi cost_synced_at.
+    const syncCost = async (materialId?: number) => {
+        setSubmitting(true);
+        try {
+            const res = await api.post<{ synced: number }>('/erp/pricing-tiers/sync-cost', materialId ? { material_id: materialId } : {});
+            if ((res as any).success) await loadData();
+        } catch (e) { console.error('Sync cost failed:', e); }
+        finally { setSubmitting(false); }
+    };
+
     const handleAddTierRow = () => {
         const last = formData.tiers[formData.tiers.length - 1];
         setFormData(f => ({
             ...f,
-            tiers: [...f.tiers, { quantityFrom: last ? last.quantityTo + 1 : 1, quantityTo: 999999, paperPrice: 0, inkPrice: 0 }]
+            tiers: [...f.tiers, { quantityFrom: last ? Number(last.quantityTo) + 1 : 1, quantityTo: 999999, paperPrice: 0, inkPrice: 0, machinePrice: 0, laborPrice: 0, overheadPrice: 0 }]
         }));
+    };
+
+    // Gợi ý giá định mức từ chi phí (tầng 3): gọi /suggest → điền breakdown 5 thành phần vào MỌI mốc.
+    // KHÔNG tự lưu — người dùng xem, sửa được, rồi bấm lưu. Máy/công/overhead giống nhau mọi mốc
+    // (chi phí/tờ không phụ thuộc SL); giấy+mực cũng vậy — người dùng tự chỉnh giảm theo mốc nếu muốn.
+    const suggestFromCost = async () => {
+        if (!formData.materialId) { alert('Chọn vật tư trước khi gợi ý.'); return; }
+        setSuggesting(true);
+        try {
+            const res = await api.post<{ breakdown: { paperCost: number; inkCost: number; machineCost: number; laborCost: number; overheadCost: number } }>(
+                '/erp/pricing-tiers/suggest',
+                {
+                    material_id: Number(formData.materialId),
+                    printer_id: formData.printerId ? Number(formData.printerId) : undefined,
+                    print_type: formData.printType || undefined,
+                    sides: formData.printSide === 'double' ? 2 : 1,
+                    paper_size_id: formData.paperSizeId ? Number(formData.paperSizeId) : undefined,
+                },
+            );
+            const b = (res as any)?.data?.breakdown;
+            if (!(res as any).success || !b) { alert('Không gợi ý được. Kiểm tra vật tư có giá vốn chưa.'); return; }
+            setFormData(f => ({
+                ...f,
+                tiers: f.tiers.map(t => ({
+                    ...t,
+                    paperPrice: b.paperCost, inkPrice: b.inkCost,
+                    machinePrice: b.machineCost, laborPrice: b.laborCost, overheadPrice: b.overheadCost,
+                })),
+            }));
+        } catch (e) { console.error('Suggest failed:', e); alert('Lỗi khi gợi ý giá.'); }
+        finally { setSuggesting(false); }
     };
 
     const handleRemoveTierRow = (idx: number) => {
@@ -121,7 +216,14 @@ export default function PricingTiersPage() {
                 printType: formData.printType,
                 quantityFrom: String(t.quantityFrom) === '' ? null : Number(t.quantityFrom),
                 quantityTo: String(t.quantityTo) === '' ? null : Number(t.quantityTo),
-                pricePerSheet: Number(t.paperPrice || 0) + Number(t.inkPrice || 0),
+                // Gửi 5 thành phần tách để backend tự tính pricePerSheet = tổng (giá vốn thuần, nguồn phái sinh).
+                printerId: formData.printerId ? Number(formData.printerId) : undefined,
+                paperCost: Number(t.paperPrice || 0),
+                inkCost: Number(t.inkPrice || 0),
+                machineCost: Number(t.machinePrice || 0),
+                laborCost: Number(t.laborPrice || 0),
+                overheadCost: Number(t.overheadPrice || 0),
+                pricePerSheet: Number(t.paperPrice || 0) + Number(t.inkPrice || 0) + Number(t.machinePrice || 0) + Number(t.laborPrice || 0) + Number(t.overheadPrice || 0),
             }));
             
             const promises = payloads.map(p => {
@@ -147,24 +249,27 @@ export default function PricingTiersPage() {
     };
 
     // Grouping using CamelCase properties
-    const groups: Record<string, { material: string; paperSize: string; technology: string; printSide: string; printType: string; tiers: PricingTier[], materialIdRaw: number, paperSizeIdRaw: number }> = {};
+    const groups: Record<string, { material: string; paperSize: string; technology: string; printSide: string; printType: string; tiers: PricingTier[], materialIdRaw: number, paperSizeIdRaw: number, printerIdRaw: number | null, costDrift: boolean }> = {};
     tiers.forEach(t => {
         const key = `${t.materialId}_${t.paperSizeId}_${t.technology}_${t.printSide}_${t.printType || ''}`;
         if (!groups[key]) {
             const mat = materials.find(m => m.id == t.materialId);
             const ps = paperSizes.find(p => p.id == t.paperSizeId);
-            groups[key] = { 
-                material: mat?.name || `Mã VT: ${t.materialId}`, 
-                paperSize: ps?.name || `Mã khổ: ${t.paperSizeId || 'N/A'}`, 
-                technology: t.technology, 
-                printSide: t.printSide, 
-                printType: t.printType || '', 
+            groups[key] = {
+                material: mat?.name || `Mã VT: ${t.materialId}`,
+                paperSize: ps?.name || `Mã khổ: ${t.paperSizeId || 'N/A'}`,
+                technology: t.technology,
+                printSide: t.printSide,
+                printType: t.printType || '',
                 tiers: [],
                 materialIdRaw: t.materialId,
-                paperSizeIdRaw: t.paperSizeId
+                paperSizeIdRaw: t.paperSizeId,
+                printerIdRaw: t.printerId ?? null,
+                costDrift: false
             };
         }
         groups[key].tiers.push(t);
+        if (t.cost_drift) groups[key].costDrift = true;
     });
 
     const handleEditGroup = (key: string) => {
@@ -177,13 +282,17 @@ export default function PricingTiersPage() {
             technology: group.technology,
             printSide: group.printSide,
             printType: group.printType || '4c',
+            printerId: group.printerIdRaw ? String(group.printerIdRaw) : '',
             tiers: group.tiers.sort((a,b) => a.quantityFrom - b.quantityFrom).map(t => ({
                 id: t.id,
                 quantityFrom: t.quantityFrom,
                 quantityTo: t.quantityTo,
-                // Giả lập chia 50/50 nếu backend chỉ lưu gộp
-                paperPrice: Math.floor(t.pricePerSheet / 2),
-                inkPrice: Math.ceil(t.pricePerSheet / 2)
+                // Đọc 5 thành phần THẬT. Dòng cũ chưa tách: paper_cost=tổng, còn lại 0 (backfill).
+                paperPrice: t.paperCost ?? t.pricePerSheet,
+                inkPrice: t.inkCost ?? 0,
+                machinePrice: t.machineCost ?? 0,
+                laborPrice: t.laborCost ?? 0,
+                overheadPrice: t.overheadCost ?? 0,
             }))
         });
         setEditModeKey(key);
@@ -202,12 +311,16 @@ export default function PricingTiersPage() {
             technology: group.technology,
             printSide: group.printSide,
             printType: group.printType || '4c',
+            printerId: group.printerIdRaw ? String(group.printerIdRaw) : '',
             tiers: group.tiers.sort((a,b) => a.quantityFrom - b.quantityFrom).map(t => ({
                 // Không copy ID để tạo mới
                 quantityFrom: t.quantityFrom,
                 quantityTo: t.quantityTo,
-                paperPrice: Math.floor(t.pricePerSheet / 2),
-                inkPrice: Math.ceil(t.pricePerSheet / 2)
+                paperPrice: t.paperCost ?? t.pricePerSheet,
+                inkPrice: t.inkCost ?? 0,
+                machinePrice: t.machineCost ?? 0,
+                laborPrice: t.laborCost ?? 0,
+                overheadPrice: t.overheadCost ?? 0,
             }))
         });
         setEditModeKey(null);
@@ -268,7 +381,7 @@ export default function PricingTiersPage() {
         <div className="flex flex-col h-full bg-slate-50/50 p-6 overflow-y-auto relative">
             <div className="mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Định Mức In Nhanh (Khổ Nhỏ)</h1>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">Định mức in nhanh (khổ nhỏ)</h1>
                     <p className="text-slate-500 text-sm mt-1">Bảng giá theo số lượng cho sản phẩm in nhanh kỹ thuật số.</p>
                 </div>
                 <div className="flex gap-3 items-center">
@@ -312,6 +425,16 @@ export default function PricingTiersPage() {
                                     <option value="">-- Chọn vật tư ({materials.length}) --</option>
                                     {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                                 </select>
+                                {formData.materialId && (
+                                    selectedMaterialCost != null && selectedMaterialCost > 0 ? (
+                                        <div className="mt-1.5 flex items-center justify-between text-[12px]">
+                                            <span className="text-slate-500">Giá vốn hiện tại: <b className="text-slate-700">{fmt(selectedMaterialCost)}₫/tờ</b></span>
+                                            <button type="button" onClick={fillPaperFromCost} className="text-indigo-600 font-bold hover:text-indigo-700">↺ Lấy vào giá giấy</button>
+                                        </div>
+                                    ) : (
+                                        <p className="mt-1.5 text-[12px] text-amber-600">Vật tư chưa có giá vốn — nhập kho để cập nhật.</p>
+                                    )
+                                )}
                             </div>
                             
                             <div className="grid grid-cols-2 gap-4">
@@ -344,6 +467,19 @@ export default function PricingTiersPage() {
                                 </div>
                             </div>
 
+                            {/* Máy in — dùng để suy chi phí máy/công/overhead khi gợi ý (tầng 3). */}
+                            <div>
+                                <label className="block text-[13px] font-bold text-slate-600 mb-1.5">Máy in</label>
+                                <select className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={formData.printerId} onChange={e => setFormData({ ...formData, printerId: e.target.value })}>
+                                    <option value="">-- Không gắn máy (máy/công/overhead = 0) --</option>
+                                    {printers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                                <button type="button" onClick={suggestFromCost} disabled={suggesting || !formData.materialId} className="mt-2 w-full text-[13px] font-bold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 rounded-lg py-2 transition-colors">
+                                    {suggesting ? 'Đang gợi ý...' : '✨ Gợi ý giá định mức từ chi phí'}
+                                </button>
+                                <p className="mt-1 text-[11px] text-slate-400">Suy giấy + mực + máy + công + overhead → điền vào mọi mốc để xem trước. Sửa được trước khi lưu. Chưa gồm lời (markup áp lúc báo giá).</p>
+                            </div>
+
                             <div className="mt-4 flex gap-2">
                                 {editModeKey && (
                                     <button onClick={() => { setShowForm(false); setEditModeKey(null); setFormData({ ...formData, tiers: initFormTiers as any }); }} disabled={submitting} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2.5 px-6 rounded-lg shadow-sm transition-colors disabled:opacity-50">
@@ -360,29 +496,35 @@ export default function PricingTiersPage() {
                         <div className="w-full lg:w-2/3">
                             <label className="block text-[13px] font-bold text-slate-800 mb-2">Bảng giá theo số lượng</label>
                             <div className="bg-white rounded-xl">
-                                <div className="grid grid-cols-12 gap-2 mb-2 px-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-2">
-                                    <div className="col-span-2">Từ SL</div>
-                                    <div className="col-span-2">Đến SL</div>
-                                    <div className="col-span-3">Giá Giấy</div>
-                                    <div className="col-span-3">Giá Mực</div>
-                                    <div className="col-span-1 text-center">Tổng/Tờ</div>
-                                    <div className="col-span-1 text-center">Xóa</div>
-                                </div>
-                                <div className="space-y-2">
-                                    {formData.tiers.map((row, idx) => (
-                                        <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-white p-1 rounded-lg border border-slate-100 shadow-sm transition-all hover:border-slate-300">
-                                            <div className="col-span-2"><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={row.quantityFrom ?? ''} onChange={e => updateTierRow(idx, 'quantityFrom', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                            <div className="col-span-2"><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={row.quantityTo ?? ''} onChange={e => updateTierRow(idx, 'quantityTo', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                            <div className="col-span-3"><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={row.paperPrice ?? ''} onChange={e => updateTierRow(idx, 'paperPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                            <div className="col-span-3"><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={row.inkPrice ?? ''} onChange={e => updateTierRow(idx, 'inkPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                            <div className="col-span-1 text-center text-sm font-bold text-slate-700">{Number(row.paperPrice || 0) + Number(row.inkPrice || 0)}</div>
-                                            <div className="col-span-1 text-center">
+                                <p className="text-[11px] text-slate-400 mb-2">Giá vốn thuần/tờ = giấy + mực + máy + công + overhead. Lời (markup) áp riêng khi báo giá — KHÔNG nhập ở đây.</p>
+                                <div className="space-y-3">
+                                    {formData.tiers.map((row, idx) => {
+                                        const rowTotal = Number(row.paperPrice || 0) + Number(row.inkPrice || 0) + Number(row.machinePrice || 0) + Number(row.laborPrice || 0) + Number(row.overheadPrice || 0);
+                                        return (
+                                        <div key={idx} className="bg-slate-50/60 p-2.5 rounded-lg border border-slate-100">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="text-[11px] font-bold text-slate-500 uppercase">SL</span>
+                                                <input type="number" placeholder="Từ" className="w-20 px-2 py-1 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={row.quantityFrom ?? ''} onChange={e => updateTierRow(idx, 'quantityFrom', e.target.value === '' ? '' : Number(e.target.value))} />
+                                                <span className="text-slate-400">→</span>
+                                                <input type="number" placeholder="Đến" className="w-20 px-2 py-1 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={row.quantityTo ?? ''} onChange={e => updateTierRow(idx, 'quantityTo', e.target.value === '' ? '' : Number(e.target.value))} />
+                                                <span className="ml-auto text-sm font-black text-emerald-600">{fmt(rowTotal)}₫/tờ</span>
                                                 {formData.tiers.length > 1 && (
-                                                    <button onClick={() => handleRemoveTierRow(idx)} className="text-red-400 hover:text-red-600 transition-colors"><svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                                                    <button onClick={() => handleRemoveTierRow(idx)} className="text-red-400 hover:text-red-600 transition-colors"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                                                 )}
                                             </div>
+                                            <div className="grid grid-cols-5 gap-2">
+                                                {([
+                                                    ['paperPrice', 'Giấy'], ['inkPrice', 'Mực'], ['machinePrice', 'Máy'], ['laborPrice', 'Công'], ['overheadPrice', 'Overhead'],
+                                                ] as const).map(([field, label]) => (
+                                                    <div key={field}>
+                                                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">{label}</label>
+                                                        <input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={(row as any)[field] ?? ''} onChange={e => updateTierRow(idx, field, e.target.value === '' ? '' : Number(e.target.value))} />
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 <button onClick={handleAddTierRow} className="mt-4 text-[13px] text-indigo-500 font-bold hover:text-indigo-700 flex items-center gap-1.5 px-0 transition-colors"><span className="text-lg leading-none">+</span> Thêm mốc giá</button>
                             </div>
@@ -427,8 +569,16 @@ export default function PricingTiersPage() {
                                                 <svg className={`w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                                             </td>
                                             <td className="px-4 py-3.5">
-                                                <div className="font-bold text-slate-800">{g.material}</div>
+                                                <div className="font-bold text-slate-800 flex items-center gap-2">
+                                                    {g.material}
+                                                    {g.costDrift && (
+                                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700" title="Giá vốn giấy (cost_price) đã đổi sau lần nhập kho gần nhất — bấm Đồng bộ để cập nhật giá giấy trong định mức">⚠ giá vốn đã đổi</span>
+                                                    )}
+                                                </div>
                                                 <div className="text-xs text-slate-500 font-medium mt-0.5">{g.paperSize}</div>
+                                                {g.costDrift && (
+                                                    <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); syncCost(g.materialIdRaw); }} disabled={submitting} className="mt-1 text-[11px] font-bold text-amber-600 hover:text-amber-800 disabled:opacity-50">↻ Đồng bộ giá vốn</button>
+                                                )}
                                             </td>
                                             <td className="px-4 py-3.5 text-center flex items-center justify-center gap-2 mt-2">
                                                 <span className="text-[13px] font-medium text-slate-600">{sideLabel}</span>
@@ -449,9 +599,14 @@ export default function PricingTiersPage() {
                                                     <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
                                                     <span>SL: <span className="text-slate-800 font-bold">{fmt(tier.quantityFrom)}</span> → <span className="text-slate-800 font-bold">{fmt(tier.quantityTo)}</span></span>
                                                 </td>
-                                                <td className="px-4 py-2 text-xs text-center text-slate-500">Giấy/Mực:</td>
-                                                <td className="px-4 py-2 text-xs text-center text-slate-500">Gộp: <b>{fmt(tier.pricePerSheet)}₫</b></td>
-                                                <td colSpan={2} className="px-4 py-2 text-right font-black text-[13px] text-slate-800">{fmt(tier.pricePerSheet)}₫<span className="text-[10px] text-slate-400 font-normal ml-0.5">/tờ</span></td>
+                                                <td colSpan={2} className="px-4 py-2 text-[11px] text-slate-500">
+                                                    <span className="mr-2">Giấy <b className="text-slate-700">{fmt(tier.paperCost ?? tier.pricePerSheet)}</b></span>
+                                                    <span className="mr-2">Mực <b className="text-slate-700">{fmt(tier.inkCost ?? 0)}</b></span>
+                                                    <span className="mr-2">Máy <b className="text-slate-700">{fmt(tier.machineCost ?? 0)}</b></span>
+                                                    <span className="mr-2">Công <b className="text-slate-700">{fmt(tier.laborCost ?? 0)}</b></span>
+                                                    <span>OH <b className="text-slate-700">{fmt(tier.overheadCost ?? 0)}</b></span>
+                                                </td>
+                                                <td colSpan={2} className="px-4 py-2 text-right font-black text-[13px] text-slate-800">{fmt(tier.pricePerSheet)}₫<span className="text-[10px] text-slate-400 font-normal ml-0.5">/tờ vốn</span></td>
                                                 <td></td>
                                             </tr>
                                         ))}

@@ -17,11 +17,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ZaloAccount, ZaloAccountStatus } from '../../entities/zalo-account.entity';
 import { Channel, ChannelType } from '../../entities/channel.entity';
+import { Roles, RolesGuard } from '../auth/roles.guard';
+import { UserRole } from '../../entities';
 import { ZaloPoolService } from './zalo-pool.service';
 import { ZaloRateLimiterService } from './zalo-rate-limiter.service';
 
 @Controller('zalo-personal')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 export class ZaloPersonalController {
     private readonly logger = new Logger(ZaloPersonalController.name);
     constructor(
@@ -59,8 +61,9 @@ export class ZaloPersonalController {
         }));
     }
 
-    /** POST /zalo-personal/accounts — Register a new Zalo account (returns ID for QR) */
+    /** POST /zalo-personal/accounts — Register a new Zalo account (returns ID for QR) — ADMIN only */
     @Post('accounts')
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async createAccount(
         @Body() dto: { ownerUserId: string; phone?: string; displayName?: string },
     ) {
@@ -88,8 +91,9 @@ export class ZaloPersonalController {
         return savedAccount;
     }
 
-    /** POST /zalo-personal/accounts/:id/qr — Start QR login flow */
+    /** POST /zalo-personal/accounts/:id/qr — Start QR login flow — ADMIN only */
     @Post('accounts/:id/qr')
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async startQRLogin(@Param('id') id: string) {
         if (!this.pool.isAvailable()) {
             return { success: false, error: 'zca-js chưa được cài đặt. Chạy: npm i zca-js' };
@@ -102,8 +106,9 @@ export class ZaloPersonalController {
         }
     }
 
-    /** POST /zalo-personal/accounts/:id/reconnect — Manual reconnect */
+    /** POST /zalo-personal/accounts/:id/reconnect — Manual reconnect — ADMIN only */
     @Post('accounts/:id/reconnect')
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async reconnect(@Param('id') id: string) {
         const account = await this.repo.findOne({ where: { id }, select: ['id', 'sessionData'] });
         if (!account?.sessionData) {
@@ -189,8 +194,9 @@ export class ZaloPersonalController {
         return this.pool.sendMessage(id, dto.recipientUid, dto.content);
     }
 
-    /** DELETE /zalo-personal/accounts/:id — Disconnect and remove */
+    /** DELETE /zalo-personal/accounts/:id — Disconnect and remove — ADMIN only */
     @Delete('accounts/:id')
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async removeAccount(@Param('id') id: string) {
         const account = await this.repo.findOne({ where: { id } });
         if (!account) throw new BadRequestException('Account not found');

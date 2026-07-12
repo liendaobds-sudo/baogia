@@ -75,14 +75,21 @@ export default function OffsetQuotePage() {
                 sidebarRef.current?.setCustomerData({
                     customer_name: d.customer_name || '', customer_phone: d.customer_phone || '',
                     customer_address: d.customer_address || '', customer_unit: d.customer_unit || '',
+                    customer_email: d.customer_email || '', customer_contact: d.customer_contact || '',
                     customer_tax_code: d.tax_code || '', notes: d.customer_note || '',
                 });
                 setCustomerName(d.customer_name || '');
                 clearCart();
+                let tabSet = false;
                 for (const it of (d.items || [])) {
                     let pd: any = {};
                     try { pd = typeof it.printing_detail === 'string' ? JSON.parse(it.printing_detail) : (it.printing_detail || {}); } catch { /* bỏ qua */ }
                     if (!pd?.offset || !pd.config) continue;
+                    // Nạp lại tab loại sản phẩm theo item đầu tiên (để form hiển thị đúng khi Sửa).
+                    if (!tabSet) {
+                        const t = pd.config?.type as OffsetProductType | undefined;
+                        if (t && OFFSET_TABS.some(x => x.id === t)) { setProductType(t); tabSet = true; }
+                    }
                     const qty = Number(it.quantity) || 1;
                     const total = parseFloat(it.item_total) || 0;
                     addItem({
@@ -147,6 +154,8 @@ export default function OffsetQuotePage() {
                     tax_code: payload.customer_tax_code,
                     customer_address: payload.customer_address,
                     customer_note: payload.notes,
+                    customer_email: payload.customer_email,
+                    customer_contact: payload.customer_contact,
                     total: subtotal,
                     vat_rate: payload.vat_rate,
                     vat_amount: vatAmount,

@@ -17,6 +17,7 @@ export class ErpCustomersController {
     ) { }
 
     @Get()
+    @Permissions('customer.view')
     async findAll(
         @Query('action') action?: string,
         @Query('search') search?: string,
@@ -46,6 +47,7 @@ export class ErpCustomersController {
     }
 
     @Get(':id')
+    @Permissions('customer.view')
     async findOne(@Param('id') id: string) {
         const data = await this.service.findCustomerById(id);
         if (!data) return { success: false, error: 'Customer not found' };
@@ -53,6 +55,7 @@ export class ErpCustomersController {
     }
 
     @Post()
+    @Permissions('customer.create')
     async create(@Body() body: CreateCustomerDto) {
         try {
             return { success: true, data: await this.service.createCustomer(body), message: 'Customer created successfully' };
@@ -62,6 +65,7 @@ export class ErpCustomersController {
     }
 
     @Put(':id')
+    @Permissions('customer.edit')
     async update(@Param('id') id: string, @Body() body: UpdateCustomerDto) {
         try {
             return { success: true, data: await this.service.updateCustomer(id, body), message: 'Customer updated successfully' };
@@ -71,6 +75,7 @@ export class ErpCustomersController {
     }
 
     @Delete(':id')
+    @Permissions('customer.delete')
     async remove(@Param('id') id: string) {
         try {
             await this.service.deleteCustomer(id);
@@ -81,11 +86,13 @@ export class ErpCustomersController {
     }
 
     @Get(':id/interactions')
+    @Permissions('customer.view')
     async getInteractions(@Param('id') id: string) {
         return { success: true, data: await this.service.findInteractions(id) };
     }
 
     @Post(':id/interactions')
+    @Permissions('customer.create')
     async addInteraction(@Param('id') id: string, @Body() body: any) {
         try {
             const data = await this.service.createInteraction({ ...body, customer_id: parseInt(id) });
@@ -96,6 +103,7 @@ export class ErpCustomersController {
     }
 
     @Post('rfm/calculate')
+    @Permissions('customer.edit')
     async calculateRfm() {
         try {
             const result = await this.rfmService.calculateAll();

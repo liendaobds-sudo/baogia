@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import type { Conversation, ChatMessage } from '../types';
 
 interface ForwardModalProps {
@@ -29,6 +30,13 @@ export function ForwardModal({
     onForward,
     onClose,
 }: ForwardModalProps) {
+    // Close on Escape key
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [onClose]);
+
     return (
         <div className="fixed inset-0 z-[99999] bg-black/45 flex items-center justify-center" onClick={onClose}>
             <div className="bg-white rounded-xl w-[420px] max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>

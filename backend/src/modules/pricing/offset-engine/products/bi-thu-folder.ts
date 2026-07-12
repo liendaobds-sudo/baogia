@@ -2,8 +2,9 @@
  * Bì thư + Folder (khổ cố định) — báo giá offset (bù hao theo công đoạn).
  * Số con/tờ lấy từ bảng khổ cố định. Kẽm folder×2 (folder + in 2 mặt).
  */
-import { PricingData, QuoteLine, QuoteResult, OffsetPricingError } from '../pricing-data';
-import { giaGiay, dienTichKho, pickRate, docKichThuocCm, timKhoIn, imposeFromKhoIn, soConKhoTinh } from '../lookups';
+import { PricingData, QuoteLine, QuoteResult, OffsetPricingError, KhoIn } from '../pricing-data';
+import { giaGiay, dienTichKho, pickRate, docKichThuocCm, timKhoIn } from '../lookups';
+import { resolveSoCon, SoConOutcome } from '../imposition-selector';
 import { tongHopKetQua } from '../totals';
 import { buildWaste, stageCostAt, extraProcessingLines } from './_waste-stages';
 
@@ -42,25 +43,37 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
     const soMat = input.soMatIn;
 
     // Hai chế độ song song: khổ TĨNH (tra bảng) hoặc NHẬP kích thước (dàn khuôn động).
+    // Số con/tờ lấy từ NGUỒN DUY NHẤT `resolveSoCon` (selector): legacy = imposeFromKhoIn + fallback
+    // bảng tĩnh (tái lập hành vi golden); unified = imposeUnified (lề/gripper/gutter). `soConOutcome`
+    // giữ kết quả cuối cùng để đính meta (impositionSource/shadow/positions/marginConfig) cho parity.
     let soCon: number, soConBaiIn: number, khoBinh: string, khoGiayLon: string, isFolder: boolean;
     let itemW: number | undefined, itemH: number | undefined;
+    let soConOutcome: SoConOutcome | undefined;
     if (input.kichThuoc) {
         const fs = d.fixedSizes.biThuFolder.find((x) => x.kichThuoc === input.kichThuoc);
         if (!fs) throw new OffsetPricingError(`Kích thước bì thư/folder không tồn tại: ${input.kichThuoc}`);
         khoBinh = fs.khoIn; khoGiayLon = fs.khoGiayLon; isFolder = fs.loai === 'folder';
         const it = docKichThuocCm(input.kichThuoc); itemW = it?.w; itemH = it?.h;
-        // Số con: tự tính theo hình học từ kích thước + khổ in (fallback số bảng nếu không tính được).
-        const sc = soConKhoTinh(d, fs.soConBaiIn, fs.soConKhoGiayLon, fs.khoIn, fs.khoGiayLon, itemW, itemH);
-        soCon = sc.soConToLon; soConBaiIn = sc.soConBaiIn;
+        // Dàn khuôn qua selector trên khổ mặc định của size (fallback số bảng nếu không tính được).
+        const recFs = timKhoIn(fs.khoIn, d);
+        const khoFs: KhoIn = recFs
+            ? { ...recFs, khoIn: fs.khoIn, khoGiayLon: fs.khoGiayLon }
+            : { khoIn: fs.khoIn, chiaTo: '', soConBaiIn: fs.soConBaiIn, soConToLon: fs.soConKhoGiayLon, khoGiayLon: fs.khoGiayLon, dienTichM2: 0, loaiKem: 'Kẽm lớn' };
+        const sc = resolveSoCon({
+            itemWcm: itemW, itemHcm: itemH, kho: khoFs, data: d,
+            fallbackToLon: fs.soConKhoGiayLon, fallbackBaiIn: fs.soConBaiIn,
+        });
+        soCon = sc.soConToLon; soConBaiIn = sc.soConBaiIn; soConOutcome = sc;
         // Người dùng chọn khổ in cụ thể (preview/gợi ý) → dùng khổ đó & dàn khuôn lại theo kích thước
         // phẳng để báo giá đổi realtime. Không chọn (khoIn rỗng) → giữ khổ mặc định của size (golden).
         if (input.khoIn && itemW && itemH) {
             const khoChon = timKhoIn(input.khoIn, d);
             if (khoChon) {
-                const imp = imposeFromKhoIn(khoChon, itemW, itemH, d.tyLe.params.Gap_Cm || 0.3);
-                if (imp.soConToLon > 0 && imp.soConBaiIn > 0) {
-                    soCon = imp.soConToLon; soConBaiIn = imp.soConBaiIn;
+                const ov = resolveSoCon({ itemWcm: itemW, itemHcm: itemH, kho: khoChon, data: d });
+                if (ov.soConToLon > 0 && ov.soConBaiIn > 0) {
+                    soCon = ov.soConToLon; soConBaiIn = ov.soConBaiIn;
                     khoBinh = khoChon.khoIn; khoGiayLon = khoChon.khoGiayLon;
+                    soConOutcome = ov;
                 }
             }
         }
@@ -69,9 +82,10 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
         if (!input.rong || !input.cao || input.rong <= 0 || input.cao <= 0) throw new OffsetPricingError('Cần nhập kích thước (rộng × cao) hợp lệ');
         const kho = timKhoIn(input.khoIn, d);
         if (!kho) throw new OffsetPricingError(`Khổ in không tồn tại: ${input.khoIn}`);
-        const imp = imposeFromKhoIn(kho, input.rong, input.cao, d.tyLe.params.Gap_Cm || 0.3);
-        if (!(imp.soConToLon > 0) || !(imp.soConBaiIn > 0)) throw new OffsetPricingError('Kích thước sản phẩm quá lớn cho khổ in đã chọn');
-        soCon = imp.soConToLon; soConBaiIn = imp.soConBaiIn; khoBinh = kho.khoIn; khoGiayLon = kho.khoGiayLon; isFolder = input.loai === 'folder';
+        const sc = resolveSoCon({ itemWcm: input.rong, itemHcm: input.cao, kho, data: d });
+        if (!(sc.soConToLon > 0) || !(sc.soConBaiIn > 0)) throw new OffsetPricingError('Kích thước sản phẩm quá lớn cho khổ in đã chọn');
+        soCon = sc.soConToLon; soConBaiIn = sc.soConBaiIn; khoBinh = kho.khoIn; khoGiayLon = kho.khoGiayLon; isFolder = input.loai === 'folder';
+        soConOutcome = sc;
         itemW = input.rong; itemH = input.cao;
     }
 
@@ -159,6 +173,10 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
         khoBinh, khoGiayLon, soConBaiIn, soConToLon: soCon, soToLon: sheetsGross, luotIn,
         soKem: input.soKemIn, loaiKem: kemType,
         sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
+        impositionSource: soConOutcome?.source,
+        ...(soConOutcome?.shadow ? { shadow: soConOutcome.shadow } : {}),
+        ...(soConOutcome?.positions ? { positions: soConOutcome.positions } : {}),
+        ...(soConOutcome?.marginConfig ? { marginConfig: soConOutcome.marginConfig } : {}),
     };
     return res;
 }

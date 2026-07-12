@@ -83,6 +83,16 @@ export interface OffsetQuoteResult {
     warnings?: string[];
 }
 
+/** Margin_Config (mm) từ Imposition_Service — để preview vẽ vùng in/gripper. */
+export interface OffsetMarginConfig {
+    left: number;    // mm
+    right: number;   // mm
+    top: number;     // mm
+    bottom: number;  // mm
+    gripper: number; // mm — cộng vào MỘT cạnh (cạnh nhíp)
+    gutter: number;  // mm — khe giữa các con
+}
+
 export interface OffsetQuoteMeta {
     khoBinh?: string;
     khoGiayLon?: string;
@@ -96,6 +106,15 @@ export interface OffsetQuoteMeta {
     sheetH?: number;
     itemW?: number;
     itemH?: number;
+    // Imposition thống nhất — parity giá ≡ preview ≡ PDF (Req 2.3, 10.2).
+    impositionSource?: 'legacy' | 'unified';
+    marginConfig?: OffsetMarginConfig;                                   // mm
+    positions?: Array<{ x: number; y: number; w: number; h: number }>;   // mm — vị trí con trên TỜ LỚN để preview
+    // Khổ BÀI IN (press sheet) — preview hộp vẽ theo mức này (khớp soConBaiIn dùng cho giá).
+    pressW?: number;                                                     // cm — bề rộng khổ bài in
+    pressH?: number;                                                     // cm — bề cao khổ bài in
+    pressPositions?: Array<{ x: number; y: number; w: number; h: number }>; // mm — vị trí con trên khổ bài in
+    pressUsableArea?: { width: number; height: number };                    // mm — vùng in khả dụng khổ bài in
 }
 
 export function useOffsetPricebook(token: string | null) {

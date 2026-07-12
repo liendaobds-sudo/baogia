@@ -43,8 +43,10 @@ export class PricingController {
     // GET /api/v1/pricing/master-data
     // ════════════════════════════════════════════════
 
-    // Public (như bản gốc) — chỉ trả master-data, KHÔNG enforce phương pháp.
+    // Yêu cầu đăng nhập: master-data gồm vật tư + cờ định mức giá (dữ liệu nghiệp vụ theo tenant),
+    // không nên lộ công khai. KHÔNG enforce phương pháp (chỉ đọc danh mục).
     @Get('master-data')
+    @UseGuards(AuthGuard('jwt'))
     async getMasterData(@Query('type') type?: string, @Query('scope') scope?: string) {
         return this.pricingFacade.getMasterData(type, scope);
     }

@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Put, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Put, Patch, Param, Body, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { ConfigService } from '@nestjs/config';
 import { AiSuggestService } from './ai-suggest.service';
 import { AiLearningService } from './ai-learning.service';
+import { RolesGuard, Roles } from '../auth/roles.guard';
+import { UserRole } from '../../entities';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -26,7 +29,7 @@ interface AiProviderEntry {
 }
 
 @Controller('suggestions')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class SuggestionsController {
     constructor(
         private aiService: AiSuggestService,
@@ -78,6 +81,8 @@ export class SuggestionsController {
     // ═══ AI Config Management ═══
 
     @Get('ai-config')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     getAiConfig() {
         const config = this.loadConfig();
         // Mask keys for security — only show last 4 chars
@@ -89,8 +94,17 @@ export class SuggestionsController {
     }
 
     @Put('ai-config')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     saveAiConfig(@Body() body: { providers: AiProviderEntry[] }) {
         const existing = this.loadConfig();
+
+        // Chặn SSRF/exfil: endpoint tuỳ ý được dùng để dựng URL fetch (kèm Authorization
+        // Bearer <apiKey> + nội dung hội thoại). Chỉ cho http/https hợp lệ; từ chối scheme
+        // khác (file:/gopher:/…) và giá trị không parse được.
+        for (const p of body.providers || []) {
+            if (p.endpoint) this.assertSafeEndpoint(p.endpoint);
+        }
 
         // For each provider, if the new key is all dots (masked), keep the old key
         const merged = body.providers.map(p => {
@@ -126,12 +140,32 @@ export class SuggestionsController {
 
     // ═══ Automation Config (SLA + Auto-Reply) ═══
 
+    /**
+     * Chỉ cho phép endpoint http/https parse được. Ném BadRequest nếu scheme lạ hoặc
+     * URL rác — tránh biến ai-config thành vector SSRF/exfil.
+     */
+    private assertSafeEndpoint(endpoint: string): void {
+        let url: URL;
+        try {
+            url = new URL(endpoint);
+        } catch {
+            throw new BadRequestException(`Endpoint không hợp lệ: ${endpoint}`);
+        }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            throw new BadRequestException(`Endpoint chỉ chấp nhận http/https: ${endpoint}`);
+        }
+    }
+
     @Get('automation-config')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     getAutomationConfig() {
         return this.loadAutomationConfig();
     }
 
     @Put('automation-config')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     saveAutomationConfig(@Body() body: Partial<AutomationConfig>) {
         const existing = this.loadAutomationConfig();
         const merged: AutomationConfig = { ...existing, ...body };

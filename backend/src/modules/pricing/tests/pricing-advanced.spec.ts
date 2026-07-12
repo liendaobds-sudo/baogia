@@ -44,6 +44,7 @@ describe('Pricing ADVANCED — bound & large format edge', () => {
             binding_type: 'saddle_stitch',
             cover: { material_id: 10, paper_size_id: 1, print_side: 'double', print_type: '4c' },
             inner: [{ material_id: 10, paper_size_id: 1, print_side: 'double', print_type: '4c' }],
+            vat_rate: 8, // VAT theo thông tin khách hàng (request), không từ config
         } as any);
 
         expect(res.success).toBe(true);

@@ -24,11 +24,7 @@ export class QuotePdfService {
         const site: Record<string, string> = {};
         for (const r of siteRows) site[r.key] = r.value;
 
-        // Load VAT config
-        const configRows = await this.dataSource.query('SELECT config_key, config_value FROM pricing_config').catch(() => []);
-        const config: Record<string, string> = {};
-        for (const r of configRows) config[r.config_key] = r.config_value;
-        // Config loaded for fallback (VAT is now per-quote but falls back to config)
+        // VAT KHÔNG còn đọc từ pricing_config — chỉ lấy theo vat_rate của báo giá (mục khách hàng).
 
         const items = quote.items || [];
         const formatVnd = (n: number) => new Intl.NumberFormat('vi-VN').format(Math.round(n || 0));
@@ -36,11 +32,16 @@ export class QuotePdfService {
         const total = parseFloat(quote.total) || 0;
         const discountAmount = parseFloat(quote.discount_amount) || 0;
         const subtotalBeforeDiscount = total + discountAmount;
-        // Use VAT from the quote itself (user-customized per quote), fallback to config
-        const vatRate = parseFloat(quote.vat_rate) || parseFloat(config['vat_rate'] || '0');
-        const vatAmount = parseFloat(quote.vat_amount) || Math.round(total * vatRate / 100);
-        const shippingFee = parseFloat(quote.shipping_fee) || 0;
-        const grandTotal = parseFloat(quote.grand_total) || (total + vatAmount + shippingFee);
+        // VAT BẮT BUỘC lấy từ chính báo giá (vat_rate nhập ở mục khách hàng lúc tạo) — KHÔNG fallback config.
+        // Dùng Number.isFinite (không dùng `||`) để 0% (không áp VAT) được tôn trọng, không bị coi là "thiếu".
+        const pickNum = (v: unknown, fallback: number): number => {
+            const n = parseFloat(String(v));
+            return Number.isFinite(n) ? n : fallback;
+        };
+        const vatRate = pickNum(quote.vat_rate, 0);
+        const vatAmount = pickNum(quote.vat_amount, Math.round(total * vatRate / 100));
+        const shippingFee = pickNum(quote.shipping_fee, 0);
+        const grandTotal = pickNum(quote.grand_total, total + vatAmount + shippingFee);
         const offsetSpecOf = (pd: any): string => {
             const c = pd?.config || {}; const m = pd?.result?.meta || {};
             const parts: string[] = [];

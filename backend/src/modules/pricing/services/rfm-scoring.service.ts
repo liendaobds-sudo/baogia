@@ -47,8 +47,13 @@ export class RfmScoringService {
         const fBreaks = [percentile(frequencies, 20), percentile(frequencies, 40), percentile(frequencies, 60), percentile(frequencies, 80)];
         const mBreaks = [percentile(monetaries, 20), percentile(monetaries, 40), percentile(monetaries, 60), percentile(monetaries, 80)];
 
-        // Score each customer
-        let scored = 0;
+        // Score each customer (in-memory), rồi ghi TẤT CẢ bằng 1 bulk UPDATE (tránh N UPDATE tuần tự).
+        const ids: number[] = [];
+        const rs: number[] = [];
+        const fs: number[] = [];
+        const ms: number[] = [];
+        const totals: number[] = [];
+        const segments: string[] = [];
         for (const c of customers) {
             const daysSince = parseFloat(c.days_since_last) || 9999;
             const freq = parseInt(c.order_count) || 0;
@@ -69,19 +74,24 @@ export class RfmScoringService {
             else if (totalScore >= 4) segment = 'at_risk';
             else segment = 'lost';
 
-            // Also auto-upgrade lifecycle_stage for VIP
-            let lifecycleUpdate = '';
-            if (segment === 'vip') {
-                lifecycleUpdate = ", lifecycle_stage = 'vip'";
-            }
-
-            await this.dataSource.query(
-                `UPDATE customers SET rfm_r = $1, rfm_f = $2, rfm_m = $3, rfm_score = $4, rfm_segment = $5, rfm_calculated_at = NOW()${lifecycleUpdate} WHERE id = $6`,
-                [rScore, fScore, mScore, totalScore, segment, c.id],
-            );
-            scored++;
+            ids.push(Number(c.id));
+            rs.push(rScore); fs.push(fScore); ms.push(mScore);
+            totals.push(totalScore); segments.push(segment);
         }
 
+        // 1 UPDATE cho toàn bộ khách qua unnest(). VIP tự nâng lifecycle_stage (CASE trong SQL).
+        await this.dataSource.query(
+            `UPDATE customers c SET
+                rfm_r = v.r, rfm_f = v.f, rfm_m = v.m, rfm_score = v.score,
+                rfm_segment = v.segment, rfm_calculated_at = NOW(),
+                lifecycle_stage = CASE WHEN v.segment = 'vip' THEN 'vip' ELSE c.lifecycle_stage END
+             FROM unnest($1::int[], $2::int[], $3::int[], $4::int[], $5::int[], $6::text[])
+                AS v(id, r, f, m, score, segment)
+             WHERE c.id = v.id`,
+            [ids, rs, fs, ms, totals, segments],
+        );
+
+        const scored = ids.length;
         this.logger.log(`RFM scoring complete: ${scored} customers scored`);
         return { scored };
     }

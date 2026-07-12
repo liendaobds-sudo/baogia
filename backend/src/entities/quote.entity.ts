@@ -4,16 +4,20 @@ import {
   Column,
   CreateDateColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { QuoteItem } from './quote-item.entity';
 
 /**
  * Quote entity — maps to `quotes` table in erp_print DB.
- * 
+ *
  * DB column `code` (varchar 50, NOT NULL) is the quote number (e.g. Q-2026-00001).
  * DB does NOT have `quote_number`, `notes`, or `updated_at`.
  */
 @Entity('quotes')
+@Index('idx_quotes_customer_id', ['customerId'])
+@Index('idx_quotes_status', ['status'])
+@Index('idx_quotes_created_at', ['createdAt'])
 export class Quote {
   @PrimaryGeneratedColumn()
   id: number;

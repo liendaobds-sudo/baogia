@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, Not } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Customer, CustomerPriceGroup, CustomerInteraction } from '../../../entities';
 import { CreateCustomerDto, UpdateCustomerDto } from '../dto/create-customer.dto';
+import { TenantContextService } from '../../../common/tenant/tenant-context.service';
 
 @Injectable()
 export class CustomersService {
@@ -13,7 +14,44 @@ export class CustomersService {
         @InjectRepository(CustomerPriceGroup) private groupRepo: Repository<CustomerPriceGroup>,
         @InjectRepository(CustomerInteraction) private interactionRepo: Repository<CustomerInteraction>,
         @InjectDataSource() private dataSource: DataSource,
+        // Optional: một số TestingModule cô lập không nạp TenantContextModule (@Global).
+        @Optional() private readonly tenant?: TenantContextService,
     ) { }
+
+    /** tenant hiện hành (non-bypass) để GHI; null cho system/không context. */
+    private writeTenantId(): number | null {
+        const ctx = this.tenant?.get?.();
+        return ctx && !ctx.bypass ? ctx.tenantId : null;
+    }
+
+    /**
+     * Ràng buộc tenant cho SQL raw (lưới an toàn khi RLS chưa flip): trả về mệnh đề
+     * `AND (tenant_id = $N OR tenant_id IS NULL)` + tham số, hoặc rỗng khi ngoài context/bypass.
+     * @param nextIdx chỉ số tham số kế tiếp ($1-based) để nối vào query hiện có.
+     */
+    private tenantSql(nextIdx: number, col = 'tenant_id'): { clause: string; params: any[] } {
+        const ctx = this.tenant?.get?.();
+        if (!ctx || ctx.bypass) return { clause: '', params: [] };
+        return { clause: ` AND (${col} = $${nextIdx} OR ${col} IS NULL)`, params: [ctx.tenantId] };
+    }
+
+    /** Tìm 1 KH theo field (phone/code) TRONG tenant hiện hành (+ NULL dùng chung); bỏ lọc khi bypass/no-ctx. */
+    private async findOneByFieldInTenant(field: 'phone' | 'code', value: string): Promise<Customer | null> {
+        const qb = this.repo.createQueryBuilder('c').where(`c.${field} = :v`, { v: value });
+        const ctx = this.tenant?.get?.();
+        if (ctx && !ctx.bypass) qb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid: ctx.tenantId });
+        return qb.getOne();
+    }
+
+    /** Chặn thao tác chéo tenant trên 1 bản ghi đã nạp. */
+    private assertSameTenant(row: { tenantId?: number | null } | any): void {
+        const ctx = this.tenant?.get?.();
+        if (!ctx || ctx.bypass) return;
+        const t = row?.tenantId ?? row?.tenant_id ?? null;
+        if (t != null && t !== ctx.tenantId) {
+            throw new Error('Customer not found');
+        }
+    }
 
     // ─── Customers: List with pagination, search, tag & segment filters ───
 
@@ -43,13 +81,23 @@ export class CustomersService {
         if (filters.lifecycle_stage) {
             qb.andWhere('c.lifecycle_stage = :lifecycle', { lifecycle: filters.lifecycle_stage });
         }
+        // Cô lập tenant (tầng app): chỉ KH của tenant hiện hành HOẶC dùng chung (NULL).
+        const ctx = this.tenant?.get?.();
+        if (ctx && !ctx.bypass) {
+            qb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid: ctx.tenantId });
+        }
 
         const total = await qb.getCount();
-        const customers = await qb
+        const rows = await qb
             .orderBy('c.created_at', 'DESC')
             .offset(offset)
             .limit(limit)
             .getRawMany();
+        // Trim PII nhạy cảm khỏi danh sách (chi tiết mới trả đầy đủ qua findCustomerById).
+        const customers = rows.map((r: any) => {
+            const { bank_account, bank_name, supabase_uid, notes, ...safe } = r;
+            return safe;
+        });
         const totalPages = Math.ceil(total / limit);
 
         return {
@@ -64,13 +112,16 @@ export class CustomersService {
     // ─── Customer: Get by ID with orders + debt ───
 
     async findCustomerById(id: string) {
-        const [customer] = await this.dataSource.query('SELECT * FROM customers WHERE id = $1', [id]);
+        const t = this.tenantSql(2);
+        const [customer] = await this.dataSource.query(
+            `SELECT * FROM customers WHERE id = $1${t.clause}`, [id, ...t.params]);
         if (!customer) return null;
 
-        // Orders with paid_amount
+        // Orders with paid_amount — lọc theo tenant (không gộp báo giá tenant khác).
+        const ot = this.tenantSql(2, 'o.tenant_id');
         const orders = await this.dataSource.query(`
-            SELECT o.* FROM quotes o WHERE o.customer_id = $1 ORDER BY o.created_at DESC
-        `, [id]).catch(() => []);
+            SELECT o.* FROM quotes o WHERE o.customer_id = $1${ot.clause} ORDER BY o.created_at DESC
+        `, [id, ...ot.params]).catch(() => []);
 
         // Debt calculation
         let orderDebt = 0;
@@ -109,13 +160,14 @@ export class CustomersService {
         // Normalize phone
         phone = phone.replace(/[\s\-\.]/g, '').replace(/^(\+84|84)/, '0');
 
+        const t = this.tenantSql(3, 'c.tenant_id');
         const [customer] = await this.dataSource.query(`
             SELECT c.*, 
                    (SELECT COUNT(*) FROM quotes o WHERE o.customer_id = c.id) as total_orders,
                    (SELECT COALESCE(SUM(o.total), 0) FROM quotes o WHERE o.customer_id = c.id) as total_spent,
                    (SELECT MAX(o.created_at) FROM quotes o WHERE o.customer_id = c.id) as last_order_date
-            FROM customers c WHERE c.phone = $1 OR c.phone LIKE $2 LIMIT 1
-        `, [phone, `%${phone}`]);
+            FROM customers c WHERE (c.phone = $1 OR c.phone LIKE $2)${t.clause} LIMIT 1
+        `, [phone, `%${phone}`, ...t.params]);
 
         if (!customer) {
             return {
@@ -158,13 +210,14 @@ export class CustomersService {
         query = query.trim();
         const normalizedPhone = query.replace(/[\s\-\.]/g, '').replace(/^(\+84|84)/, '0');
 
+        const t = this.tenantSql(7, 'c.tenant_id');
         const [customer] = await this.dataSource.query(`
             SELECT c.*, 
                    (SELECT COUNT(*) FROM quotes o WHERE o.customer_id = c.id) as total_orders,
                    (SELECT COALESCE(SUM(o.total), 0) FROM quotes o WHERE o.customer_id = c.id) as total_spent 
             FROM customers c 
-            WHERE c.phone = $1 OR c.phone LIKE $2 OR c.email = $3 OR c.tax_code = $4 OR c.code = $5 OR c.code LIKE $6 LIMIT 1
-        `, [normalizedPhone, `%${normalizedPhone}`, query, query, query, `%${query}`]);
+            WHERE (c.phone = $1 OR c.phone LIKE $2 OR c.email = $3 OR c.tax_code = $4 OR c.code = $5 OR c.code LIKE $6)${t.clause} LIMIT 1
+        `, [normalizedPhone, `%${normalizedPhone}`, query, query, query, `%${query}`, ...t.params]);
 
         if (!customer) return { found: false, query, message: 'Không tìm thấy khách hàng' };
 
@@ -202,14 +255,15 @@ export class CustomersService {
             const nextId = (parseInt(maxResult.max_id || '0') + 1);
             data.code = `KH${String(nextId).padStart(4, '0')}`;
         } else {
-            const dup = await this.repo.findOne({ where: { code: data.code } });
+            // Trùng mã CHỈ xét trong tenant hiện hành (unique theo tenant).
+            const dup = await this.findOneByFieldInTenant('code', data.code);
             if (dup) throw new Error('Customer code already exists');
         }
 
-        // Normalize + check duplicate phone
+        // Normalize + check duplicate phone (theo tenant)
         if (data.phone) {
             data.phone = data.phone.replace(/[\s\-\.]/g, '').replace(/^(\+84|84)/, '0');
-            const existing = await this.repo.findOne({ where: { phone: data.phone } });
+            const existing = await this.findOneByFieldInTenant('phone', data.phone);
             if (existing) throw new Error(`Số điện thoại đã tồn tại (Khách hàng: ${existing.name})`);
         }
 
@@ -234,6 +288,7 @@ export class CustomersService {
             lifecycle_stage: data.lifecycle_stage || 'lead',
             source: data.source || 'web',
             product_interest: data.product_interest ?? '',
+            tenantId: this.writeTenantId(),
         } as any);
 
         const saved = await this.repo.save(customer);
@@ -248,11 +303,17 @@ export class CustomersService {
     async updateCustomer(id: string, data: UpdateCustomerDto) {
         const existing = await this.repo.findOne({ where: { id: parseInt(id) } });
         if (!existing) throw new Error('Customer not found');
+        this.assertSameTenant(existing);
 
-        // Check duplicate phone
+        // Check duplicate phone (theo tenant, loại trừ chính bản ghi đang sửa)
         if (data.phone) {
             data.phone = data.phone.replace(/[\s\-\.]/g, '').replace(/^(\+84|84)/, '0');
-            const dup = await this.repo.findOne({ where: { phone: data.phone, id: Not(parseInt(id)) } as any });
+            const qb = this.repo.createQueryBuilder('c')
+                .where('c.phone = :p', { p: data.phone })
+                .andWhere('c.id != :id', { id: parseInt(id) });
+            const ctx = this.tenant?.get?.();
+            if (ctx && !ctx.bypass) qb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid: ctx.tenantId });
+            const dup = await qb.getOne();
             if (dup) throw new Error(`Số điện thoại đã tồn tại (Khách hàng: ${(dup as any).name})`);
         }
 
@@ -278,9 +339,11 @@ export class CustomersService {
     async deleteCustomer(id: string) {
         const customer = await this.repo.findOne({ where: { id: parseInt(id) } });
         if (!customer) throw new Error('Customer not found');
+        this.assertSameTenant(customer);
 
-        // Check dependencies — if query fails, abort delete (don't swallow error)
-        const [orderCount] = await this.dataSource.query('SELECT COUNT(*) as cnt FROM quotes WHERE customer_id = $1', [id]);
+        // Check dependencies (theo tenant) — if query fails, abort delete (don't swallow error)
+        const dt = this.tenantSql(2, 'tenant_id');
+        const [orderCount] = await this.dataSource.query(`SELECT COUNT(*) as cnt FROM quotes WHERE customer_id = $1${dt.clause}`, [id, ...dt.params]);
         if (parseInt(orderCount.cnt) > 0) {
             throw new Error(`Không thể xóa khách hàng đang có ${orderCount.cnt} báo giá. Hãy xóa báo giá trước.`);
         }
@@ -302,6 +365,9 @@ export class CustomersService {
     // ─── Customer Interactions (Sales Pipeline) ───
 
     async findInteractions(customerId: string) {
+        // Chỉ trả tương tác nếu KH thuộc tenant hiện hành (findCustomerById đã lọc tenant).
+        const owner = await this.findCustomerById(customerId);
+        if (!owner) return [];
         return this.interactionRepo.find({
             where: { customerId: parseInt(customerId) },
             order: { createdAt: 'DESC' },
@@ -356,8 +422,8 @@ export class CustomersService {
 
         const phone = data.customer_phone.replace(/[\s\-\.]/g, '').replace(/^(\+84|84)/, '0');
 
-        // Try to find existing customer by phone
-        const existing = await this.repo.findOne({ where: { phone } });
+        // Try to find existing customer by phone — CHỈ trong tenant hiện hành (không link chéo tenant).
+        const existing = await this.findOneByFieldInTenant('phone', phone);
         if (existing) {
             // Upgrade lifecycle if still lead
             if ((existing as any).lifecycle_stage === 'lead') {
@@ -406,13 +472,16 @@ export class CustomersService {
     // ─── Upgrade lifecycle when a Quote is completed ───
 
     async upgradeOnQuoteComplete(customerId: number) {
-        const [customer] = await this.dataSource.query('SELECT lifecycle_stage FROM customers WHERE id = $1', [customerId]);
+        // Lọc tenant: chỉ nâng cấp KH thuộc tenant hiện hành (phòng liên kết chéo).
+        const st = this.tenantSql(2, 'tenant_id');
+        const [customer] = await this.dataSource.query(`SELECT lifecycle_stage FROM customers WHERE id = $1${st.clause}`, [customerId, ...st.params]);
         if (!customer) return;
 
         if (['lead', 'prospect', 'lost'].includes(customer.lifecycle_stage)) {
+            const ut = this.tenantSql(2, 'tenant_id');
             await this.dataSource.query(
-                "UPDATE customers SET lifecycle_stage = 'customer', last_order_at = NOW() WHERE id = $1",
-                [customerId],
+                `UPDATE customers SET lifecycle_stage = 'customer', last_order_at = NOW() WHERE id = $1${ut.clause}`,
+                [customerId, ...ut.params],
             );
             await this.createInteraction({
                 customer_id: customerId,

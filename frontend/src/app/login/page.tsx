@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
+import { resolveLandingPath } from '@/lib/scope/landing';
 
 export default function LoginPage() {
     const { login, error, isLoading, user } = useAuth();
@@ -10,10 +11,10 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
 
-    // If already logged in → redirect to inbox
+    // Đã đăng nhập → điều hướng theo Trục_Ứng_Dụng của tenant (CSKH tắt → /pricing).
     useEffect(() => {
         if (user) {
-            router.replace('/inbox');
+            resolveLandingPath().then((path) => router.replace(path));
         }
     }, [user, router]);
 
@@ -21,7 +22,8 @@ export default function LoginPage() {
         e.preventDefault();
         try {
             await login(email, password);
-            router.push('/inbox');
+            const path = await resolveLandingPath();
+            router.push(path);
         } catch {
             // error is displayed via context
         }

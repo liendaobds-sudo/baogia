@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, IsNull } from 'typeorm';
 import { ZaloAccount, ZaloAccountStatus } from '../../entities/zalo-account.entity';
 import { ZaloPoolService } from './zalo-pool.service';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { forEachTenant } from '../../common/tenant/tenant-background';
 
 /**
  * ZaloHealthCheckService — Cron-based health monitor for Zalo account connections.
@@ -22,16 +24,23 @@ export class ZaloHealthCheckService {
         @InjectRepository(ZaloAccount)
         private readonly repo: Repository<ZaloAccount>,
         private readonly pool: ZaloPoolService,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) {}
 
     /**
      * Every 5 minutes: check all accounts with saved sessions.
      * If disconnected → attempt auto-reconnect.
+     *
+     * Khi RLS bật: lặp từng tenant, đọc/sửa zalo_accounts trong scope tenant (RLS lọc
+     * đúng tài khoản từng xưởng). Khi tắt (mặc định): chạy thẳng như cũ.
      */
     @Cron(CronExpression.EVERY_5_MINUTES)
     async healthCheck(): Promise<void> {
         if (!this.pool.isAvailable()) return; // zca-js not installed
+        await forEachTenant(this.tenantCtx, this.repo.manager, () => this.healthCheckCore());
+    }
 
+    private async healthCheckCore(): Promise<void> {
         try {
             const accounts = await this.repo.find({
                 where: { sessionData: Not(IsNull()) },
@@ -74,6 +83,10 @@ export class ZaloHealthCheckService {
         if (!this.pool.isAvailable()) return;
 
         this.logger.log('[health-check] 🔄 Daily session refresh starting...');
+        await forEachTenant(this.tenantCtx, this.repo.manager, () => this.dailyRefreshCore());
+    }
+
+    private async dailyRefreshCore(): Promise<void> {
         try {
             const accounts = await this.repo.find({
                 where: { sessionData: Not(IsNull()) },
@@ -105,6 +118,10 @@ export class ZaloHealthCheckService {
      */
     @Cron('0 0 * * *')
     async resetDailyCounts(): Promise<void> {
+        await forEachTenant(this.tenantCtx, this.repo.manager, () => this.resetDailyCountsCore());
+    }
+
+    private async resetDailyCountsCore(): Promise<void> {
         try {
             await this.repo.update({}, { dailySendCount: 0 });
             this.logger.log('[health-check] Daily send counters reset');

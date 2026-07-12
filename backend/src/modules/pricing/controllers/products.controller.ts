@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ProductsService } from '../services/products.service';
 import { Product } from '../../../entities';
 
+@UseGuards(AuthGuard('jwt'))
 @Controller('erp/products')
 export class ProductsController {
     constructor(private readonly service: ProductsService) { }
@@ -15,10 +16,6 @@ export class ProductsController {
     @Get('categories')
     async getCategories() {
         return { success: true, data: await this.service.findAllCategories() };
-    }
-    @Get('debug-fields')
-    async debugFields() {
-        return { success: true, fields: await this.service['repo'].manager.query('SELECT * FROM product_ai_fields LIMIT 10') };
     }
 
     // ─── Mini Quote Field Config ─────────────────
@@ -63,7 +60,6 @@ export class ProductsController {
     @Get(':id')
     async findOne(@Param('id') id: string) {
         if (id === 'categories') return this.getCategories();
-        if (id === 'debug-fields') return this.debugFields(); // Fallback for route collision
         const data = await this.service.findProductById(id);
         if (!data) return { success: false, error: 'Not found' };
         return { success: true, data };

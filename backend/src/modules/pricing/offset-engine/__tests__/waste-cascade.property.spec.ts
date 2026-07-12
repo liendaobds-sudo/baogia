@@ -95,6 +95,46 @@ describe('waste-cascade — property', () => {
         );
     });
 
+    // Feature: offset-imposition-gripper-unification, Property 6: Sheets_Net đúng công thức
+    // ceil(piecesIntoPress / So_Con) và đơn điệu nghịch theo So_Con; bất biến ranh giới cascade được giữ.
+    // Validates: Requirements 3.1, 3.2, 3.3
+    it('Property 6: Sheets_Net = ceil(piecesIntoPress / So_Con), đơn điệu theo So_Con, giữ bất biến cascade', () => {
+        fc.assert(
+            fc.property(
+                fc.integer({ min: 1, max: 1_000_000 }),
+                fc.integer({ min: 1, max: 256 }),
+                fc.integer({ min: 1, max: 256 }),
+                arbStages('piece'),
+                arbStages('sheet'),
+                (good, soConA, soConB, pieceStages, sheetStages) => {
+                    // So_Con₁ ≤ So_Con₂ (số con/tờ tăng dần)
+                    const soConLo = Math.min(soConA, soConB);
+                    const soConHi = Math.max(soConA, soConB);
+
+                    const rLo = cascadeProduct(good, soConLo, pieceStages, sheetStages);
+                    const rHi = cascadeProduct(good, soConHi, pieceStages, sheetStages);
+
+                    // piecesIntoPress chỉ phụ thuộc good + pieceStages, độc lập So_Con
+                    expect(rHi.piecesIntoPress).toBe(rLo.piecesIntoPress);
+
+                    // (3.1) công thức chính xác: Sheets_Net = ceil(piecesIntoPress / So_Con)
+                    expect(rLo.sheetsNet).toBe(Math.ceil(rLo.piecesIntoPress / soConLo));
+                    expect(rHi.sheetsNet).toBe(Math.ceil(rHi.piecesIntoPress / soConHi));
+
+                    // (3.2) đơn điệu: So_Con tăng ⇒ Sheets_Net không tăng (số con giảm ⇒ số tờ không giảm)
+                    expect(rLo.sheetsNet).toBeGreaterThanOrEqual(rHi.sheetsNet);
+
+                    // (3.3) bất biến ranh giới cascade được giữ ở cả hai nguồn So_Con
+                    expect(rLo.piecesIntoPress).toBeGreaterThanOrEqual(good);
+                    expect(rLo.sheetsNet).toBeGreaterThanOrEqual(Math.ceil(good / soConLo));
+                    expect(rLo.sheetsGross).toBeGreaterThanOrEqual(rLo.sheetsNet);
+                    expect(rHi.sheetsGross).toBeGreaterThanOrEqual(rHi.sheetsNet);
+                },
+            ),
+            { numRuns: 200 },
+        );
+    });
+
     it('ví dụ tài liệu: 1000 hộp, soCon=4, bế/dán/đóng gói + in/cán', () => {
         // pieceStages thứ tự sản xuất: bế → dán → đóng gói
         const piece: StageWaste[] = [

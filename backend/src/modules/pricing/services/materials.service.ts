@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional, NotFoundException, UnprocessableEntityException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, Not, ILike, SelectQueryBuilder, FindOptionsWhere, DeepPartial } from 'typeorm';
 import { Material, MaterialType, InventorySlip, InventorySlipItem } from '../../../entities';
@@ -7,6 +7,42 @@ import { ProcessingOption } from '../entities/processing-options.entity';
 import { ProcessingPricing } from '../../../entities/processing-pricing.entity';
 import { TenantContextService } from '../../../common/tenant/tenant-context.service';
 import { applyTenantToConnection } from '../../../common/tenant/tenant-transaction';
+import {
+    ProductType,
+    Scope,
+    ScopeFlags,
+    filterForProductType,
+    isActive,
+    validateScopeFlags,
+    deriveScopeLabel,
+} from '../scope/resource-scope-rule';
+import { UpdateScopeDto } from '../dto/update-scope.dto';
+import { computeConversionFactor, weightedAvgCost } from '../lib/cost-helpers';
+
+/**
+ * Tham số lọc Phạm_Vi dùng chung cho các endpoint đọc Tài_Nguyên_Dùng_Chung.
+ * - `scope`: khi có, chỉ trả tài nguyên thuộc Loại_Sản_Phẩm đó VÀ đang hoạt động (qua Quy_Tắc_Phạm_Vi).
+ * - `activeOnly`: khi true (và không truyền `scope`), chỉ trả tài nguyên đang hoạt động.
+ * - Không truyền gì → hành vi tương thích ngược (trả tất cả).
+ */
+export interface ScopeListQuery {
+    scope?: ProductType;
+    activeOnly?: boolean;
+}
+
+/** Các Loại_Sản_Phẩm in nhanh hợp lệ cho tham số `scope`. */
+const VALID_PRODUCT_TYPES: ProductType[] = ['loose', 'bound', 'large_format'];
+
+/**
+ * Vật tư offset phải có đơn giá > 0: engine đọc `unitPrice` làm chi phí giấy
+ * (`lookups.ts giaGiay`); thiếu/0 → chi phí giấy = 0 âm thầm, báo giá sai không nổ lỗi.
+ * Giả định nghiệp vụ: giấy offset luôn có giá. Nếu sau này có case giấy khách tự cung
+ * cấp (giá 0 hợp lệ), nới quy tắc tại đây.
+ */
+function offsetPriceValid(price: unknown): boolean {
+    const n = typeof price === 'number' ? price : parseFloat(String(price));
+    return Number.isFinite(n) && n > 0;
+}
 
 export interface PaginatedResult<T> {
     items: T[];
@@ -48,6 +84,7 @@ export class MaterialsService {
     async findAllMaterials(filters: {
         type?: string; category?: string; status?: string; keyword?: string;
         scope?: string; tab_scope?: string; material_format?: string;
+        activeOnly?: boolean;
         page?: number; limit?: number;
     } = {}) {
         const qb = this.repo.createQueryBuilder('m')
@@ -93,13 +130,21 @@ export class MaterialsService {
             qb.andWhere('(m.code LIKE :kw OR m.name LIKE :kw)', { kw: `%${filters.keyword}%` });
         }
         if (filters.scope) {
-            const validScopes = ['loose', 'bound', 'large_format', 'offset'];
-            if (validScopes.includes(filters.scope)) {
-                // Cột scope_* của `materials` là BOOLEAN → phải so sánh = true
-                // (Postgres ném "operator does not exist: boolean = integer" nếu dùng = 1).
+            // Lọc Phạm_Vi qua Quy_Tắc_Phạm_Vi canonical làm NGUỒN SỰ THẬT DUY NHẤT.
+            // Tập scope hợp lệ lấy theo kiểu canonical `Scope` (offset + 3 loại in nhanh).
+            const validScopes: Scope[] = ['loose', 'bound', 'large_format', 'offset'];
+            if (validScopes.includes(filters.scope as Scope)) {
+                // Cột scope_* của `materials` là BOOLEAN. Với cờ boolean, điều kiện SQL
+                // `m.scope_${scope} = true` TƯƠNG ĐƯƠNG CHÍNH XÁC canonical `resourceInScope(r, scope)`
+                // (canonical `isOn` coi true = Bật; false/NULL = Tắt) → group-agnostic, Req 1.6.
+                // Giữ SQL (thay vì post-filter) để phân trang đếm/cắt đúng ở tầng DB.
+                // (Postgres ném "operator does not exist: boolean = integer" nếu dùng = 1.)
                 qb.andWhere(`m.scope_${filters.scope} = true`);
             }
         }
+        // Lưu ý: bảng `materials` KHÔNG có cột `is_active` (xem material.entity.ts) → `filters.activeOnly`
+        // là no-op ở đây (mọi vật tư coi như đang hoạt động). Vẫn nhận tham số để đồng nhất ScopeListQuery
+        // với các endpoint Tài_Nguyên_Dùng_Chung khác (processing-options, paper-sizes).
         if (filters.category) {
             qb.andWhere('m.category_tab = :category', { category: filters.category });
         }
@@ -251,6 +296,15 @@ export class MaterialsService {
 
         const stockValue = data.stock_quantity || data.stock || 0;
 
+        // Vật tư offset bắt buộc có đơn giá > 0 (engine đọc làm chi phí giấy — fail fast).
+        // MIỄN cho khổ xả (sheet_role='child'): con KHÔNG có giá riêng, giá dẫn xuất từ vật tư
+        // khổ nhập cha (giá cha / số khổ xả trên tờ nhập). Chỉ khổ nhập (parent) + vật tư thường mới cần giá.
+        const willBeOffset = data.scope_offset !== undefined ? !!Number(data.scope_offset) : false;
+        const isChildSheet = data.sheet_role === 'child';
+        if (willBeOffset && !isChildSheet && !offsetPriceValid(data.unit_price)) {
+            throw new BadRequestException('Vật tư In Offset phải có đơn giá (giá giấy) lớn hơn 0.');
+        }
+
         // Map input (snake_case từ DTO/frontend) → property canonical (camelCase) của
         // entity Material chung. Bỏ các field KHÔNG phải cột thật trong bảng `materials`
         // (display_name, size_spec, stock_quantity, stock_unit_type). Scope/charge là BOOLEAN.
@@ -261,6 +315,8 @@ export class MaterialsService {
             categoryTab: data.category_tab || null,
             category: data.category || 'printing',
             paperSizeId: data.paper_size_id || null,
+            sheetRole: data.sheet_role || null,
+            parentMaterialId: data.parent_material_id || null,
             unitId: data.unit_id || null,
             unit: data.unit || 'tờ',
             width: data.width || null,
@@ -290,7 +346,52 @@ export class MaterialsService {
 
         const saved = await this.repo.save(material);
         this.logger.log(`Material created: ${saved.code} — ${saved.name}`);
+        // Khổ nhập (parent) + có danh sách khổ xả tick → sinh vật tư con thật (self-FK về cha).
+        if (Array.isArray(data.child_sheets) && data.child_sheets.length > 0) {
+            await this.syncChildSheets(saved, data.child_sheets);
+        }
         return saved;
+    }
+
+    /**
+     * Sinh vật tư con (khổ xả) từ danh sách khổ tick trong màn vật tư cha (khổ nhập).
+     * Mỗi con: mã TỰ SINH `${cha.code}-${w}x${h}`, `sheet_role='child'`, `parent_material_id=cha.id`,
+     * KHÔNG có giá (dẫn xuất từ cha lúc tính giá). Kế thừa `scope_offset`/`type`/`unit` từ cha.
+     * Idempotent theo mã: con đã tồn tại → bỏ qua (không nhân đôi khi sửa lại cha).
+     */
+    async syncChildSheets(parent: Material, childSheets: Array<{ width: number; height: number; name?: string }>): Promise<void> {
+        for (const cs of childSheets) {
+            const w = Number(cs.width);
+            const h = Number(cs.height);
+            if (!(w > 0 && h > 0)) continue; // khổ không hợp lệ → bỏ
+            const childCode = `${parent.code}-${w}x${h}`;
+            const dup = await this.repo.findOne({ where: { code: childCode } });
+            if (dup) continue; // đã có → idempotent
+            const child = this.repo.create({
+                code: childCode,
+                name: cs.name?.trim() || `${parent.name} (${w}×${h}mm)`,
+                type: parent.type,
+                category: parent.category,
+                categoryTab: parent.categoryTab,
+                sheetRole: 'child',
+                parentMaterialId: parent.id,
+                width: w,
+                height: h,
+                unit: parent.unit,
+                unitPrice: 0, // giá dẫn xuất từ cha, không nhập tay
+                scopeOffset: parent.scopeOffset,
+                scopeLoose: false,
+                scopeBound: false,
+                scopeLargeFormat: false,
+                materialFormat: 'sheet',
+                priceUnit: 'sheet',
+                status: 'normal',
+                stock: 0,
+                minStock: 0,
+            } as DeepPartial<Material>);
+            await this.repo.save(child);
+            this.logger.log(`Child sheet created: ${childCode} (parent ${parent.code})`);
+        }
     }
 
     // ─── Materials: Update (dynamic fields, stock_adjustment, UoM lock) ───
@@ -332,7 +433,7 @@ export class MaterialsService {
         // (display_name, size_spec, stock_quantity, stock_unit_type, last_import_price).
         const FIELD_MAP: Record<string, string> = {
             code: 'code', name: 'name', type: 'type', category_tab: 'categoryTab', category: 'category',
-            paper_size_id: 'paperSizeId', unit_id: 'unitId', unit: 'unit', width: 'width', height: 'height',
+            paper_size_id: 'paperSizeId', sheet_role: 'sheetRole', parent_material_id: 'parentMaterialId', unit_id: 'unitId', unit: 'unit', width: 'width', height: 'height',
             unit_price: 'unitPrice', pricePerSheet: 'pricePerSheet', setupFee: 'setupFee', stock: 'stock',
             min_stock: 'minStock', status: 'status', scope_loose: 'scopeLoose', scope_bound: 'scopeBound',
             scope_large_format: 'scopeLargeFormat', scope_offset: 'scopeOffset', roll_width: 'rollWidth', charge_full_width: 'chargeFullWidth',
@@ -360,6 +461,11 @@ export class MaterialsService {
         // `stock_quantity` KHÔNG phải cột thật → nếu client gửi, đồng bộ vào `stock`.
         if (data.stock === undefined && data.stock_quantity !== undefined) {
             existing.stock = data.stock_quantity;
+        }
+
+        // Vật tư offset (sau cập nhật) bắt buộc đơn giá > 0 — chặn trước khi lưu (fail fast).
+        if (existing.scopeOffset && !offsetPriceValid(existing.unitPrice)) {
+            throw new BadRequestException('Vật tư In Offset phải có đơn giá (giá giấy) lớn hơn 0.');
         }
 
         const updated = await this.repo.save(existing);
@@ -437,13 +543,108 @@ export class MaterialsService {
     async deleteCategory(id: string) { await this.catRepo.delete(parseInt(id)); }
 
     // ─── Processing Options (already using Repository) ───
-    async findAllProcessingOptions() { return this.optRepo.find({ order: { type: 'ASC', name: 'ASC' } }); }
+    /**
+     * Liệt kê Gia_Công, lọc qua Quy_Tắc_Phạm_Vi canonical (nguồn sự thật duy nhất).
+     *
+     * - Có `scope` (loose|bound|large_format): trả các Gia_Công `isActive && resourceInScope(r, scope)`
+     *   (Tài_Nguyên_Chỉ_Offset và tài nguyên không hoạt động bị loại tự nhiên qua `filterForProductType`).
+     * - Không `scope` nhưng `activeOnly`: chỉ trả Gia_Công đang hoạt động.
+     * - Không truyền gì: hành vi tương thích ngược — trả TẤT CẢ (không phá nơi gọi cũ).
+     *
+     * _Requirements: 1.3, 1.4, 3.1, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2_
+     */
+    async findAllProcessingOptions(query: ScopeListQuery = {}) {
+        const options = await this.optRepo.find({ order: { type: 'ASC', name: 'ASC' } });
+
+        const scope = query.scope && VALID_PRODUCT_TYPES.includes(query.scope) ? query.scope : undefined;
+        if (scope) {
+            return filterForProductType(options, scope);
+        }
+        if (query.activeOnly) {
+            return options.filter((opt) => isActive(opt.is_active));
+        }
+        return options;
+    }
     async createProcessingOption(data: Partial<ProcessingOption>) { return this.optRepo.save(this.optRepo.create(data)); }
     async updateProcessingOption(id: string, data: Partial<ProcessingOption>) {
         await this.optRepo.update(parseInt(id), data);
         return this.optRepo.findOne({ where: { id: parseInt(id) } });
     }
     async deleteProcessingOption(id: string) { await this.optRepo.delete(parseInt(id)); }
+
+    /**
+     * Cập nhật Cờ_Phạm_Vi cho một Gia_Công (Màn_Quản_Trị_Phạm_Vi).
+     *
+     * `processing_options` dùng smallint snake_case (`scope_loose/bound/large_format`) + boolean
+     * `scope_offset`. Validate qua `validateScopeFlags` TRƯỚC khi ghi: nếu không hợp lệ → ném
+     * UnprocessableEntityException kèm `invalidFlags`, KHÔNG ghi (giữ nguyên giá trị cũ — Req 5.8).
+     * Chỉ ghi các cờ thực sự được gửi lên (cập nhật một phần). Trả tài nguyên sau cập nhật + nhãn
+     * `deriveScopeLabel`.
+     *
+     * _Requirements: 5.1, 5.2, 5.5, 5.8, 6.2_
+     */
+    async updateProcessingOptionScope(id: string, dto: UpdateScopeDto) {
+        const existing = await this.optRepo.findOne({ where: { id: parseInt(id) } });
+        if (!existing) throw new NotFoundException('Processing option not found');
+
+        const validation = validateScopeFlags(dto);
+        if (!validation.ok) {
+            throw new UnprocessableEntityException({ success: false, invalidFlags: validation.invalidFlags });
+        }
+
+        // Cột smallint → ghi nguyên giá trị 0/1; scope_offset là boolean.
+        if (dto.scope_loose !== undefined) existing.scope_loose = dto.scope_loose;
+        if (dto.scope_bound !== undefined) existing.scope_bound = dto.scope_bound;
+        if (dto.scope_large_format !== undefined) existing.scope_large_format = dto.scope_large_format;
+        if (dto.scope_offset !== undefined) existing.scope_offset = dto.scope_offset;
+
+        await this.optRepo.save(existing);
+        const updated = (await this.optRepo.findOne({ where: { id: parseInt(id) } }))!;
+        this.logger.log(`Processing option scope updated: id=${id}`);
+        return { data: updated, scopeLabel: deriveScopeLabel(updated as ScopeFlags) };
+    }
+
+    /**
+     * Cập nhật Cờ_Phạm_Vi cho một Vật_Tư (Màn_Quản_Trị_Phạm_Vi).
+     *
+     * `materials` dùng BOOLEAN camelCase (`scopeLoose/scopeBound/scopeLargeFormat/scopeOffset`) ↔
+     * DB snake_case. Validate qua `validateScopeFlags` TRƯỚC khi ghi (smallint 0/1, offset bool);
+     * không hợp lệ → 422 + `invalidFlags`, KHÔNG ghi (Req 5.8). Cờ smallint 0/1 chuyển sang boolean
+     * khi ghi. Trả tài nguyên sau cập nhật + nhãn `deriveScopeLabel`.
+     *
+     * _Requirements: 5.1, 5.2, 5.5, 5.8, 6.2_
+     */
+    async updateMaterialScope(id: string, dto: UpdateScopeDto) {
+        const existing = await this.repo.findOne({ where: { id: parseInt(id) } });
+        if (!existing) throw new NotFoundException('Material not found');
+
+        const validation = validateScopeFlags(dto);
+        if (!validation.ok) {
+            throw new UnprocessableEntityException({ success: false, invalidFlags: validation.invalidFlags });
+        }
+
+        // Cột boolean → chuyển smallint 0/1 sang false/true; scope_offset đã là boolean.
+        if (dto.scope_loose !== undefined) existing.scopeLoose = !!Number(dto.scope_loose);
+        if (dto.scope_bound !== undefined) existing.scopeBound = !!Number(dto.scope_bound);
+        if (dto.scope_large_format !== undefined) existing.scopeLargeFormat = !!Number(dto.scope_large_format);
+        if (dto.scope_offset !== undefined) existing.scopeOffset = dto.scope_offset;
+
+        // Bật offset qua Màn Quản trị Phạm vi cũng phải có đơn giá > 0 (đóng đường vòng qua guard create/update).
+        if (existing.scopeOffset && !offsetPriceValid(existing.unitPrice)) {
+            throw new BadRequestException('Vật tư In Offset phải có đơn giá (giá giấy) lớn hơn 0.');
+        }
+
+        await this.repo.save(existing);
+        const updated = (await this.repo.findOne({ where: { id: parseInt(id) } }))!;
+        const flags: ScopeFlags = {
+            scope_loose: updated.scopeLoose,
+            scope_bound: updated.scopeBound,
+            scope_large_format: updated.scopeLargeFormat,
+            scope_offset: updated.scopeOffset,
+        };
+        this.logger.log(`Material scope updated: id=${id}`);
+        return { data: updated, scopeLabel: deriveScopeLabel(flags) };
+    }
 
     // ─── Processing Pricing (Tiered) ───
     async findAllProcessingPricing() {
@@ -483,22 +684,60 @@ export class MaterialsService {
             // 2. Create items & update stock
             if (data.items && Array.isArray(data.items)) {
                 for (const item of data.items) {
+                    // Load vật tư TRƯỚC để quy đổi đơn vị mua (cần gsm/khổ) + tính giá vốn bình quân.
+                    const material = await queryRunner.manager.findOne(Material, { where: { id: item.material_id } });
+
+                    // ── Nhập theo LÔ: quy đổi đơn vị mua → đơn vị cơ sở (tờ/m²) ──
+                    // FE có thể gửi purchase_unit + purchase_qty + purchase_price (giá/1 ĐV mua).
+                    // Backend TỰ tính factor từ vật tư (không tin FE, trừ override ram) + unit_cost_base
+                    // = giá lô ÷ factor. Không gửi field lô → giữ luồng cũ (quantity trực tiếp).
+                    const purchaseUnit = item.purchase_unit as string | undefined;
+                    let baseQty: number;
+                    let convFactor = 1;
+                    let purchaseQty: number | null = null;
+                    let unitCostBase: number | null = null;
+
+                    if (purchaseUnit && material) {
+                        const conv = computeConversionFactor(material, purchaseUnit, item.conversion_factor);
+                        if (conv.error) throw new Error(`Vật tư "${material.name}": ${conv.error}`);
+                        convFactor = conv.factor;
+                        purchaseQty = parseFloat(String(item.purchase_qty ?? item.quantity ?? 0));
+                        baseQty = purchaseQty * convFactor;
+                        // Giá vốn / ĐV cơ sở của lô = giá / 1 ĐV mua ÷ factor.
+                        if (item.purchase_price != null && convFactor > 0) {
+                            unitCostBase = parseFloat(String(item.purchase_price)) / convFactor;
+                        }
+                    } else {
+                        baseQty = typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity || 0);
+                        // Không nhập theo lô nhưng có unit_price → coi là giá vốn/ĐV cơ sở trực tiếp.
+                        if (item.unit_price != null) unitCostBase = parseFloat(String(item.unit_price));
+                    }
+
                     const slipItem = queryRunner.manager.create(InventorySlipItem, {
                         slip_id: savedSlip.id,
                         material_id: item.material_id,
-                        quantity: typeof item.quantity === 'number' ? item.quantity : parseFloat(item.quantity || 0),
-                        unit_price: item.unit_price,
+                        quantity: baseQty,
+                        unit_price: item.unit_price ?? item.purchase_price,
+                        purchase_unit: purchaseUnit,
+                        purchase_qty: purchaseQty ?? undefined,
+                        conversion_factor: convFactor,
+                        unit_cost_base: unitCostBase ?? undefined,
                         notes: item.notes
                     } as DeepPartial<InventorySlipItem>);
                     await queryRunner.manager.save(slipItem);
 
                     // Update material stock — cột thật là `stock` (stock_quantity KHÔNG tồn tại).
-                    const material = await queryRunner.manager.findOne(Material, { where: { id: item.material_id } });
                     if (material) {
                         let currentStock = parseFloat(material.stock?.toString() || '0');
-                        let qty = parseFloat(slipItem.quantity?.toString() || '0');
-                        
+                        const qty = baseQty;
+
                         if (data.type === 'import') {
+                            // Giá vốn bình quân gia quyền TRƯỚC khi cộng tồn (cần tồn cũ làm trọng số).
+                            // Chỉ cập nhật khi lô này có giá (unitCostBase > 0) — nhập không giá giữ nguyên cost cũ.
+                            if (unitCostBase != null && unitCostBase > 0) {
+                                const oldCost = parseFloat(material.costPrice?.toString() || '0');
+                                material.costPrice = weightedAvgCost(oldCost, currentStock, unitCostBase, qty);
+                            }
                             currentStock += qty;
                         } else if (data.type === 'export') {
                             if (currentStock < qty) {

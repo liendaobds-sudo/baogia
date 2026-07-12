@@ -1,0 +1,125 @@
+{
+  "$comment": "Golden vectors dùng chung (drift guard) cho Quy_Tắc_Phạm_Vi. Commit GIỐNG HỆT ở backend (backend/src/modules/pricing/scope/scope-rule-vectors.json) và frontend (frontend/src/lib/scope/scope-rule-vectors.json). expectedScopes theo thứ tự classifyResource: offset, loose, bound, large_format. expectedOffsetOnly = scope_offset Bật VÀ cả ba cờ in nhanh đều Tắt. Cờ Bật = 1 hoặc true; Tắt = 0, false, null, undefined/thiếu. Validates: Requirements 1.1, 1.2.",
+  "vectors": [
+    {
+      "name": "offset-only (smallint print flags)",
+      "flags": { "scope_loose": 0, "scope_bound": 0, "scope_large_format": 0, "scope_offset": true },
+      "expectedScopes": ["offset"],
+      "expectedOffsetOnly": true
+    },
+    {
+      "name": "offset-only (print flags null/missing)",
+      "flags": { "scope_loose": null, "scope_bound": null, "scope_large_format": null, "scope_offset": true },
+      "expectedScopes": ["offset"],
+      "expectedOffsetOnly": true
+    },
+    {
+      "name": "single print scope - loose (smallint)",
+      "flags": { "scope_loose": 1, "scope_bound": 0, "scope_large_format": 0, "scope_offset": false },
+      "expectedScopes": ["loose"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "single print scope - bound (smallint)",
+      "flags": { "scope_loose": 0, "scope_bound": 1, "scope_large_format": 0, "scope_offset": false },
+      "expectedScopes": ["bound"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "single print scope - large_format (smallint)",
+      "flags": { "scope_loose": 0, "scope_bound": 0, "scope_large_format": 1, "scope_offset": false },
+      "expectedScopes": ["large_format"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "single print scope - loose (boolean materials/paper_sizes)",
+      "flags": { "scope_loose": true, "scope_bound": false, "scope_large_format": false, "scope_offset": false },
+      "expectedScopes": ["loose"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "multiple scopes - loose + bound (smallint)",
+      "flags": { "scope_loose": 1, "scope_bound": 1, "scope_large_format": 0, "scope_offset": false },
+      "expectedScopes": ["loose", "bound"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "multiple scopes - loose + bound + large_format (smallint)",
+      "flags": { "scope_loose": 1, "scope_bound": 1, "scope_large_format": 1, "scope_offset": false },
+      "expectedScopes": ["loose", "bound", "large_format"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "multiple scopes - all four scopes on (smallint + boolean offset)",
+      "flags": { "scope_loose": 1, "scope_bound": 1, "scope_large_format": 1, "scope_offset": true },
+      "expectedScopes": ["offset", "loose", "bound", "large_format"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "all-off - no scope (smallint zeros + false)",
+      "flags": { "scope_loose": 0, "scope_bound": 0, "scope_large_format": 0, "scope_offset": false },
+      "expectedScopes": [],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "all-off - null/missing everywhere",
+      "flags": { "scope_loose": null, "scope_bound": null, "scope_large_format": null, "scope_offset": null },
+      "expectedScopes": [],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "all-off - empty flags object (all missing)",
+      "flags": {},
+      "expectedScopes": [],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "mixed offset + print - offset + loose (smallint)",
+      "flags": { "scope_loose": 1, "scope_bound": 0, "scope_large_format": 0, "scope_offset": true },
+      "expectedScopes": ["offset", "loose"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "mixed offset + print - offset + bound + large_format (smallint)",
+      "flags": { "scope_loose": 0, "scope_bound": 1, "scope_large_format": 1, "scope_offset": true },
+      "expectedScopes": ["offset", "bound", "large_format"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "smallint vs boolean - same logical (loose+bound on) smallint representation",
+      "flags": { "scope_loose": 1, "scope_bound": 1, "scope_large_format": 0, "scope_offset": false },
+      "expectedScopes": ["loose", "bound"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "smallint vs boolean - same logical (loose+bound on) boolean representation",
+      "flags": { "scope_loose": true, "scope_bound": true, "scope_large_format": false, "scope_offset": false },
+      "expectedScopes": ["loose", "bound"],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "smallint vs boolean - offset-only smallint representation",
+      "flags": { "scope_loose": 0, "scope_bound": 0, "scope_large_format": 0, "scope_offset": true },
+      "expectedScopes": ["offset"],
+      "expectedOffsetOnly": true
+    },
+    {
+      "name": "smallint vs boolean - offset-only boolean representation",
+      "flags": { "scope_loose": false, "scope_bound": false, "scope_large_format": false, "scope_offset": true },
+      "expectedScopes": ["offset"],
+      "expectedOffsetOnly": true
+    },
+    {
+      "name": "out-of-range smallint treated as off",
+      "flags": { "scope_loose": 2, "scope_bound": 0, "scope_large_format": 0, "scope_offset": false },
+      "expectedScopes": [],
+      "expectedOffsetOnly": false
+    },
+    {
+      "name": "offset as smallint 1 (boolean-coerced) + loose off",
+      "flags": { "scope_loose": 0, "scope_bound": 0, "scope_large_format": 0, "scope_offset": 1 },
+      "expectedScopes": ["offset"],
+      "expectedOffsetOnly": true
+    }
+  ]
+}

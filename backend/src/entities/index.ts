@@ -49,7 +49,6 @@ export { ProductAiField } from './product-ai-field.entity';
 // ═══ Additional Pricing-aligned Entities ═══
 export { PrintType } from './print-type.entity';
 export { Unit } from './unit.entity';
-export { ProductionCostConfig } from './production-cost-config.entity';
 export { CustomerPriceGroup } from './customer-price-group.entity';
 
 // ═══ Quote & Customer Entities ═══
@@ -75,6 +74,9 @@ export { WasteRule } from './waste-rule.entity';
 
 // ═══ Print Method Unification — Capability Flags ═══
 export { MethodCapability } from './method-capability.entity';
+
+// ═══ Tenant App Scope — Gate Trục Ứng Dụng (CSKH) theo tenant ═══
+export { TenantAppScope } from './tenant-app-scope.entity';
 
 // ═══ Multi-tenant SaaS Entities ═══
 export { Tenant, TenantStatus } from './tenant.entity';

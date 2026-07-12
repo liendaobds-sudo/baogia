@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource, In } from 'typeorm';
 import { Product, ProductCategory, UnifiedProduct, UnifiedProductCategory, Material } from '../../../entities';
+import { ProductType, ScopeFlags, validateAllowedList } from '../scope/resource-scope-rule';
 
 @Injectable()
 export class ProductsService {
@@ -145,6 +146,10 @@ export class ProductsService {
     }
 
     private async applyQuoteConfig(product: UnifiedProduct, qc: any) {
+        // Validate Danh_Sách_Được_Phép theo Quy_Tắc_Phạm_Vi TRƯỚC khi ghi: nếu có phần tử
+        // ngoài phạm vi của quote_type → ném 422 và KHÔNG persist. (Req 4.4, 4.5)
+        await this.validateAllowedScopes(qc, product.quoteType);
+
         // Allowed lists → dedicated columns (with orphan cleanup)
         if (qc.allowed_materials !== undefined) {
             product.allowedMaterials = await this.cleanOrphanIds(qc.allowed_materials, 'materials');
@@ -192,6 +197,82 @@ export class ProductsService {
         } catch (err) {
             this.logger.warn(`[cleanOrphanIds] Failed for ${table}: ${err.message}`);
             return ids.length > 0 ? ids : null;
+        }
+    }
+
+    /** Loại_Sản_Phẩm in nhanh chịu sự ràng buộc Phạm_Vi (offset/khác không validate ở đây). */
+    private static readonly PRINT_PRODUCT_TYPES: ProductType[] = ['loose', 'bound', 'large_format'];
+
+    /** Ba nhóm Tài_Nguyên_Dùng_Chung + bảng nguồn để validate Danh_Sách_Được_Phép. */
+    private static readonly ALLOWED_SCOPE_GROUPS: { key: string; table: string; label: string }[] = [
+        { key: 'allowed_processing', table: 'processing_options', label: 'Gia công' },
+        { key: 'allowed_materials', table: 'materials', label: 'Vật tư' },
+        { key: 'allowed_paper_sizes', table: 'paper_sizes', label: 'Khổ giấy' },
+    ];
+
+    /**
+     * Validate `allowed_processing`/`allowed_materials`/`allowed_paper_sizes` theo `quote_type`
+     * dựa trên Quy_Tắc_Phạm_Vi (nguồn sự thật duy nhất). Nếu có phần tử ngoài phạm vi của
+     * Loại_Sản_Phẩm → ném `UnprocessableEntityException` (422) kèm danh sách vi phạm và KHÔNG ghi DB.
+     *
+     * Tài nguyên không tồn tại (orphan) KHÔNG bị coi là vi phạm phạm vi ở đây — chúng được
+     * `cleanOrphanIds` xử lý riêng; validate chỉ xét các tài nguyên thực sự tồn tại.
+     *
+     * _Requirements: 4.4, 4.5_
+     */
+    private async validateAllowedScopes(qc: any, quoteType: string | null | undefined): Promise<void> {
+        const productType = (quoteType || 'loose') as ProductType;
+        // Chỉ ràng buộc phạm vi cho ba Loại_Sản_Phẩm in nhanh; offset/khác bỏ qua.
+        if (!ProductsService.PRINT_PRODUCT_TYPES.includes(productType)) return;
+
+        const violations: { group: string; table: string; items: { id: number; name?: string }[] }[] = [];
+
+        for (const g of ProductsService.ALLOWED_SCOPE_GROUPS) {
+            const allowedRaw = qc?.[g.key];
+            if (allowedRaw === undefined || allowedRaw === null) continue;
+
+            const allowedIds = (Array.isArray(allowedRaw) ? allowedRaw : [])
+                .map((id: any) => parseInt(String(id)))
+                .filter((n: number) => !isNaN(n));
+            if (!allowedIds.length) continue;
+
+            const rows: any[] = await this.dataSource.query(
+                `SELECT id, name, scope_loose, scope_bound, scope_large_format, scope_offset FROM ${g.table} WHERE id = ANY($1)`,
+                [allowedIds],
+            );
+
+            const flagsById = new Map<number, ScopeFlags>();
+            const nameById = new Map<number, string>();
+            for (const r of rows) {
+                const rid = Number(r.id);
+                flagsById.set(rid, {
+                    scope_loose: r.scope_loose,
+                    scope_bound: r.scope_bound,
+                    scope_large_format: r.scope_large_format,
+                    scope_offset: r.scope_offset,
+                });
+                nameById.set(rid, r.name);
+            }
+
+            // Chỉ validate các tài nguyên tồn tại; orphan để cleanOrphanIds lo.
+            const existingIds = allowedIds.filter((id: number) => flagsById.has(id));
+            const result = validateAllowedList(existingIds, flagsById, productType);
+            if (!result.ok) {
+                violations.push({
+                    group: g.label,
+                    table: g.table,
+                    items: result.outOfScope.map((id) => ({ id, name: nameById.get(id) })),
+                });
+            }
+        }
+
+        if (violations.length > 0) {
+            throw new UnprocessableEntityException({
+                success: false,
+                error: 'Danh sách được phép chứa tài nguyên ngoài phạm vi của loại sản phẩm',
+                quote_type: productType,
+                details: violations,
+            });
         }
     }
 

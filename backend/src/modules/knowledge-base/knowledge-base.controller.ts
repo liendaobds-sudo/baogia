@@ -3,12 +3,18 @@ import {
     UploadedFile, UseInterceptors, Req,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { KbGeneratorService } from './kb-generator.service';
+import { RolesGuard, Roles } from '../auth/roles.guard';
+import { UserRole } from '../../entities';
+
+/** Giới hạn dung lượng file KB upload — chặn DoS đọc file lớn vào bộ nhớ. */
+const KB_UPLOAD_MAX_BYTES = 5 * 1024 * 1024; // 5MB (KB là .txt/.md)
 
 @Controller('kb')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class KnowledgeBaseController {
     constructor(
         private kbService: KnowledgeBaseService,
@@ -36,7 +42,9 @@ export class KnowledgeBaseController {
     }
 
     @Post('upload')
-    @UseInterceptors(FileInterceptor('file'))
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    @UseInterceptors(FileInterceptor('file', { limits: { fileSize: KB_UPLOAD_MAX_BYTES } }))
     async uploadDocument(
         @UploadedFile() file: any,
         @Body() body: { tags?: string },
@@ -57,6 +65,8 @@ export class KnowledgeBaseController {
     }
 
     @Put('documents/:id/content')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     updateDocumentContent(
         @Param('id') id: string,
         @Body() body: { content: string; title?: string; tags?: string[] },
@@ -70,21 +80,29 @@ export class KnowledgeBaseController {
     }
 
     @Post('load-static')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async loadStaticDocs() {
         return this.kbGenerator.loadStaticDocs();
     }
 
     @Post('generate-from-pricing')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async generateFromPricing() {
         return this.kbGenerator.generateFromPricing();
     }
 
     @Post('reindex-embeddings')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async reindexEmbeddings() {
         return this.kbService.reindexEmbeddings();
     }
 
     @Delete('documents/:id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     deleteDocument(@Param('id') id: string) {
         return this.kbService.deleteDocument(id);
     }

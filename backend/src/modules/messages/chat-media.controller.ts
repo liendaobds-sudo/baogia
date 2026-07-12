@@ -1,12 +1,13 @@
 import { Controller, Post, UseGuards, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Controller('chat-media')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class ChatMediaController {
     constructor(private readonly configService: ConfigService) {}
 

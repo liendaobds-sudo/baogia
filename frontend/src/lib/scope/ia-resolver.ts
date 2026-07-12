@@ -382,6 +382,80 @@ export function guardMethodRoute(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Route guard theo Trục_Ứng_Dụng CSKH (tenant-app-scope)                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Route mặc định của Trục Báo_Giá (lõi bất khả tắt) — đích redirect khi guard chặn
+ * một route thuộc Trục CSKH mà tenant đã TẮT CSKH.
+ */
+export const QUOTE_HOME_ROUTE = '/pricing';
+
+/**
+ * Một path điều hướng có thuộc Trục CSKH không, dựa trên Scope Registry.
+ *
+ * Tái dùng đúng mẫu so khớp của `isMethodRoute`/`isFrozenRoute`: path khớp một entry
+ * khi trùng khít hoặc là route con của một route ứng viên (`candidateRoutesForEntry`).
+ * Chỉ xét entry có `axis === 'cskh'` (KHÔNG tính `shared` — trang dùng chung như
+ * settings/profile phải luôn vào được kể cả khi CSKH tắt). Trả `true` nếu path thuộc
+ * một entry CSKH, ngược lại `false`.
+ *
+ * Hàm thuần, an toàn với input rỗng — không side effect, không I/O.
+ */
+export function isCskhRoute(registry: ScopeRegistry, path: string): boolean {
+  if (!isNonEmptyString(path)) return false;
+  const normalizedPath = normalizeRoute(path);
+  const entries = registry?.entries ?? [];
+
+  return entries
+    .filter((entry) => entry?.axis === 'cskh')
+    .some((entry) =>
+      candidateRoutesForEntry(entry).some((route) =>
+        pathMatchesRoute(normalizedPath, route),
+      ),
+    );
+}
+
+/** Quyết định của route guard theo Trục CSKH cho một path điều hướng. */
+export interface CskhRouteGuardDecision {
+  allowed: boolean;
+  redirectTo: string | null;
+}
+
+/** Tuỳ chọn cho `guardCskhRoute`. */
+export interface CskhRouteGuardOptions {
+  /** Route đích khi chặn truy cập. Mặc định: `QUOTE_HOME_ROUTE`. */
+  quoteHome?: string;
+}
+
+/**
+ * Route guard theo Trục CSKH: quyết định cho phép hay chuyển hướng một path.
+ *
+ * - Path KHÔNG thuộc Trục CSKH (Báo_Giá/shared) ⇒ luôn cho phép.
+ * - Path thuộc Trục CSKH: cho phép khi và chỉ khi `cskhEnabled === true`; ngược lại
+ *   chặn và redirect về Trang Báo_Giá (Trục lõi luôn bật).
+ *
+ * Hàm thuần, an toàn với input rỗng.
+ */
+export function guardCskhRoute(
+  registry: ScopeRegistry,
+  path: string,
+  cskhEnabled: boolean,
+  options: CskhRouteGuardOptions = {},
+): CskhRouteGuardDecision {
+  const quoteHome = options.quoteHome ?? QUOTE_HOME_ROUTE;
+
+  // Route không thuộc Trục CSKH luôn được phép.
+  if (!isCskhRoute(registry, path)) {
+    return { allowed: true, redirectTo: null };
+  }
+
+  return cskhEnabled
+    ? { allowed: true, redirectTo: null }
+    : { allowed: false, redirectTo: quoteHome };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Đánh giá rò rỉ Tính_Năng_Phụ trên menu (Req 1.7)                            */
 /* -------------------------------------------------------------------------- */
 

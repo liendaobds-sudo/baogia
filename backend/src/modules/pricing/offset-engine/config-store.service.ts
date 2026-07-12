@@ -6,6 +6,7 @@ import {
     HaoHutRow, PhiCoDinh, Params, FixedSizeToRoi, FixedSizeBiThu, LoaiKem, BillingMode, WasteStageConfig, OffsetProductConfig,
 } from './pricing-data';
 import { loadDefaultPricingData } from './default-data';
+import { pressPerParent } from './sheet-imposition';
 
 /**
  * ConfigStore — adapter đọc/ghi bảng cấu hình offset (`offset_cfg_*`) trong PostgreSQL,
@@ -77,10 +78,10 @@ export class ConfigStore {
         const def = loadDefaultPricingData();
 
         const [
-            matRows, khoRows, fixedRows, gcOptRows, gcPriceRows, kemRows, vtbmRows, epRows, hhRows, paramRows, phiRows,
+            matRows, khoRows, fixedRows, gcOptRows, gcPriceRows, kemRows, vtbmRows, epRows, hhRows, paramRows, phiRows, grRows,
         ] = await Promise.all([
             // Giấy in offset dùng CHUNG bảng `materials` (cờ scope_offset), không có bảng riêng.
-            this.safeQuery('SELECT code, name, type, gsm, "pricePerSheet" AS price_vat, unit_price, width, height FROM materials WHERE scope_offset = true'),
+            this.safeQuery('SELECT id, code, name, type, gsm, "pricePerSheet" AS price_vat, unit_price, width, height, sheet_role, parent_material_id FROM materials WHERE scope_offset = true'),
             this.safeQuery('SELECT code as kho_in, width as widthMm, height as heightMm, margin_top, margin_bottom, margin_left, margin_right, kho_giay_lon, chia_to, so_con_bai_in, so_con_to_lon, loai_kem FROM paper_sizes WHERE scope_offset = true'),
             this.safeQuery('SELECT * FROM offset_cfg_fixed_size'),
             // Gia công offset dùng CHUNG processing_options + processing_pricing (màn Định mức gia công).
@@ -95,15 +96,25 @@ export class ConfigStore {
             this.safeQuery("SELECT config_key, config_value FROM pricing_config WHERE config_key LIKE 'offset.%'"),
             // Phí cố định (khuôn/thiết kế) dùng CHUNG setup_fees (category='offset').
             this.safeQuery("SELECT code, name, price_fixed FROM setup_fees WHERE category = 'offset'"),
+            // Gripper/gutter theo từng khổ in (cột MỚI `gripper_cm`/`gutter_cm`, đơn vị cm).
+            // Cột có thể CHƯA tồn tại trên DB cũ/SQLite → safeQuery trả [] để fallback an toàn về
+            // params.Gripper_Cm/Gutter_Cm trong resolveMarginConfig (Req 1.3). Tách query riêng để
+            // cột thiếu KHÔNG làm vỡ toàn bộ khối nạp khổ in.
+            this.safeQuery('SELECT code, gripper_cm, gutter_cm FROM paper_sizes WHERE scope_offset = true'),
         ]);
 
         // Hợp nhất: bắt đầu từ danh mục mặc định (JSON), DB scope_offset ghi đè/bổ sung theo `code`.
         // Nhờ vậy luôn đủ danh mục giấy mặc định, admin sửa trong màn Vật tư là phản ánh ngay, không vỡ khi seed thiếu.
         const matByCode = new Map<string, OffsetMaterial>();
         for (const m of def.materials) matByCode.set(m.code, m);
+        // Bản ghi DB theo id — để vật tư con (khổ xả) tra vật tư cha (khổ nhập) qua parent_material_id.
+        // Giữ kích thước tờ + giá gốc của cha để dẫn giá con (giá xả = giá nhập / số bài in cắt được).
+        const rowById = new Map<number, { code: string; widthMm: number; heightMm: number; priceNoVAT: number }>();
         for (const r of matRows) {
             if (!r.code) continue;
             const prev = matByCode.get(r.code);
+            const id = this.numOrNull(r.id);
+            const parentId = this.numOrNull(r.parent_material_id);
             matByCode.set(r.code, {
                 code: r.code,
                 aliases: prev?.aliases ?? [],
@@ -114,9 +125,42 @@ export class ConfigStore {
                 priceNoVAT: this.num(r.unit_price, prev?.priceNoVAT ?? 0),
                 sheetWidth: this.num(r.width, prev?.sheetWidth ?? 0),
                 sheetHeight: this.num(r.height, prev?.sheetHeight ?? 0),
+                sheetRole: (r.sheet_role as OffsetMaterial['sheetRole']) ?? null,
+                parentMaterialId: parentId,
             });
+            if (id != null) {
+                rowById.set(id, {
+                    code: r.code,
+                    widthMm: this.num(r.width, 0),
+                    heightMm: this.num(r.height, 0),
+                    priceNoVAT: this.num(r.unit_price, 0),
+                });
+            }
         }
         const materials: OffsetMaterial[] = Array.from(matByCode.values());
+
+        // DẪN GIÁ khổ xả (con) từ giá khổ nhập (cha) — R3-c: "giá tự chia từ giá khổ nhập".
+        // Đơn giá con = giá cha / số bài in cắt được từ 1 tờ nhập (pressPerParent, thuần hình học).
+        // Chỉ dẫn khi con có giá gốc = 0 (chưa nhập tay) + tra được cha + hệ số > 0; ngược lại giữ nguyên.
+        for (const m of materials) {
+            if (m.sheetRole !== 'child' || m.parentMaterialId == null) continue;
+            const parent = rowById.get(m.parentMaterialId);
+            if (!parent || parent.priceNoVAT <= 0) continue;
+            const n = pressPerParent(m.sheetWidth, m.sheetHeight, parent.widthMm, parent.heightMm);
+            if (n <= 0) continue;
+            m.priceNoVAT = parent.priceNoVAT / n;
+        }
+
+        // Gripper/gutter (cm) theo khổ in từ cột mới (nếu có). Khóa theo `code` = giá trị `kho_in`.
+        // Thiếu cột/bản ghi → undefined ⇒ resolveMarginConfig dùng params.Gripper_Cm/Gutter_Cm (Req 1.3).
+        const grByCode = new Map<string, { gripperCm?: number; gutterCm?: number }>();
+        for (const r of grRows) {
+            if (!r.code) continue;
+            grByCode.set(r.code, {
+                gripperCm: this.numOrNull(r.gripper_cm) ?? undefined,
+                gutterCm: this.numOrNull(r.gutter_cm) ?? undefined,
+            });
+        }
 
         const khoIn: KhoIn[] = khoRows.length
             ? khoRows.map((r) => ({
@@ -132,6 +176,9 @@ export class ConfigStore {
                 marginRight: this.num(r.margin_right) / 10,
                 marginTop: this.num(r.margin_top) / 10,
                 marginBottom: this.num(r.margin_bottom) / 10,
+                // Gripper/gutter (cm) từ cột mới nếu có; thiếu → undefined (fallback params trong resolveMarginConfig).
+                gripperCm: grByCode.get(r.kho_in)?.gripperCm,
+                gutterCm: grByCode.get(r.kho_in)?.gutterCm,
             }))
             : def.khoIn;
 
@@ -257,6 +304,18 @@ export class ConfigStore {
                 if (Array.isArray(arr) && arr.length) mocSoLuongOverride = arr.map((x) => this.num(x)).sort((a, b) => a - b);
                 continue;
             }
+            // Nguồn imposition mặc định — lưu CHUỖI ('legacy' | 'unified') trong config_value TEXT.
+            // Tách khỏi nhánh số (giống WasteStages/ProductConfig) để không bị ép về số mất giá trị.
+            // Giá trị lạ được giữ nguyên ở đây; impositionSelector mới là nơi chuẩn hóa về 'legacy'
+            // an toàn + cảnh báo log (Req 6.1), tránh nhân đôi logic ở config-store.
+            if (key === 'ImpositionSource') {
+                const raw = typeof r.config_value === 'string'
+                    ? r.config_value.trim()
+                    : String(r.config_value ?? '').trim();
+                if (raw) params.ImpositionSource = raw as Params['ImpositionSource'];
+                continue;
+            }
+            // ShadowMode / Gripper_Cm / Gutter_Cm là tham số SỐ → đi theo nhánh số mặc định bên dưới.
             params[key] = this.num(r.config_value);
         }
 
@@ -315,6 +374,8 @@ export class ConfigStore {
             await this.dataSource.query(`ALTER TABLE paper_sizes ADD COLUMN IF NOT EXISTS so_con_bai_in int`);
             await this.dataSource.query(`ALTER TABLE paper_sizes ADD COLUMN IF NOT EXISTS so_con_to_lon int`);
             await this.dataSource.query(`ALTER TABLE paper_sizes ADD COLUMN IF NOT EXISTS loai_kem varchar(40)`);
+            await this.dataSource.query(`ALTER TABLE paper_sizes ADD COLUMN IF NOT EXISTS gripper_cm decimal(10,2)`);
+            await this.dataSource.query(`ALTER TABLE paper_sizes ADD COLUMN IF NOT EXISTS gutter_cm decimal(10,2)`);
 
             // Giấy in offset → bảng `materials` (scope_offset=true). KHÔNG ghi đè bản ghi sẵn có
             // (ON CONFLICT DO NOTHING) để không đụng giá vật tư "in nhanh" cùng mã.
@@ -348,6 +409,7 @@ export class ConfigStore {
                     [k.khoIn, dim.w, dim.h, k.khoGiayLon, k.chiaTo, k.soConBaiIn, k.soConToLon, k.loaiKem],
                 );
             }
+
             for (const f of d.fixedSizes.toRoi) {
                 await this.dataSource.query(
                     `INSERT INTO offset_cfg_fixed_size (nhom, kich_thuoc, kho_in, kho_giay_lon, so_con_bai_in, so_con_to_lon, loai)

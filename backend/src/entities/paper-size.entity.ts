@@ -77,6 +77,14 @@ export class PaperSize {
     @Column({ name: 'loai_kem', length: 50, nullable: true })
     loaiKem: string;
 
+    // Nhíp (cạnh dài) + khe hở giữa con — cm, theo từng khổ. Thiếu → engine dùng
+    // fallback params.Gripper_Cm/Gutter_Cm (xem resolveMarginConfig).
+    @Column({ name: 'gripper_cm', type: 'decimal', precision: 10, scale: 2, nullable: true })
+    gripperCm: number;
+
+    @Column({ name: 'gutter_cm', type: 'decimal', precision: 10, scale: 2, nullable: true })
+    gutterCm: number;
+
     @OneToMany(() => PricingTier, (pt) => pt.paperSize)
     pricingTiers: PricingTier[];
 

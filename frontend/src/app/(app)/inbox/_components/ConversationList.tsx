@@ -117,6 +117,7 @@ export default function ConversationList({
     const [searchQuery, setSearchQuery] = useState('');
     const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
     const [hoveredId, setHoveredId] = useState<string | null>(null);
+    const [focusedId, setFocusedId] = useState<string | null>(null);
     const [menuState, setMenuState] = useState<{ id: string, conv: Conversation, x: number, y: number } | null>(null);
     const [openSubmenu, setOpenSubmenu] = useState<boolean>(false);
     const [openFilterMenu, setOpenFilterMenu] = useState<boolean>(false);
@@ -135,10 +136,10 @@ export default function ConversationList({
                 {/* Search Row */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ 
-                        flex: 1, height: 32, background: '#eaedf0', borderRadius: 6,
+                        flex: 1, height: 32, background: 'var(--surface-input)', borderRadius: 6,
                         display: 'flex', alignItems: 'center', padding: '0 10px', gap: 8
                     }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#606d7b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: 'var(--icon-muted)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="11" cy="11" r="8"></circle>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
@@ -202,7 +203,7 @@ export default function ConversationList({
                                 <span style={{ fontSize: 13, fontWeight: 500, color: tagFilter ? '#005ae0' : '#606d7b' }}>
                                     Phân loại {tagFilter ? '(1)' : ''}
                                 </span>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={tagFilter ? '#005ae0' : "#606d7b"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: openFilterMenu ? 'rotate(180deg)' : 'none', transition: '0.2s' }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: tagFilter ? 'var(--brand-zalo)' : 'var(--icon-muted)', transform: openFilterMenu ? 'rotate(180deg)' : 'none', transition: '0.2s' }}>
                                     <polyline points="6 9 12 15 18 9"></polyline>
                                 </svg>
                                 {tagFilter && (
@@ -287,7 +288,7 @@ export default function ConversationList({
                             onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                            <svg id="sync-zalo-btn" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#606d7b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg id="sync-zalo-btn" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: 'var(--icon-muted)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <polyline points="23 4 23 10 17 10"></polyline>
                                 <polyline points="1 20 1 14 7 14"></polyline>
                                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
@@ -305,7 +306,7 @@ export default function ConversationList({
                             onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                         >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#606d7b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: 'var(--icon-muted)' }} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                                 <polyline points="22 4 12 14.01 9 11.01"></polyline>
                             </svg>
@@ -314,9 +315,9 @@ export default function ConversationList({
                 </div>
             </div>
 
-            {loading && <div style={{ padding: 20, color: '#94a3b8', textAlign: 'center' }}>Đang tải...</div>}
+            {loading && <div style={{ padding: 20, color: '#64748b', textAlign: 'center' }}>Đang tải...</div>}
             {!loading && visibleConversations.length === 0 && (
-                <div style={{ padding: 20, color: '#94a3b8', textAlign: 'center', fontSize: 13 }}>
+                <div style={{ padding: 20, color: '#64748b', textAlign: 'center', fontSize: 13 }}>
                     Chưa có hội thoại phù hợp.
                 </div>
             )}
@@ -335,8 +336,15 @@ export default function ConversationList({
 
                 return (
                     <div key={conv.id} onClick={() => onSelect(conv.id)}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Hội thoại với ${conv.contact?.displayName || 'Unknown'}`}
+                        aria-current={selectedId === conv.id ? 'true' : undefined}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(conv.id); } }}
                         onMouseEnter={() => setHoveredId(conv.id)}
                         onMouseLeave={() => setHoveredId(null)}
+                        onFocus={() => setFocusedId(conv.id)}
+                        onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocusedId(prev => (prev === conv.id ? null : prev)); }}
                         style={{
                             padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
                             background: selectedId === conv.id ? '#eef2ff' : undefined,
@@ -373,7 +381,7 @@ export default function ConversationList({
                             </div>
                             
                             <div style={{ display: 'flex', alignItems: 'center', height: '24px' }}>
-                                {(isHovered || menuState?.id === conv.id) ? (
+                                {(isHovered || focusedId === conv.id || menuState?.id === conv.id) ? (
                                     <div style={{ position: 'relative' }}>
                                         <button
                                             onClick={(e) => {

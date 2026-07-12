@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../_components/apiClient';
+import { filterForProductType, validateAllowedList, type ProductType, type ScopedResource, type ScopeFlags, type AllowedValidationResult } from '@/lib/scope/resource-scope';
 
 // ─── Types ────────────────────────────────────
 interface Product {
@@ -23,7 +24,7 @@ interface AiField {
     ai_question?: string; default_value?: string; is_enabled: boolean; is_required: boolean;
     source_table?: string;
 }
-interface MasterItem { id: number; name: string; category_tab?: string; }
+interface MasterItem { id: number; name: string; category_tab?: string; is_active?: number; scope_loose?: number; scope_bound?: number; scope_large_format?: number; scope_offset?: boolean; }
 interface Category { id: number; code: string; name_vi: string; }
 
 interface Props {
@@ -31,6 +32,50 @@ interface Props {
     onClose: () => void;
     onSaved: () => void;
     product: Product | null; // null = create mode
+}
+
+// ─── Quy_Tắc_Phạm_Vi: lọc Tài_Nguyên_Dùng_Chung theo Loại_Sản_Phẩm ──────────
+// Dùng chung MỘT nguồn sự thật `filterForProductType` (mirror frontend), thay cho vá tạm
+// `scopedProcessing` rải rác. Bảo đảm thứ tick được ở Màn_Cài_Đặt khớp Màn_Báo_Giá.
+//
+// Chuẩn hoá shape về ScopedResource vì ba endpoint trả khác nhau:
+//  • /erp/processing-options → snake_case scope_* + is_active (smallint).
+//  • /erp/materials          → snake_case scope_* (boolean), KHÔNG có cột is_active.
+//  • /erp/paper-sizes        → camelCase scopeLoose/... (boolean), KHÔNG có cột is_active.
+// Bảng materials/paper_sizes không có is_active ⇒ coi mọi bản ghi là đang hoạt động (= 1).
+function toScopedResource(item: MasterItem): ScopedResource {
+    const it = item as unknown as Record<string, unknown>;
+    const pick = (snake: string, camel: string) =>
+        (it[snake] ?? it[camel]) as number | boolean | null | undefined;
+    return {
+        id: item.id,
+        is_active: item.is_active ?? 1,
+        scope_loose: pick('scope_loose', 'scopeLoose'),
+        scope_bound: pick('scope_bound', 'scopeBound'),
+        scope_large_format: pick('scope_large_format', 'scopeLargeFormat'),
+        scope_offset: pick('scope_offset', 'scopeOffset'),
+    };
+}
+
+// Giữ lại các MasterItem gốc thuộc Phạm_Vi của `productType` theo Quy_Tắc_Phạm_Vi.
+function scopeResources(items: MasterItem[], productType: ProductType): MasterItem[] {
+    const inScopeIds = new Set(
+        filterForProductType(items.map(toScopedResource), productType).map((r) => r.id),
+    );
+    return items.filter((item) => inScopeIds.has(item.id));
+}
+
+// Dựng Map<id → ScopeFlags> từ danh sách master (đầy đủ, CHƯA lọc) để dùng cho
+// `validateAllowedList`. Cùng một Quy_Tắc_Phạm_Vi xác định phần tử ngoài phạm vi.
+function buildScopeMap(items: MasterItem[]): Map<number, ScopeFlags> {
+    const map = new Map<number, ScopeFlags>();
+    for (const item of items) map.set(item.id, toScopedResource(item));
+    return map;
+}
+
+// Chuyển Danh_Sách_Được_Phép (mảng id chuỗi) về mảng số, bỏ giá trị không hợp lệ.
+function allowedToNumbers(allowed?: string[]): number[] {
+    return (allowed || []).map((id) => Number(id)).filter((n) => Number.isFinite(n));
 }
 
 // ─── Component ────────────────────────────────
@@ -65,6 +110,67 @@ export default function ProductModal({ isOpen, onClose, onSaved, product }: Prop
     const [aiFields, setAiFields] = useState<AiField[]>([]);
     const [expandedField, setExpandedField] = useState<number | null>(null);
 
+    // Tài_Nguyên_Dùng_Chung hợp lệ theo Loại_Sản_Phẩm đang cấu hình — đi qua cùng một
+    // Quy_Tắc_Phạm_Vi (`filterForProductType`) mà Màn_Báo_Giá dùng, áp dụng nhất quán cho cả
+    // Gia_Công, Vật_Tư và Khổ_Giấy. Danh sách tự cập nhật ngay khi đổi `quote_type`.
+    //  • Tài_Nguyên_Chỉ-Offset (scope_offset, không có scope in nhanh nào) bị loại tự nhiên.
+    //  • bound → chỉ scope_bound; large_format → chỉ scope_large_format; loose → chỉ scope_loose.
+    const productType = (form.quote_type || 'loose') as ProductType;
+    const scopedProcessing = useMemo(
+        () => scopeResources(processing, productType),
+        [processing, productType],
+    );
+    const scopedMaterials = useMemo(
+        () => scopeResources(materials, productType),
+        [materials, productType],
+    );
+    const scopedPaperSizes = useMemo(
+        () => scopeResources(paperSizes, productType),
+        [paperSizes, productType],
+    );
+
+    // Validate Danh_Sách_Được_Phép theo Loại_Sản_Phẩm đang cấu hình (Req 4.3, 4.5).
+    // Dùng `validateAllowedList` (cùng Quy_Tắc_Phạm_Vi) để xác định ĐÚNG tập phần tử ngoài
+    // phạm vi cho từng nhóm. resourcesById dựng từ danh sách master ĐẦY ĐỦ (chưa lọc) để
+    // còn nhận diện được những id đã tick nhưng nay ngoài phạm vi.
+    const allowedValidation = useMemo(() => {
+        const processingResult = validateAllowedList(
+            allowedToNumbers(quoteConfig.allowed_processing),
+            buildScopeMap(processing),
+            productType,
+        );
+        const materialsResult = validateAllowedList(
+            allowedToNumbers(quoteConfig.allowed_materials),
+            buildScopeMap(materials),
+            productType,
+        );
+        const paperSizesResult = validateAllowedList(
+            allowedToNumbers(quoteConfig.allowed_paper_sizes),
+            buildScopeMap(paperSizes),
+            productType,
+        );
+        return { processing: processingResult, materials: materialsResult, paperSizes: paperSizesResult };
+    }, [quoteConfig.allowed_processing, quoteConfig.allowed_materials, quoteConfig.allowed_paper_sizes, processing, materials, paperSizes, productType]);
+
+    // Các MasterItem ngoài phạm vi (đã tick nhưng vi phạm) để hiển thị badge + tên cụ thể.
+    const outOfScopeProcessing = useMemo(
+        () => processing.filter((it) => allowedValidation.processing.outOfScope.includes(it.id)),
+        [processing, allowedValidation],
+    );
+    const outOfScopeMaterials = useMemo(
+        () => materials.filter((it) => allowedValidation.materials.outOfScope.includes(it.id)),
+        [materials, allowedValidation],
+    );
+    const outOfScopePaperSizes = useMemo(
+        () => paperSizes.filter((it) => allowedValidation.paperSizes.outOfScope.includes(it.id)),
+        [paperSizes, allowedValidation],
+    );
+    const allOutOfScope = useMemo(
+        () => [...outOfScopeMaterials, ...outOfScopePaperSizes, ...outOfScopeProcessing],
+        [outOfScopeMaterials, outOfScopePaperSizes, outOfScopeProcessing],
+    );
+    const hasScopeViolation = allOutOfScope.length > 0;
+
     // Images
     // Mini Quote fields
     const [miniFields, setMiniFields] = useState<{code: string; name: string; type: string; group: string; defaultOn: boolean; description?: string; enabled: boolean}[]>([]);
@@ -98,7 +204,7 @@ export default function ProductModal({ isOpen, onClose, onSaved, product }: Prop
                 setKeywords(product.ai_keywords || []);
                 if (product.code) loadAiFields(product.code);
                 if (product.id) loadMiniQuoteFields(product.id);
-                
+
                 // Fetch full product to get quote_config (allowed_materials, etc.)
                 if (product.id) {
                     try {
@@ -161,6 +267,16 @@ export default function ProductModal({ isOpen, onClose, onSaved, product }: Prop
         if (!form.code || !form.name_vi) {
             setToast('Vui lòng nhập mã SP và tên SP');
             setTimeout(() => setToast(null), 3000);
+            return;
+        }
+        // Chặn lưu khi Danh_Sách_Được_Phép còn tài nguyên ngoài Phạm_Vi của Loại_Sản_Phẩm
+        // hiện tại (Req 4.5). Nêu đích danh tên tài nguyên vi phạm, KHÔNG ghi, giữ nguyên dữ liệu.
+        if (hasScopeViolation) {
+            const typeLabel = form.quote_type === 'bound' ? 'Sách/Cuốn' : form.quote_type === 'large_format' ? 'Khổ lớn' : 'Tờ rời';
+            const names = allOutOfScope.map((it) => it.name).join(', ');
+            setToast(`Không thể lưu: tài nguyên ngoài phạm vi "${typeLabel}": ${names}. Vui lòng bỏ chọn trước khi lưu.`);
+            setTab('quote');
+            setTimeout(() => setToast(null), 6000);
             return;
         }
         // Cảnh báo strict-mode: chưa whitelist vật liệu → báo giá sẽ KHÔNG có lựa chọn nào.
@@ -312,6 +428,26 @@ export default function ProductModal({ isOpen, onClose, onSaved, product }: Prop
                     {tab === 'quote' && (
                         <div className="space-y-5">
 
+                            {/* Cảnh báo ngoài phạm vi (Req 4.3): nêu rõ tài nguyên nào vi phạm */}
+                            {hasScopeViolation && (
+                                <div className="bg-red-50 border border-red-300 rounded-xl p-4">
+                                    <h4 className="font-bold text-red-700 text-sm flex items-center gap-2">
+                                        ⚠️ Tài nguyên ngoài phạm vi của loại sản phẩm
+                                        <span className="uppercase">{form.quote_type === 'bound' ? 'Sách/Cuốn' : form.quote_type === 'large_format' ? 'Khổ lớn' : 'Tờ rời'}</span>
+                                    </h4>
+                                    <p className="text-xs text-red-600 mt-1">
+                                        Các tài nguyên sau đã được chọn nhưng không áp dụng cho loại sản phẩm hiện tại. Hãy bỏ chọn (đánh dấu <span className="font-semibold">ngoài phạm vi</span> bên dưới) trước khi lưu:
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                        {allOutOfScope.map((it) => (
+                                            <span key={it.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                                                {it.name}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Defaults */}
                             <div className="bg-purple-50/50 rounded-xl p-4 border border-purple-200">
                                 <h4 className="font-bold text-purple-700 mb-3 text-sm">🎯 Giá trị mặc định</h4>
@@ -359,11 +495,11 @@ export default function ProductModal({ isOpen, onClose, onSaved, product }: Prop
                             {/* Allowed Materials — ONLY substrates (giấy in, bạt/PP) */}
                             {(() => {
                                 const substrateTabs = ['substrate_sheet', 'substrate_roll'];
-                                const substrateMaterials = materials.filter((m: any) => substrateTabs.includes(m.category_tab));
-                                return <GroupedCheckboxGrid title="📄 Giấy in / Vật liệu in được phép" items={substrateMaterials} selected={quoteConfig.allowed_materials || []} onToggle={id => toggleAllowed('allowed_materials', id)} onSelectAll={() => selectAll('allowed_materials', substrateMaterials)} />;
+                                const substrateMaterials = scopedMaterials.filter((m: any) => substrateTabs.includes(m.category_tab));
+                                return <GroupedCheckboxGrid title="📄 Giấy in / Vật liệu in được phép" items={substrateMaterials} outOfScopeItems={outOfScopeMaterials} selected={quoteConfig.allowed_materials || []} onToggle={id => toggleAllowed('allowed_materials', id)} onSelectAll={() => selectAll('allowed_materials', substrateMaterials)} />;
                             })()}
-                            <CheckboxGrid title="📐 Khổ giấy được phép" items={paperSizes} selected={quoteConfig.allowed_paper_sizes || []} onToggle={id => toggleAllowed('allowed_paper_sizes', id)} onSelectAll={() => selectAll('allowed_paper_sizes', paperSizes)} />
-                            <CheckboxGrid title="✂️ Gia công được phép" items={processing} selected={quoteConfig.allowed_processing || []} onToggle={id => toggleAllowed('allowed_processing', id)} onSelectAll={() => selectAll('allowed_processing', processing)} />
+                            <CheckboxGrid title="📐 Khổ giấy được phép" items={scopedPaperSizes} outOfScopeItems={outOfScopePaperSizes} selected={quoteConfig.allowed_paper_sizes || []} onToggle={id => toggleAllowed('allowed_paper_sizes', id)} onSelectAll={() => selectAll('allowed_paper_sizes', scopedPaperSizes)} />
+                            <CheckboxGrid title="✂️ Gia công được phép" items={scopedProcessing} outOfScopeItems={outOfScopeProcessing} selected={quoteConfig.allowed_processing || []} onToggle={id => toggleAllowed('allowed_processing', id)} onSelectAll={() => selectAll('allowed_processing', scopedProcessing)} />
                             <CheckboxGrid title="🎁 Phụ kiện được phép" items={accessories} selected={quoteConfig.allowed_accessories || []} onToggle={id => toggleAllowed('allowed_accessories', id)} onSelectAll={() => selectAll('allowed_accessories', accessories)} />
                         </div>
                     )}
@@ -502,14 +638,14 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
     );
 }
 
-function CheckboxGrid({ title, items, selected, onToggle, onSelectAll }: { title: string; items: MasterItem[]; selected: string[]; onToggle: (id: string) => void; onSelectAll: () => void }) {
+function CheckboxGrid({ title, items, selected, onToggle, onSelectAll, outOfScopeItems = [] }: { title: string; items: MasterItem[]; selected: string[]; onToggle: (id: string) => void; onSelectAll: () => void; outOfScopeItems?: MasterItem[] }) {
     return (
         <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="flex items-center justify-between mb-2">
                 <h4 className="font-bold text-slate-700 text-sm">{title}</h4>
                 <button onClick={onSelectAll} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Chọn tất cả</button>
             </div>
-            {items.length === 0 ? (
+            {items.length === 0 && outOfScopeItems.length === 0 ? (
                 <p className="text-slate-400 text-sm">Không có dữ liệu</p>
             ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 max-h-40 overflow-y-auto">
@@ -517,6 +653,13 @@ function CheckboxGrid({ title, items, selected, onToggle, onSelectAll }: { title
                         <label key={item.id} className="flex items-center gap-2 py-1 px-1.5 rounded cursor-pointer hover:bg-slate-50 text-sm">
                             <input type="checkbox" className="w-3.5 h-3.5 text-indigo-600 rounded" checked={selected.includes(String(item.id))} onChange={() => onToggle(String(item.id))} />
                             <span className="text-slate-700 truncate">{item.name}</span>
+                        </label>
+                    ))}
+                    {outOfScopeItems.map(item => (
+                        <label key={`oos-${item.id}`} className="flex items-center gap-1.5 py-1 px-1.5 rounded cursor-pointer hover:bg-red-50 text-sm bg-red-50/60 border border-red-200">
+                            <input type="checkbox" className="w-3.5 h-3.5 text-red-600 rounded" checked={selected.includes(String(item.id))} onChange={() => onToggle(String(item.id))} />
+                            <span className="text-red-700 truncate" title={item.name}>{item.name}</span>
+                            <span className="ml-auto shrink-0 text-[9px] font-bold uppercase px-1 py-0.5 bg-red-200 text-red-800 rounded">ngoài phạm vi</span>
                         </label>
                     ))}
                 </div>
@@ -536,7 +679,7 @@ const CATEGORY_TAB_LABELS: Record<string, string> = {
     tooling: 'Phụ kiện / Bao bì',
 };
 
-function GroupedCheckboxGrid({ title, items, selected, onToggle, onSelectAll }: { title: string; items: MasterItem[]; selected: string[]; onToggle: (id: string) => void; onSelectAll: () => void }) {
+function GroupedCheckboxGrid({ title, items, selected, onToggle, onSelectAll, outOfScopeItems = [] }: { title: string; items: MasterItem[]; selected: string[]; onToggle: (id: string) => void; onSelectAll: () => void; outOfScopeItems?: MasterItem[] }) {
     // Group items by category_tab
     const groups = new Map<string, MasterItem[]>();
     for (const item of items) {
@@ -569,7 +712,7 @@ function GroupedCheckboxGrid({ title, items, selected, onToggle, onSelectAll }: 
                     <button onClick={onSelectAll} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Chọn tất cả</button>
                 </div>
             </div>
-            {items.length === 0 ? (
+            {items.length === 0 && outOfScopeItems.length === 0 ? (
                 <p className="text-slate-400 text-sm">Không có dữ liệu</p>
             ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -598,6 +741,22 @@ function GroupedCheckboxGrid({ title, items, selected, onToggle, onSelectAll }: 
                             </div>
                         );
                     })}
+                    {outOfScopeItems.length > 0 && (
+                        <div className="border border-red-200 rounded-lg">
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-red-50 rounded-t-lg">
+                                <span className="text-xs font-semibold text-red-700">⚠️ Ngoài phạm vi (đã tick nhưng không áp dụng)</span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-0.5 px-2 py-1.5">
+                                {outOfScopeItems.map(item => (
+                                    <label key={`oos-${item.id}`} className="flex items-center gap-1.5 py-0.5 px-1 rounded cursor-pointer hover:bg-red-50 text-sm bg-red-50/60">
+                                        <input type="checkbox" className="w-3.5 h-3.5 text-red-600 rounded" checked={selected.includes(String(item.id))} onChange={() => onToggle(String(item.id))} />
+                                        <span className="text-red-700 truncate text-xs" title={item.name}>{item.name}</span>
+                                        <span className="ml-auto shrink-0 text-[8px] font-bold uppercase px-1 py-0.5 bg-red-200 text-red-800 rounded">ngoài phạm vi</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

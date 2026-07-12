@@ -58,17 +58,25 @@ export default function ProductRulesPanel() {
     const [confirmDeleteFieldId, setConfirmDeleteFieldId] = useState<number | null>(null);
     const [filter, setFilter] = useState<string>('all');
 
+    // Backend /erp/* yêu cầu JWT → luôn đính token (trước đây gọi trần → 401 sau khi khoá auth).
+    const authHeaders = useCallback((json = false): Record<string, string> => {
+        const h: Record<string, string> = {};
+        if (token) h['Authorization'] = `Bearer ${token}`;
+        if (json) h['Content-Type'] = 'application/json';
+        return h;
+    }, [token]);
+
     const fetchTemplates = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${PRICING_API}/products`);
+            const res = await fetch(`${PRICING_API}/products`, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setTemplates(data.data || data || []);
             }
         } catch (err) { console.error(err); }
         finally { setLoading(false); }
-    }, []);
+    }, [authHeaders]);
 
     useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
 
@@ -82,7 +90,7 @@ export default function ProductRulesPanel() {
         try {
             const res = await fetch(`${PRICING_API}/ai-fields/${fieldId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(true),
                 body: JSON.stringify(updates),
             });
             if (res.ok) {
@@ -96,7 +104,7 @@ export default function ProductRulesPanel() {
 
     const deleteField = async (fieldId: number) => {
         try {
-            await fetch(`${PRICING_API}/ai-fields/${fieldId}`, { method: 'DELETE' });
+            await fetch(`${PRICING_API}/ai-fields/${fieldId}`, { method: 'DELETE', headers: authHeaders() });
             setConfirmDeleteFieldId(null);
             showToast('🗑️ Đã xóa');
             fetchTemplates();
@@ -107,7 +115,7 @@ export default function ProductRulesPanel() {
         try {
             await fetch(`${PRICING_API}/products/${templateId}/ai-fields`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(true),
                 body: JSON.stringify({
                     field_name: 'new_field',
                     field_type: 'text',

@@ -1,6 +1,20 @@
 import { ZaloPoolService } from './zalo-pool.service';
 import { ZaloRateLimiterService } from './zalo-rate-limiter.service';
 import { ZaloAccountStatus } from '../../entities/zalo-account.entity';
+import * as tenantBg from '../../common/tenant/tenant-background';
+
+// Mock tenant-background so we can toggle the RLS flag and observe wrapping
+// WITHOUT requiring typeorm-transactional initialization in unit tests.
+jest.mock('../../common/tenant/tenant-background', () => {
+  const actual = jest.requireActual('../../common/tenant/tenant-background');
+  return {
+    ...actual,
+    tenantRlsEnabled: jest.fn(() => false),
+    runInTenant: jest.fn((_ctx: any, _mgr: any, _tenantId: number, fn: () => any) => fn()),
+  };
+});
+
+const mockedTenantBg = tenantBg as jest.Mocked<typeof tenantBg>;
 
 // ══════════════════════ MOCK FACTORIES ══════════════════════
 
@@ -9,6 +23,8 @@ const createMockRepo = () => ({
   findOne: jest.fn().mockResolvedValue(null),
   update: jest.fn().mockResolvedValue({ affected: 1 }),
   save: jest.fn().mockResolvedValue({}),
+  // EntityManager surface used by tenant resolution in runScopedForChannel
+  manager: { query: jest.fn().mockResolvedValue([{ tenant_id: 7 }]) },
 });
 
 const createMockModuleRef = (processor?: any) => ({
@@ -54,7 +70,7 @@ const createMockApi = (overrides: any = {}) => ({
   ...overrides,
 });
 
-function createService(repoOverrides?: any, processorOverrides?: any) {
+function createService(repoOverrides?: any, processorOverrides?: any, tenantCtx?: any) {
   const repo = { ...createMockRepo(), ...repoOverrides };
   const rateLimiter = new ZaloRateLimiterService();
   const moduleRef = createMockModuleRef(processorOverrides);
@@ -65,6 +81,7 @@ function createService(repoOverrides?: any, processorOverrides?: any) {
     rateLimiter,
     moduleRef as any,
     eventsGateway as any,
+    tenantCtx as any,
   );
 
   return { service, repo, rateLimiter, moduleRef, eventsGateway };
@@ -460,6 +477,128 @@ describe('ZaloPoolService', () => {
     it('should throw when ZaloSDK is not loaded', async () => {
       const { service } = createService();
       await expect(service.loginQR('acc-1')).rejects.toThrow('zca-js');
+    });
+  });
+
+  // ── Tenant scoping (Task 10) — zca-js inbound binds tenant_id of account owner ──
+
+  describe('tenant scoping of zca-js event handlers', () => {
+    // Capture listener handlers registered by attachListener so we can invoke them.
+    function attachAndCapture(service: any, accountId: string) {
+      const handlers: Record<string, (...args: any[]) => any> = {};
+      const api = createMockApi({
+        listener: {
+          on: jest.fn((event: string, fn: any) => { handlers[event] = fn; }),
+          start: jest.fn(),
+          stop: jest.fn(),
+          emit: jest.fn(),
+          removeListener: jest.fn(),
+          requestOldMessages: jest.fn(),
+        },
+      });
+      injectInstance(service, accountId, api);
+      (service as any).attachListener(accountId, api);
+      return { api, handlers };
+    }
+
+    beforeEach(() => {
+      // Default: RLS flag OFF, runInTenant passes through.
+      (mockedTenantBg.tenantRlsEnabled as jest.Mock).mockReturnValue(false);
+      (mockedTenantBg.runInTenant as jest.Mock).mockClear();
+      (mockedTenantBg.runInTenant as jest.Mock).mockImplementation(
+        (_ctx: any, _mgr: any, _tid: number, fn: () => any) => fn(),
+      );
+    });
+
+    afterAll(() => {
+      (mockedTenantBg.tenantRlsEnabled as jest.Mock).mockReturnValue(false);
+    });
+
+    it('flag OFF: typing handler runs original path (no tenant resolution, no wrapping)', async () => {
+      const processor = { processTypingEvent: jest.fn().mockResolvedValue(undefined) };
+      const { service, repo } = createService(undefined, processor);
+      repo.findOne.mockResolvedValue({ id: 'acc-1', channelId: 'ch-1' });
+
+      const { handlers } = attachAndCapture(service, 'acc-1');
+      await handlers['typing']({ data: { uidFrom: 'u-1', isTyping: 1 } });
+
+      expect(processor.processTypingEvent).toHaveBeenCalledWith('ch-1', 'u-1', true);
+      // No tenant resolution query, no runInTenant wrapping when flag OFF
+      expect(repo.manager.query).not.toHaveBeenCalled();
+      expect(mockedTenantBg.runInTenant).not.toHaveBeenCalled();
+    });
+
+    it('flag ON: typing handler resolves tenant from channel and wraps in tenant scope', async () => {
+      (mockedTenantBg.tenantRlsEnabled as jest.Mock).mockReturnValue(true);
+      const processor = { processTypingEvent: jest.fn().mockResolvedValue(undefined) };
+      const tenantCtx = { withTenant: jest.fn() };
+      const { service, repo } = createService(undefined, processor, tenantCtx);
+      repo.findOne.mockResolvedValue({ id: 'acc-1', channelId: 'ch-1' });
+      repo.manager.query.mockResolvedValue([{ tenant_id: 42 }]);
+
+      const { handlers } = attachAndCapture(service, 'acc-1');
+      await handlers['typing']({ data: { uidFrom: 'u-1', isTyping: 1 } });
+
+      // Tenant resolved from channels table
+      expect(repo.manager.query).toHaveBeenCalledWith(
+        'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', ['ch-1']);
+      // Wrapped via runInTenant with the resolved tenantId
+      expect(mockedTenantBg.runInTenant).toHaveBeenCalledWith(
+        tenantCtx, repo.manager, 42, expect.any(Function));
+      // And the inner handler still ran
+      expect(processor.processTypingEvent).toHaveBeenCalledWith('ch-1', 'u-1', true);
+    });
+
+    it('flag ON: reaction handler runs within resolved tenant scope', async () => {
+      (mockedTenantBg.tenantRlsEnabled as jest.Mock).mockReturnValue(true);
+      const processor = { processReactionEvent: jest.fn().mockResolvedValue(undefined) };
+      const tenantCtx = { withTenant: jest.fn() };
+      const { service, repo } = createService(undefined, processor, tenantCtx);
+      repo.findOne.mockResolvedValue({ id: 'acc-1', channelId: 'ch-9' });
+      repo.manager.query.mockResolvedValue([{ tenant_id: 5 }]);
+
+      const { handlers } = attachAndCapture(service, 'acc-1');
+      await handlers['reaction']({ data: { msgId: 'm-1', content: { rIcon: '👍' }, uidFrom: 'u-2' }, threadId: 'u-2' });
+
+      expect(mockedTenantBg.runInTenant).toHaveBeenCalledWith(
+        tenantCtx, repo.manager, 5, expect.any(Function));
+      expect(processor.processReactionEvent).toHaveBeenCalledWith('ch-9', 'm-1', '👍', 'u-2');
+    });
+
+    it('flag ON: undo handler wraps processUndoEvent loop in tenant scope', async () => {
+      (mockedTenantBg.tenantRlsEnabled as jest.Mock).mockReturnValue(true);
+      const processor = { processUndoEvent: jest.fn().mockResolvedValue(undefined) };
+      const tenantCtx = { withTenant: jest.fn() };
+      const { service, repo } = createService(undefined, processor, tenantCtx);
+      repo.findOne.mockResolvedValue({ id: 'acc-1', channelId: 'ch-3' });
+      repo.manager.query.mockResolvedValue([{ tenant_id: 8 }]);
+
+      const { handlers } = attachAndCapture(service, 'acc-1');
+      await handlers['undo']({ data: { msgId: '111', content: { globalMsgId: '222' } } });
+
+      expect(mockedTenantBg.runInTenant).toHaveBeenCalledWith(
+        tenantCtx, repo.manager, 8, expect.any(Function));
+      expect(processor.processUndoEvent).toHaveBeenCalled();
+      expect(processor.processUndoEvent.mock.calls[0][0]).toBe('ch-3');
+    });
+
+    it('flag ON: message handler (processInbound) is NOT double-wrapped (self-wraps)', async () => {
+      (mockedTenantBg.tenantRlsEnabled as jest.Mock).mockReturnValue(true);
+      const processor = { processInbound: jest.fn().mockResolvedValue(true) };
+      const tenantCtx = { withTenant: jest.fn() };
+      const { service, repo } = createService(undefined, processor, tenantCtx);
+      repo.findOne.mockResolvedValue({ id: 'acc-1', channelId: 'ch-1' });
+
+      const { handlers } = attachAndCapture(service, 'acc-1');
+      await handlers['message']({
+        data: { uidFrom: 'u-1', dName: 'Khách', content: 'xin chào', msgId: 'm-1', ts: '1700000000000' },
+        threadId: 'u-1',
+        type: 0,
+      });
+
+      // processInbound self-wraps tenant scope internally → pool must NOT wrap again
+      expect(processor.processInbound).toHaveBeenCalled();
+      expect(mockedTenantBg.runInTenant).not.toHaveBeenCalled();
     });
   });
 });

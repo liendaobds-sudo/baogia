@@ -28,6 +28,8 @@ describe('Hộp giấy — cascade bù hao theo công đoạn (khuôn bế bắt
         dongGoi: false,
         epKimViTri: 'Không',
         thietKe: 0,
+        // VAT truyền tường minh (mô phỏng % ở thông tin khách hàng) — engine không tự lấy từ config.
+        vatRate: 0.08,
     };
 
     it('khổ trải tính bằng dieline: có mã tiêu chuẩn + số con/tờ + itemW/H dương', () => {
@@ -38,13 +40,14 @@ describe('Hộp giấy — cascade bù hao theo công đoạn (khuôn bế bắt
         expect(r.meta?.itemH).toBeGreaterThan(0);
     });
 
-    it('bù hao tờ in nằm ở SỐ TỜ (cascade), giấy tính theo tờ gross', () => {
+    it('giấy tính theo TỜ NHẬP: cpGiay = giá tờ nhập × số tờ nhập (soToLon)', () => {
+        // GĐ C — sửa lệch đơn vị: giá giấy = đơn giá 1 TỜ NHẬP × số TỜ NHẬP (parentGross),
+        // KHÔNG phải × số tờ xả. `meta.soToLon` nay = số tờ nhập (đúng nghĩa "tờ lớn").
         const r = tinhHopGiay(input, D);
-        const soCon = r.meta!.soConToLon!;
-        const sheetsNet = Math.ceil(900 / soCon);
-        // Số tờ gross ≥ số tờ net (có makeready + rate hao theo công đoạn).
-        expect(r.meta!.soToLon!).toBeGreaterThanOrEqual(sheetsNet);
-        // Giá giấy = đơn giá tờ CHƯA VAT (priceNoVAT) × số tờ gross — bất biến cascade.
+        const soConToLon = r.meta!.soConToLon!;            // con / tờ nhập
+        const parentNet = Math.ceil(900 / soConToLon);     // tờ nhập tối thiểu
+        // Số tờ nhập gross ≥ net (makeready + hao theo công đoạn).
+        expect(r.meta!.soToLon!).toBeGreaterThanOrEqual(parentNet);
         const giay = r.lines.find((l) => l.label === 'Chi phí giấy')!.amount;
         const giaTo = D.materials.find((m) => m.code === 'I250')!.priceNoVAT;
         expect(giay).toBe(giaTo * r.meta!.soToLon!);

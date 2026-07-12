@@ -309,7 +309,7 @@
     {
       "id": "super-admin",
       "title": "Super Admin",
-      "scope": "frozen",
+      "scope": "core",
       "axis": "none",
       "rule": "2.4",
       "reason": "Bảng điều khiển quản trị cấp nền tảng thuộc nhóm SaaS; không phục vụ trực tiếp Chủ_Shop/NV_CSKH → đóng băng (Req 2.4).",

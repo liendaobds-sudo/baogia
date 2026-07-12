@@ -2,6 +2,7 @@ import {
     Controller, Post, Get, Body, UseGuards, Req, Logger, Param,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Channel } from '../../entities/channel.entity';
@@ -19,7 +20,7 @@ const TEST_CHANNEL_NAME = 'Test Chat (Internal)';
  * WITHOUT needing a real Zalo OA account
  */
 @Controller('test-chat')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class TestChatController {
     private readonly logger = new Logger(TestChatController.name);
 

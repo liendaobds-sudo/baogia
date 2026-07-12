@@ -8,6 +8,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ContactsController } from './contacts.controller';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { Contact, Conversation, Message } from '../../entities';
 
 // ─── Mock helpers ───
@@ -60,7 +61,10 @@ describe('ContactsController', () => {
                 { provide: getRepositoryToken(Conversation), useValue: convRepo },
                 { provide: getRepositoryToken(Message), useValue: msgRepo },
             ],
-        }).compile();
+        })
+            .overrideGuard(CskhScopeGuard)
+            .useValue({ canActivate: () => true })
+            .compile();
 
         controller = module.get<ContactsController>(ContactsController);
     });
