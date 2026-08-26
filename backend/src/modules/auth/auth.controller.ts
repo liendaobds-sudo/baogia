@@ -45,11 +45,11 @@ export class AuthController {
     @Post('logout')
     @UseGuards(AuthGuard('jwt'))
     @HttpCode(HttpStatus.OK)
-    async logout(@Request() req) {
+    async logout(@Request() req, @Body() body?: { refreshToken?: string }) {
         // Extract token from Authorization header and blacklist it
         const authHeader = req.headers.authorization || '';
         const token = authHeader.replace('Bearer ', '');
-        await this.authService.logout(token);
+        await this.authService.logout(token, body?.refreshToken);
         return { message: 'Đăng xuất thành công' };
     }
 

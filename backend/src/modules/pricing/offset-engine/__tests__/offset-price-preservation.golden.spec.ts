@@ -1,6 +1,5 @@
 import { EngineOffsetService } from '../engine-offset.service';
 import { loadDefaultPricingData } from '../default-data';
-import { buildTuiOptions, TUI_NEST_OPTIONS } from '../products/tui-giay';
 import type { OffsetEngineInput } from '../engine-offset.service';
 
 /**
@@ -40,7 +39,7 @@ describe('Offset price preservation (golden) — Property 11, Req 6.5', () => {
     const svc = new EngineOffsetService();
     const d = loadDefaultPricingData();
     const mat = d.materials[0].code; // 'C150'
-    const baiTui = (buildTuiOptions(d)[0] ?? TUI_NEST_OPTIONS[0]).label;
+    const baiTui = '42cm x 60cm (dán nối)';
     // VAT BẮT BUỘC truyền tường minh vào engine (mô phỏng % nhập ở mục thông tin khách hàng).
     // Engine KHÔNG còn tự lấy VAT từ cấu hình pricebook; dùng đúng giá trị config cũ (TyLe_VAT)
     // để bảo toàn các con số golden đã khoá — chỉ ĐỔI NGUỒN VAT (config → input), KHÔNG đổi số.
@@ -133,14 +132,18 @@ describe('Offset price preservation (golden) — Property 11, Req 6.5', () => {
             khachTra: 4059903.333333332,
             donGia1SP: 811.9806666666664,
         },
+        // RE-BASELINE 2026-08-23 — fixture cũ ép túi 30×25×10 vào bài 28×60 dù
+        // soCon=0, tạo giá rác thiếu toàn bộ giấy/hao hụt (12.675.000 trước VAT).
+        // Phương án hợp lệ 42×60 dán nối: soConToLon=2, 2.760 tờ; tổng trước VAT
+        // 17.971.222,22 (+41,79%). Bốn sản phẩm golden khác giữ nguyên tuyệt đối.
         tui_giay: {
-            tongChuaVAT: 12675000,
-            haoHut: 0,
-            vat: 1014000,
-            tongGomVAT: 13689000,
-            chietKhau: 603750,
-            khachTra: 13085250,
-            donGia1SP: 2617.05,
+            tongChuaVAT: 17971222.222222216,
+            haoHut: 323074.0740740734,
+            vat: 1437697.7777777773,
+            tongGomVAT: 19408919.999999993,
+            chietKhau: 697083.3333333334,
+            khachTra: 18711836.66666666,
+            donGia1SP: 3742.367333333332,
         },
     };
 

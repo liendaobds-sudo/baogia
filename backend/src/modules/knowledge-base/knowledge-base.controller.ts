@@ -1,6 +1,6 @@
 import {
     Controller, Get, Post, Put, Delete, Param, Body, UseGuards,
-    UploadedFile, UseInterceptors, Req,
+    UploadedFile, UseInterceptors, Req, BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
@@ -50,6 +50,9 @@ export class KnowledgeBaseController {
         @Body() body: { tags?: string },
         @Req() req: any,
     ) {
+        if (!file || !file.buffer) {
+            throw new BadRequestException('Thiếu file upload (field "file").');
+        }
         const tags = body.tags ? body.tags.split(',').map((t: string) => t.trim()) : [];
         const userId = req.user?.sub || req.user?.id;
         return this.kbService.uploadAndProcess(
@@ -76,6 +79,9 @@ export class KnowledgeBaseController {
 
     @Post('search')
     searchChunks(@Body() body: { query: string; limit?: number }) {
+        if (!body?.query || typeof body.query !== 'string' || !body.query.trim()) {
+            throw new BadRequestException('Thiếu nội dung tìm kiếm (query).');
+        }
         return this.kbService.searchChunks(body.query, body.limit || 5);
     }
 

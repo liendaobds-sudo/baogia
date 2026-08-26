@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { Decimal } from 'decimal.js';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { LARGE_FORMAT_LIMITS } from '../../quote/pricing-defaults';
 
 export interface LargeFormatMaterialInfo {
   id: number;
@@ -63,10 +64,10 @@ export class LargeFormatCalculatorService {
   ): Promise<LargeFormatCalculationResult> {
 
     // Trần kiểm tra đầu vào + % hao mặc định — cấu hình được (mặc định giữ nguyên hành vi cũ).
-    const maxWidthM = opts.maxWidthM ?? 50;
-    const maxHeightM = opts.maxHeightM ?? 100;
-    const maxQty = opts.maxQty ?? 10000;
-    const defaultWastePercent = opts.defaultWastePercent ?? 10;
+    const maxWidthM = opts.maxWidthM ?? LARGE_FORMAT_LIMITS.maxWidthM;
+    const maxHeightM = opts.maxHeightM ?? LARGE_FORMAT_LIMITS.maxHeightM;
+    const maxQty = opts.maxQty ?? LARGE_FORMAT_LIMITS.maxQty;
+    const defaultWastePercent = opts.defaultWastePercent ?? LARGE_FORMAT_LIMITS.defaultWastePercent;
 
     // Large format expects meters typically, convert if given in mm
     // Let's assume the API receives mm and we convert to m

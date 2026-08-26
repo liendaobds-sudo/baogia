@@ -1,7 +1,7 @@
-import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
+import { Injectable, Logger, UnprocessableEntityException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource, In } from 'typeorm';
-import { Product, ProductCategory, UnifiedProduct, UnifiedProductCategory, Material } from '../../../entities';
+import { Product, ProductCategory, UnifiedProduct, UnifiedProductCategory, Material, ProductAiField } from '../../../entities';
 import { ProductType, ScopeFlags, validateAllowedList } from '../scope/resource-scope-rule';
 
 @Injectable()
@@ -25,7 +25,7 @@ export class ProductsService {
     async findAllProducts() {
         const em = this.repo.manager;
         const templates = await em.query(`
-            SELECT id, code, name_vi as name, quote_type as product_type, ai_keywords as keywords, icon, is_active, sort_order, parent_category_code as parent_category, default_materials, default_finishing, form_config, description_vi as description, mini_quote_fields, has_auto_pricing, allowed_materials, allowed_paper_sizes, allowed_processing
+            SELECT id, code, name_vi as name, quote_type as product_type, unit, ai_keywords as keywords, icon, is_active, sort_order, parent_category_code as parent_category, default_materials, default_finishing, form_config, description_vi as description, mini_quote_fields, has_auto_pricing, allowed_materials, allowed_paper_sizes, allowed_processing
             FROM unified_products WHERE is_active = true ORDER BY sort_order ASC, name_vi ASC`);
         const fields = await em.query(`
             SELECT id, product_id as template_id, field_code, field_name, field_type, is_required, is_enabled, default_value, ai_question, ai_keywords, answer_patterns, source_table, source_filter, sort_order
@@ -37,7 +37,9 @@ export class ProductsService {
             if (!fieldsByTemplate.has(key)) fieldsByTemplate.set(key, []);
             fieldsByTemplate.get(key)!.push({
                 id: f.id, field_code: f.field_code, field_name: f.field_name, field_type: f.field_type,
-                is_required: !!f.is_required, default_value: f.default_value, ai_question: f.ai_question,
+                // Cấp cả `is_required` (contract cũ) lẫn `required` (FE ProductRulesPanel đọc) để hết lệch.
+                is_required: !!f.is_required, required: !!f.is_required,
+                default_value: f.default_value, ai_question: f.ai_question,
                 ai_keywords: this.parseJsonSafe(f.ai_keywords) || [], options: this.parseJsonSafe(f.answer_patterns),
                 source_table: f.source_table, source_filter: this.parseJsonSafe(f.source_filter), sort_order: f.sort_order,
             });
@@ -45,12 +47,15 @@ export class ProductsService {
         return templates.map((t: any) => ({
             id: t.id, code: t.code, nameVi: t.name, name: t.name, name_vi: t.name,
             quoteType: t.product_type, product_type: t.product_type, quote_type: t.product_type,
+            unit: t.unit || null,
             is_active: !!t.is_active, category_id: t.parent_category,
             product_id: t.id, aiKeywords: this.parseJsonSafe(t.keywords) || [], ai_keywords: this.parseJsonSafe(t.keywords) || [],
             ai_enabled: (this.parseJsonSafe(t.form_config) as any)?.ai_enabled !== false, has_auto_pricing: !!t.has_auto_pricing,
             icon: t.icon, sortOrder: t.sort_order, parent_category: t.parent_category,
             default_materials: this.parseJsonSafe(t.default_materials), default_finishing: this.parseJsonSafe(t.default_finishing),
             form_config: this.parseJsonSafe(t.form_config), description: t.description, fields: fieldsByTemplate.get(String(t.id)) || [],
+            field_count: (fieldsByTemplate.get(String(t.id)) || []).length,
+            required_count: (fieldsByTemplate.get(String(t.id)) || []).filter((f: any) => f.is_required).length,
             mini_quote_fields: this.parseJsonSafe(t.mini_quote_fields) || null,
             allowed_materials: this.parseJsonSafe(t.allowed_materials) || [],
             allowed_paper_sizes: this.parseJsonSafe(t.allowed_paper_sizes) || [],
@@ -65,7 +70,7 @@ export class ProductsService {
         const fc = this.parseJsonSafe(item.formConfig) as any || {};
         return {
             id: item.id, code: item.code, name_vi: item.nameVi, name_en: item.nameEn,
-            quote_type: item.quoteType, category_id: item.parentCategoryCode,
+            quote_type: item.quoteType, unit: item.unit || null, category_id: item.parentCategoryCode,
             icon: item.icon, description_vi: item.descriptionVi,
             is_active: item.isActive, ai_keywords: item.aiKeywords,
             ai_enabled: fc.ai_enabled !== false, has_auto_pricing: item.hasAutoPricing,
@@ -88,11 +93,15 @@ export class ProductsService {
     }
 
     async createProduct(data: any) {
+        const { resolveUnitLabel } = await import('../lib/quote-units');
+        const quoteType = data.quote_type || 'loose';
         const entity = this.tmplRepo.create({
             code: data.code,
             nameVi: data.name_vi,
             nameEn: data.name_en,
-            quoteType: data.quote_type || 'loose',
+            quoteType,
+            // Đơn vị số lượng: client gửi hoặc default theo quote_type (nguồn: quote-units.ts)
+            unit: resolveUnitLabel({ unit: data.unit, quoteType }),
             parentCategoryCode: data.category_id || null,
             icon: data.icon || 'fa-box',
             descriptionVi: data.description_vi,
@@ -117,6 +126,17 @@ export class ProductsService {
         if (data.name_vi !== undefined) product.nameVi = data.name_vi;
         if (data.name_en !== undefined) product.nameEn = data.name_en;
         if (data.quote_type !== undefined) product.quoteType = data.quote_type;
+        if (data.unit !== undefined) {
+            const { resolveUnitLabel } = await import('../lib/quote-units');
+            product.unit = resolveUnitLabel({
+                unit: data.unit,
+                quoteType: data.quote_type ?? product.quoteType,
+            });
+        } else if (data.quote_type !== undefined && !product.unit) {
+            // Đổi loại SP mà unit còn trống → gán default theo loại mới
+            const { resolveUnitLabel } = await import('../lib/quote-units');
+            product.unit = resolveUnitLabel({ quoteType: data.quote_type });
+        }
         if (data.category_id !== undefined) product.parentCategoryCode = data.category_id || null;
         if (data.icon !== undefined) product.icon = data.icon;
         if (data.description_vi !== undefined) product.descriptionVi = data.description_vi;
@@ -401,5 +421,79 @@ export class ProductsService {
             }
         }
         return results;
+    }
+
+    // ─── AI Fields CRUD (Tab "Luật Sản Phẩm") ────────────────
+    // Dùng raw query đồng bộ với findAllProducts. Trả về field đã map sang shape
+    // frontend (field_code/field_name/is_required/required) để UI hiển thị đúng ngay.
+
+    private mapAiFieldRow(f: any) {
+        return {
+            id: f.id, template_id: f.product_id, product_id: f.product_id,
+            field_code: f.field_code, field_name: f.field_name, field_type: f.field_type,
+            // Cấp cả `is_required` (BE cũ) lẫn `required` (FE đọc) để không lệch contract.
+            is_required: !!f.is_required, required: !!f.is_required,
+            is_enabled: !!f.is_enabled, default_value: f.default_value,
+            ai_question: f.ai_question, sort_order: f.sort_order,
+        };
+    }
+
+    async createAiField(productId: number, data: any) {
+        const product = await this.tmplRepo.findOne({ where: { id: productId } });
+        if (!product) throw new NotFoundException('Sản phẩm không tồn tại');
+
+        const rows = await this.dataSource.query(
+            `INSERT INTO product_ai_fields
+                (product_id, field_code, field_name, field_type, is_required, is_enabled, ai_question, sort_order)
+             VALUES ($1, $2, $3, $4, $5, true, $6, $7)
+             RETURNING id, product_id, field_code, field_name, field_type, is_required, is_enabled, default_value, ai_question, sort_order`,
+            [
+                productId,
+                data.field_code || data.field_name || 'new_field',
+                data.field_name || data.label || 'Trường mới',
+                data.field_type || 'text',
+                data.required ?? data.is_required ?? false,
+                data.ai_question || null,
+                data.sort_order ?? 99,
+            ],
+        );
+        return this.mapAiFieldRow(rows[0]);
+    }
+
+    async updateAiField(fieldId: number, data: any) {
+        const existing = await this.dataSource.query(
+            `SELECT id FROM product_ai_fields WHERE id = $1`, [fieldId],
+        );
+        if (!existing || existing.length === 0) throw new NotFoundException('Trường không tồn tại');
+
+        // Chỉ cập nhật các cột được gửi lên (partial update), map required→is_required.
+        const sets: string[] = [];
+        const params: any[] = [];
+        const push = (col: string, val: any) => { params.push(val); sets.push(`${col} = $${params.length}`); };
+        if (data.field_name !== undefined || data.label !== undefined) push('field_name', data.field_name ?? data.label);
+        if (data.field_code !== undefined) push('field_code', data.field_code);
+        if (data.field_type !== undefined) push('field_type', data.field_type);
+        if (data.required !== undefined || data.is_required !== undefined) push('is_required', data.required ?? data.is_required);
+        if (data.ai_question !== undefined) push('ai_question', data.ai_question);
+        if (data.sort_order !== undefined) push('sort_order', data.sort_order);
+        if (sets.length === 0) {
+            const cur = await this.dataSource.query(`SELECT * FROM product_ai_fields WHERE id = $1`, [fieldId]);
+            return this.mapAiFieldRow(cur[0]);
+        }
+        params.push(fieldId);
+        const rows = await this.dataSource.query(
+            `UPDATE product_ai_fields SET ${sets.join(', ')} WHERE id = $${params.length}
+             RETURNING id, product_id, field_code, field_name, field_type, is_required, is_enabled, default_value, ai_question, sort_order`,
+            params,
+        );
+        return this.mapAiFieldRow(rows[0]);
+    }
+
+    async deleteAiField(fieldId: number) {
+        const res = await this.dataSource.query(
+            `DELETE FROM product_ai_fields WHERE id = $1 RETURNING id`, [fieldId],
+        );
+        if (!res || res.length === 0) throw new NotFoundException('Trường không tồn tại');
+        return { deleted: true, id: fieldId };
     }
 }

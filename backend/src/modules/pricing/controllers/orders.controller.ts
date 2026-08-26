@@ -127,8 +127,8 @@ export class ErpOrdersController {
     async sendZalo(@Param('id') id: string, @Body() body: { conversation_id: string }) {
         try {
             const data = await this.service.sendViaZalo(id, body.conversation_id);
-            return { success: true, data, message: data.message };
-        } catch (e: unknown) { throw new HttpException(e instanceof Error ? e.message : 'Unknown error', HttpStatus.BAD_REQUEST); }
+            return { success: true, data };
+        } catch (e: unknown) { throw new HttpException(e instanceof Error ? e.message : 'Unknown error', HttpStatus.NOT_IMPLEMENTED); }
     }
 
     @Post(':id/send-email')
@@ -136,8 +136,8 @@ export class ErpOrdersController {
     async sendEmail(@Param('id') id: string, @Body() body: { email: string; subject?: string }) {
         try {
             const data = await this.service.sendViaEmail(id, body.email, body.subject);
-            return { success: true, data, message: data.message };
-        } catch (e: unknown) { throw new HttpException(e instanceof Error ? e.message : 'Unknown error', HttpStatus.BAD_REQUEST); }
+            return { success: true, data };
+        } catch (e: unknown) { throw new HttpException(e instanceof Error ? e.message : 'Unknown error', HttpStatus.NOT_IMPLEMENTED); }
     }
 
     @Put(':id')

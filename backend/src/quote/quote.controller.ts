@@ -39,6 +39,8 @@ import {
     UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Roles, RolesGuard } from '../modules/auth/roles.guard';
+import { UserRole } from '../entities';
 import {
     CapabilityService,
     DEFAULT_UNIT_ID,
@@ -58,7 +60,7 @@ import {
 } from './types/method-plugin.types';
 
 @Controller('quote-tool')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 export class QuoteController {
     constructor(
         private readonly capabilityService: CapabilityService,
@@ -98,6 +100,11 @@ export class QuoteController {
      * Bật/tắt một Phương_Pháp_In cho Đơn_Vị (Req 1.2, 1.3).
      * Trả 409 khi vi phạm ràng buộc "phương pháp khả dụng cuối cùng" (Req 1.6).
      */
+    // Audit 2026-07-25: route này trước CHỈ có AuthGuard('jwt') ⇒ bất kỳ user đăng nhập nào
+    // (kể cả viewer) cũng bật/tắt được Phương_Pháp_In của cả đơn vị — tức ẩn/hiện menu và
+    // chặn cả đường tính giá. Đây là thao tác cấu hình quản trị ⇒ giới hạn ADMIN/SUPER_ADMIN,
+    // đối xứng với cùng thao tác ở `super-admin.controller`.
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     @Put('capabilities/:methodId')
     async setCapability(
         @Param('methodId') methodId: MethodId,

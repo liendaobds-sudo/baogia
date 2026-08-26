@@ -29,8 +29,10 @@ export class SearchSimilarConvTool implements BaseTool {
     constructor(private readonly convSearch: ConversationSearchService) {}
 
     async execute(args: { product?: string; question: string }, context: any): Promise<string> {
+        // tenantId do agent-pipeline luồn từ hội thoại hiện tại — thiếu thì service
+        // fail-closed (trả rỗng), không trộn ví dụ chốt đơn chéo tenant.
         const result = await this.convSearch.buildSimilarConversationContext(
-            args.product, args.question,
+            args.product, args.question, undefined, context?.tenantId ?? null,
         );
         return result || 'Chưa có cuộc hội thoại tương tự nào được tìm thấy.';
     }

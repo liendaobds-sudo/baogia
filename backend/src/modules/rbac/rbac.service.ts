@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role } from '../../entities/role.entity';
@@ -166,9 +166,32 @@ export class RbacService implements OnModuleInit {
         return rolesWithPerms;
     }
 
-    async findRoleWithPermissions(roleId: number) {
+    /**
+     * CHỐT PHẠM VI ROLE (audit 2026-07-25).
+     *
+     * Trước đây `findRoleWithPermissions` / `updateRolePermissions` / `deleteRole` chỉ tra theo
+     * `id`, KHÔNG lọc tenant ⇒ admin của tenant A đọc/ghi lại quyền của role thuộc tenant B.
+     * Nguy hiểm hơn: quyền được phân giải theo TÊN role (`jwt.strategy.validate`) nên sửa role
+     * hệ thống (`is_system = true`, tenant_id NULL) ảnh hưởng MỌI tenant.
+     *
+     * Quy tắc:
+     *   • role của tenant khác ⇒ 404 (không tiết lộ tồn tại).
+     *   • ghi (`update`/`delete`) vào role hệ thống ⇒ 403, chỉ super_admin được đổi qua đường seed.
+     *
+     * @param roleId id role
+     * @param tenantId tenant hiện hành (null/undefined = ngoài context → không siết, giữ hành vi cũ)
+     */
+    private async requireRoleInScope(roleId: number, tenantId?: number | null) {
         const role = await this.roleRepo.findOne({ where: { id: roleId } });
         if (!role) throw new NotFoundException('Role not found');
+        if (tenantId != null && role.tenantId != null && role.tenantId !== tenantId) {
+            throw new NotFoundException('Role not found');
+        }
+        return role;
+    }
+
+    async findRoleWithPermissions(roleId: number, tenantId?: number | null) {
+        const role = await this.requireRoleInScope(roleId, tenantId);
         const permissions = await this.rpRepo.find({ where: { roleId } });
         return { ...role, permissions: permissions.map(p => p.permission) };
     }
@@ -190,9 +213,23 @@ export class RbacService implements OnModuleInit {
         return this.findRoleWithPermissions(role.id);
     }
 
-    async updateRolePermissions(roleId: number, permissions: string[]) {
-        const role = await this.roleRepo.findOne({ where: { id: roleId } });
-        if (!role) throw new NotFoundException('Role not found');
+    /**
+     * @param opts.allowSystem chỉ SUPER_ADMIN được sửa role hệ thống (dùng chung mọi tenant).
+     *        Admin của một tenant bị chặn — vì quyền phân giải theo TÊN role nên sửa role hệ
+     *        thống sẽ đổi quyền của tất cả tenant khác.
+     */
+    async updateRolePermissions(
+        roleId: number,
+        permissions: string[],
+        tenantId?: number | null,
+        opts?: { allowSystem?: boolean },
+    ) {
+        const role = await this.requireRoleInScope(roleId, tenantId);
+        if (role.isSystem && !opts?.allowSystem) {
+            throw new ForbiddenException(
+                'Chỉ super admin được sửa quyền của role hệ thống (áp dụng cho mọi đơn vị). Hãy tạo role riêng của đơn vị.',
+            );
+        }
 
         // Clear old permissions
         await this.rpRepo.delete({ roleId });
@@ -203,13 +240,12 @@ export class RbacService implements OnModuleInit {
             await this.rpRepo.save(permEntities);
         }
 
-        return this.findRoleWithPermissions(roleId);
+        return this.findRoleWithPermissions(roleId, tenantId);
     }
 
-    async deleteRole(roleId: number) {
-        const role = await this.roleRepo.findOne({ where: { id: roleId } });
-        if (!role) throw new NotFoundException('Role not found');
-        if (role.isSystem) throw new Error('Không thể xóa role hệ thống');
+    async deleteRole(roleId: number, tenantId?: number | null) {
+        const role = await this.requireRoleInScope(roleId, tenantId);
+        if (role.isSystem) throw new ForbiddenException('Không thể xóa role hệ thống');
         await this.rpRepo.delete({ roleId });
         await this.roleRepo.delete(roleId);
         return { deleted: true };

@@ -76,11 +76,11 @@ describe('DigitalMethodPlugin — ánh xạ Specification → CalculatePriceInpu
         },
     );
 
-    it('ánh xạ dimensions vào cả item_width/height (loose/bound) lẫn width/height (large_format)', async () => {
+    it('đổi dimensions chuẩn cm → mm đúng một lần cho facade digital', async () => {
         const product: ProductRef = { code: 'p', quoteType: 'large_format' };
         const spec: Specification = {
             quantity: 10,
-            dimensions: { width: 90, height: 50 },
+            dimensions: { width: 9, height: 5.4 },
         };
 
         await plugin.calculate(product, spec, {});
@@ -88,8 +88,8 @@ describe('DigitalMethodPlugin — ánh xạ Specification → CalculatePriceInpu
         const input = capturedInput();
         expect(input.item_width).toBe(90);
         expect(input.width).toBe(90);
-        expect(input.item_height).toBe(50);
-        expect(input.height).toBe(50);
+        expect(input.item_height).toBe(54);
+        expect(input.height).toBe(54);
     });
 
     it('ánh xạ materialCode/paperSizeCode dạng số → material_id/paper_size_id', async () => {
@@ -236,7 +236,7 @@ describe('OffsetMethodPlugin — ánh xạ Specification → OffsetEngineInput (
         engine.calculate.mock.calls[0][0];
 
     it.each(['to_roi', 'bi_thu_folder', 'sp_khac'])(
-        'loại khổ động %s: ánh xạ width/height → rong/cao (không có hong)',
+        'loại khổ động %s: giữ dimensions cm khi ánh xạ width/height → rong/cao',
         async (quoteType) => {
             const product: ProductRef = { code: 'p', quoteType };
             const spec: Specification = {
@@ -256,7 +256,7 @@ describe('OffsetMethodPlugin — ánh xạ Specification → OffsetEngineInput (
     );
 
     it.each(['hop_giay', 'tui_giay'])(
-        'loại khối %s: ánh xạ width/height/depth → rong/cao/hong',
+        'loại khối %s: giữ dimensions cm khi ánh xạ width/height/depth → rong/cao/hong',
         async (quoteType) => {
             const product: ProductRef = { code: 'p', quoteType };
             const spec: Specification = {
@@ -353,14 +353,25 @@ describe('OffsetMethodPlugin — ánh xạ Specification → OffsetEngineInput (
         expect(result.pricePerItem).toBe(500000); // chia cho qty=1
     });
 
-    it('priceBeforeVat = tongChuaVAT của engine, VAT không lẫn vào tầng plugin', async () => {
+    it('bảo toàn gross/discount/net từ engine, VAT không lẫn vào tầng plugin', async () => {
+        engine.calculate.mockReturnValueOnce({
+            success: true,
+            data: {
+                tongChuaVAT: 1_000_000,
+                vat: 0,
+                chietKhau: 100_000,
+                khachTra: 900_000,
+            },
+        });
         const product: ProductRef = { code: 'p', quoteType: 'to_roi' };
         const spec: Specification = { quantity: 1000 };
 
         const result = await plugin.calculate(product, spec, {});
 
-        expect(result.priceBeforeVat).toBe(500000);
-        expect(result.discountAmount).toBe(0);
+        expect(result.sellingSubtotal).toBe(1_000_000);
+        expect(result.discountAmount).toBe(100_000);
+        expect(result.priceBeforeVat).toBe(900_000);
+        expect(result.pricePerItem).toBe(900);
     });
 
     it('giá trị ngoài whitelist: engine trả success:false → ok:false + lý do (Req 5.5)', async () => {
@@ -389,5 +400,52 @@ describe('OffsetMethodPlugin — ánh xạ Specification → OffsetEngineInput (
         expect(result.ok).toBe(false);
         expect(result.unavailableReason).toContain('loose');
         expect(engine.calculate).not.toHaveBeenCalled();
+    });
+});
+
+describe('Biên đơn vị dimensions — Specification cm → engine-native', () => {
+    it('cùng kích thước 9×5,4 cm: Digital nhận 90×54 mm, Offset giữ 9×5,4 cm', async () => {
+        const digitalFacade = {
+            calculatePrice: jest.fn().mockResolvedValue({
+                success: true,
+                data: {
+                    type: 'loose',
+                    selling_subtotal: 100_000,
+                    cost_subtotal: 60_000,
+                    breakdown: {},
+                },
+            }),
+        };
+        const digital = new DigitalMethodPlugin(
+            registryStub,
+            digitalFacade as any,
+            { getPricingConfig: jest.fn().mockResolvedValue({}) } as any,
+        );
+        const offsetEngine = {
+            calculate: jest.fn().mockReturnValue({
+                success: true,
+                data: {
+                    tongChuaVAT: 100_000,
+                    vat: 0,
+                    chietKhau: 0,
+                    khachTra: 100_000,
+                },
+            }),
+        };
+        const offset = new OffsetMethodPlugin(offsetEngine as any, registryStub);
+        const spec: Specification = {
+            quantity: 1000,
+            dimensions: { width: 9, height: 5.4 },
+        };
+
+        await digital.calculate({ code: 'card', quoteType: 'loose' }, spec, {});
+        await offset.calculate({ code: 'flyer', quoteType: 'to_roi' }, spec, {});
+
+        expect(digitalFacade.calculatePrice).toHaveBeenCalledWith(
+            expect.objectContaining({ item_width: 90, item_height: 54 }),
+        );
+        expect(offsetEngine.calculate).toHaveBeenCalledWith(
+            expect.objectContaining({ rong: 9, cao: 5.4 }),
+        );
     });
 });

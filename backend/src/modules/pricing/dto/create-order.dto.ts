@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsArray, ValidateNested, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsIn, IsNumber, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -18,7 +18,7 @@ export class QuoteItemDto {
   @IsOptional() @Type(() => Number) @IsNumber() sheets_needed?: number;
   @IsOptional() processing_details?: Record<string, unknown>[];
   @IsOptional() printing_detail?: Record<string, unknown>;
-  @IsOptional() @Type(() => Number) @IsNumber() item_total?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) item_total?: number;
   @IsOptional() @IsString() product_type?: string;
   @IsOptional() @IsString() bound_size?: string;
   @IsOptional() @IsString() size?: string;
@@ -74,22 +74,23 @@ export class CreateQuoteDto {
   @IsOptional() @IsString() customer_email?: string;
   @IsOptional() @IsString() customer_contact?: string;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) total?: number;
-  @IsOptional() @IsString() discount_type?: string;
-  @IsOptional() @Type(() => Number) @IsNumber() discount_value?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() discount_amount?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() vat_rate?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() vat_amount?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() shipping_fee?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() grand_total?: number;
+  @IsOptional() @IsString() @IsIn(['percent', 'fixed']) discount_type?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) discount_value?: number;
+  /** Legacy output fields remain accepted for old clients; OrdersService ignores and recomputes them. */
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) discount_amount?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(100) vat_rate?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) vat_amount?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) shipping_fee?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) grand_total?: number;
   @IsOptional() @IsString() delivery_time?: string;
   @IsOptional() @Type(() => Number) @IsNumber() validity_days?: number;
   @IsOptional() @IsString() valid_until?: string;
 
-  @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => QuoteItemDto)
-  items?: QuoteItemDto[];
+  items!: QuoteItemDto[];
 }
 
 export class UpdateQuoteDto {
@@ -101,20 +102,22 @@ export class UpdateQuoteDto {
   @IsOptional() @IsString() customer_note?: string;
   @IsOptional() @IsString() customer_email?: string;
   @IsOptional() @IsString() customer_contact?: string;
-  @IsOptional() @Type(() => Number) @IsNumber() total?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) total?: number;
   @IsOptional() @IsString() delivery_time?: string;
   @IsOptional() @IsString() status?: string;
-  @IsOptional() @IsString() discount_type?: string;
-  @IsOptional() @Type(() => Number) @IsNumber() discount_value?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() discount_amount?: number;
+  @IsOptional() @IsString() @IsIn(['percent', 'fixed']) discount_type?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) discount_value?: number;
+  /** Legacy output fields remain accepted for old clients; OrdersService ignores and recomputes them. */
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) discount_amount?: number;
   @IsOptional() @IsString() type?: string;
-  @IsOptional() @Type(() => Number) @IsNumber() vat_rate?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() vat_amount?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() shipping_fee?: number;
-  @IsOptional() @Type(() => Number) @IsNumber() grand_total?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(100) vat_rate?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) vat_amount?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) shipping_fee?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) grand_total?: number;
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => QuoteItemDto)
   items?: QuoteItemDto[];

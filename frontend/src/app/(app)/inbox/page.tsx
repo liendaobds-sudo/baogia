@@ -14,6 +14,7 @@ import ChatArea, { ChatAreaRef } from './_components/ChatArea';
 import RightSidebar from './_components/RightSidebar';
 import { DeleteConfirmModal } from './_components/DeleteConfirmModal';
 import type { Suggestion } from './types';
+import { deliverSuggestionReply } from './_lib/suggestionDelivery';
 
 export default function InboxPage() {
     // ToastProvider được mount tại đây vì layout (app) chưa cung cấp Toast_System.
@@ -110,8 +111,10 @@ function InboxPageInner() {
         if (!text || !state.selectedId) return;
         
         const stripMarkdown = (str: string) => str.replace(/\*\*(.*?)\*\*/g, '$1').replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, '$1');
-        await actions.sendMessage(state.selectedId, stripMarkdown(text));
-        actions.markSuggestionSent(suggestion.id, replyIndex, suggestion.replies.length);
+        await deliverSuggestionReply(
+            () => actions.sendMessage(state.selectedId!, stripMarkdown(text)),
+            () => actions.markSuggestionSent(suggestion.id, replyIndex, suggestion.replies.length),
+        );
     };
 
     const handleEditSuggestion = (_suggestion: Suggestion, _replyIndex: number) => {

@@ -29,8 +29,8 @@ import { BoundCalculatorService } from './services/bound-calculator.service';
 import { PricingService } from './pricing.service';
 import { PricingFacadeService } from './services/pricing-facade.service';
 
-import { 
-  ProductsController, ErpProductCategoriesController, ErpQuoteTemplatesController, ErpAiConfigController 
+import {
+  ProductsController, ErpProductCategoriesController, ErpQuoteTemplatesController, ErpAiConfigController, ErpAiFieldsController
 } from './controllers/products.controller';
 import { 
   ErpMaterialsController, ErpMaterialTypesController, ErpMaterialCategoriesController, ErpProcessingOptionsController, ErpProcessingPricingController
@@ -92,7 +92,7 @@ import { CapabilityModule } from '../../quote/capability.module';
     ])
   ],
   controllers: [
-    ProductsController, ErpProductCategoriesController, ErpQuoteTemplatesController, ErpAiConfigController,
+    ProductsController, ErpProductCategoriesController, ErpQuoteTemplatesController, ErpAiConfigController, ErpAiFieldsController,
     ErpMaterialsController, ErpMaterialTypesController, ErpMaterialCategoriesController, ErpProcessingOptionsController, ErpProcessingPricingController,
     ErpOrdersController, ErpOrderVersionsController, ErpOrderPdfController,
     ErpCustomersController, ErpCustomerPriceGroupsController,

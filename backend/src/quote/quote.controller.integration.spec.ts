@@ -79,8 +79,17 @@ describe('QuoteController (integration) — endpoint năng lực', () => {
             ],
         })
             // Cô lập với JWT — guard luôn cho qua (Req 1.8 tập trung vào validate input, không vào auth).
+            // Audit 2026-07-25: `PUT /quote-tool/capabilities/:methodId` nay yêu cầu
+            // ADMIN/SUPER_ADMIN (RolesGuard). Guard giả gắn user role 'admin' vào request để
+            // các test dưới vẫn kiểm đúng phần logic năng lực; test 403 riêng nằm ở cuối file.
             .overrideGuard(AuthGuard('jwt'))
-            .useValue({ canActivate: () => true })
+            .useValue({
+                canActivate: (ctx: any) => {
+                    const req = ctx.switchToHttp().getRequest();
+                    req.user = { id: 'u-admin', role: 'admin', tenantId: 1 };
+                    return true;
+                },
+            })
             .compile();
 
         app = moduleRef.createNestApplication();
@@ -220,5 +229,74 @@ describe('QuoteController (integration) — endpoint năng lực', () => {
                 .send({ unitId: 'unit-x' })
                 .expect(400);
         });
+    });
+});
+
+/**
+ * Audit 2026-07-25 — phân quyền bật/tắt Cờ_Năng_Lực.
+ *
+ * Trước đây route này chỉ có `AuthGuard('jwt')` ⇒ BẤT KỲ user đăng nhập nào (kể cả `viewer`)
+ * cũng tắt được một phương pháp in của cả đơn vị → ẩn menu + chặn đường tính giá của người khác.
+ * Test này khoá hành vi mới: chỉ ADMIN/SUPER_ADMIN được ghi, GET vẫn mở cho user đã đăng nhập.
+ */
+describe('QuoteController (integration) — RBAC cho PUT capabilities', () => {
+    let app: INestApplication;
+
+    beforeAll(async () => {
+        const moduleRef: TestingModule = await Test.createTestingModule({
+            imports: [
+                TypeOrmModule.forRoot({
+                    type: 'better-sqlite3',
+                    database: ':memory:',
+                    dropSchema: true,
+                    synchronize: true,
+                    entities: [MethodCapability],
+                }),
+                TypeOrmModule.forFeature([MethodCapability]),
+            ],
+            controllers: [QuoteController],
+            providers: [
+                CapabilityService,
+                MethodRegistry,
+                ComparatorService,
+                { provide: ProductsService, useValue: { getTemplateByCode: async () => null } },
+            ],
+        })
+            // User đã đăng nhập nhưng KHÔNG phải admin.
+            .overrideGuard(AuthGuard('jwt'))
+            .useValue({
+                canActivate: (ctx: any) => {
+                    const req = ctx.switchToHttp().getRequest();
+                    req.user = { id: 'u-agent', role: 'agent', tenantId: 1 };
+                    return true;
+                },
+            })
+            .compile();
+
+        app = moduleRef.createNestApplication();
+        app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+        await app.init();
+
+        const registry = moduleRef.get(MethodRegistry);
+        registry.register(fakePlugin('digital'));
+        registry.register(fakePlugin('offset'));
+    });
+
+    afterAll(async () => {
+        await app?.close();
+    });
+
+    it('user role `agent` PUT capabilities ⇒ HTTP 403', async () => {
+        await request(app.getHttpServer())
+            .put('/quote-tool/capabilities/digital')
+            .send({ enabled: false, unitId: 'unit-rbac' })
+            .expect(403);
+    });
+
+    it('user role `agent` vẫn ĐỌC được capabilities (GET không bị siết)', async () => {
+        await request(app.getHttpServer())
+            .get('/quote-tool/capabilities')
+            .query({ unitId: 'unit-rbac' })
+            .expect(200);
     });
 });

@@ -8,6 +8,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ALL_INTENTS } from './intents';
+import { safeErrorMetadata, sensitiveTextMetadata } from '../../common/logging/safe-log-metadata';
 
 // ── Multi-provider AI config ──
 // `name` là chuỗi tự do: ngoài preset bên dưới, có thể gắn BẤT KỲ provider nào
@@ -182,7 +184,10 @@ export class AiProviderService {
                         (tokenUsage ? ` [tokens: ${tokenUsage.prompt_tokens}+${tokenUsage.completion_tokens}]` : ''));
                     return { result, usedModel: `${provider.name}/${provider.model}`, tokenUsage };
                 } catch (err: any) {
-                    this.logger.warn(`⚠️ ${provider.name} attempt ${attempt} failed: ${err.message}${attempt < 2 ? ', retrying...' : ', trying next provider...'}`);
+                    this.logger.warn(
+                        `⚠️ ${provider.name} attempt ${attempt} failed (${safeErrorMetadata(err)})` +
+                        `${attempt < 2 ? ', retrying...' : ', trying next provider...'}`,
+                    );
                     
                     // claw-code pattern: Adjust prompt on structured output failure
                     if (err.message.includes('invalid JSON response') || err.message.includes('could not parse JSON')) {
@@ -300,11 +305,17 @@ export class AiProviderService {
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`${provider.name} API ${response.status}: ${errorText.substring(0, 200)}`);
+            // Drain body nhưng không đưa provider response vào Error/log: response có thể echo prompt/PII.
+            await response.text().catch(() => '');
+            throw new Error(`${provider.name} API ${response.status}`);
         }
 
-        const data: any = await response.json();
+        let data: any;
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error(`${provider.name}: invalid response envelope`);
+        }
         const content = data.choices?.[0]?.message?.content;
         if (!content) throw new Error(`${provider.name}: empty response`);
 
@@ -369,7 +380,7 @@ export class AiProviderService {
                                     },
                                 },
                             },
-                            intent: { type: 'string' },
+                            intent: { type: 'string', enum: ALL_INTENTS },
                             sentiment: { type: 'integer' },
                             confidence: { type: 'number' },
                             parsed_quote: {
@@ -396,12 +407,18 @@ export class AiProviderService {
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            this.logger.warn(`⚠️ Gemini API ${response.status}: ${errorText.substring(0, 300)}`);
-            throw new Error(`Gemini API ${response.status}: ${errorText.substring(0, 200)}`);
+            // Không log body lỗi vì provider/proxy có thể trả lại prompt, API key hoặc PII.
+            await response.text().catch(() => '');
+            this.logger.warn(`⚠️ Gemini API failed: status=${response.status}`);
+            throw new Error(`Gemini API ${response.status}`);
         }
 
-        const data: any = await response.json();
+        let data: any;
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error('Gemini: invalid response envelope');
+        }
 
         // Extract Gemini token usage BEFORE safety check (safety-filtered calls still consume tokens)
         const usage = data.usageMetadata;
@@ -428,7 +445,8 @@ export class AiProviderService {
 
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) {
-            this.logger.warn(`⚠️ Gemini: empty response — ${JSON.stringify(data).substring(0, 200)}`);
+            const candidateCount = Array.isArray(data?.candidates) ? data.candidates.length : 0;
+            this.logger.warn(`⚠️ Gemini: empty response (candidateCount=${candidateCount})`);
             throw new Error('Gemini: empty response');
         }
 
@@ -448,7 +466,63 @@ export class AiProviderService {
         if (jsonMatch?.[1]) {
             try { return JSON.parse(jsonMatch[1].trim()); } catch { /* continue */ }
         }
-        this.logger.warn(`⚠️ ${provider}: could not parse JSON from response: ${text.substring(0, 200)}`);
+        this.logger.warn(
+            `⚠️ ${provider}: could not parse JSON from response (${sensitiveTextMetadata('response', text)})`,
+        );
         throw new Error(`${provider}: invalid JSON response`);
+    }
+
+    /**
+     * Test một provider có sống không: ping nhẹ (1 token) để xác thực key + endpoint
+     * TRƯỚC khi lưu. Trả { ok, message } thay vì ném — caller (UI) hiển thị trực tiếp.
+     * KHÔNG đi qua pipeline JSON/parse — chỉ cần HTTP 2xx là coi như key hợp lệ.
+     */
+    async testProvider(cfg: { provider: string; apiKey: string; model?: string; endpoint?: string; apiType?: AiApiType }): Promise<{ ok: boolean; message: string }> {
+        if (!cfg.apiKey) return { ok: false, message: 'Thiếu API key' };
+        const def = PROVIDER_DEFAULTS[cfg.provider];
+        const endpoint = cfg.endpoint || def?.endpoint;
+        if (!endpoint) return { ok: false, message: 'Provider lạ cần khai báo endpoint' };
+        const apiType: AiApiType = cfg.apiType || def?.apiType || DEFAULT_API_TYPE;
+        const model = cfg.model || def?.model || DEFAULT_MODEL;
+
+        try {
+            if (apiType === 'gemini') {
+                const url = `${endpoint}/models/${model}:generateContent?key=${cfg.apiKey}`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+                        generationConfig: { maxOutputTokens: 1 },
+                    }),
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (!res.ok) {
+                    const t = await res.text();
+                    return { ok: false, message: `HTTP ${res.status}: ${t.substring(0, 120)}` };
+                }
+                return { ok: true, message: `✅ ${cfg.provider} (${model}) phản hồi tốt` };
+            }
+
+            // OpenAI-compatible
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.apiKey}` },
+                body: JSON.stringify({
+                    model,
+                    messages: [{ role: 'user', content: 'ping' }],
+                    max_tokens: 1,
+                }),
+                signal: AbortSignal.timeout(10000),
+            });
+            if (!res.ok) {
+                const t = await res.text();
+                return { ok: false, message: `HTTP ${res.status}: ${t.substring(0, 120)}` };
+            }
+            return { ok: true, message: `✅ ${cfg.provider} (${model}) phản hồi tốt` };
+        } catch (err: any) {
+            const msg = err?.name === 'TimeoutError' ? 'Hết thời gian chờ (10s)' : (err?.message || 'Lỗi kết nối');
+            return { ok: false, message: `❌ ${msg}` };
+        }
     }
 }

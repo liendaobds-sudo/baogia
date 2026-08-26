@@ -18,6 +18,7 @@ import { Message } from '../../entities/message.entity';
 import { KbDocument, KbDocStatus } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
 import { AiProviderService } from './ai-provider.service';
+import { safeErrorMetadata } from '../../common/logging/safe-log-metadata';
 
 @Injectable()
 export class AutoKbService {
@@ -42,8 +43,19 @@ export class AutoKbService {
             });
             if (!conversation) return;
 
-            // Get or create the auto-KB document
-            const doc = await this.getOrCreateAutoKbDoc();
+            // CÔ LẬP TENANT: Q&A học từ hội thoại chốt đơn chứa giá đã báo + thông tin
+            // khách → BẮT BUỘC thuộc tenant sở hữu hội thoại. Không xác định được tenant
+            // thì KHÔNG học (thà bỏ lỡ còn hơn rơi vào pool chung mọi tenant đọc được).
+            const tenantId = conversation.tenantId;
+            if (tenantId == null) {
+                this.logger.warn(
+                    `📚 Auto-KB bỏ qua conv ${conversationId.slice(-6)}: thiếu tenant_id — không đưa vào KB chung`,
+                );
+                return;
+            }
+
+            // Get or create the auto-KB document (mỗi tenant một tài liệu riêng)
+            const doc = await this.getOrCreateAutoKbDoc(tenantId);
 
             // Load conversation messages
             const messages = await this.msgRepo.find({
@@ -88,6 +100,7 @@ export class AutoKbService {
 
                 const chunk = this.chunkRepo.create({
                     documentId: doc.id,
+                    tenantId,
                     chunkIndex: currentChunkCount + i,
                     content,
                     tokenCount: Math.ceil(content.length / 4),
@@ -112,21 +125,26 @@ export class AutoKbService {
                 `(total auto-KB: ${newTotal} chunks)`
             );
         } catch (err) {
-            this.logger.warn(`⚠️ Auto-KB processing failed for ${conversationId}: ${(err as Error).message}`);
+            this.logger.warn(
+                `⚠️ Auto-KB processing failed for ${conversationId} (${safeErrorMetadata(err)})`,
+            );
         }
     }
 
     /**
-     * Get or create the special "auto-learned" KB document.
+     * Get or create the special "auto-learned" KB document — RIÊNG cho từng tenant.
+     * (Trước đây tìm theo title toàn cục, doc/chunk không gắn tenant_id → Q&A chứa
+     * giá của tenant A lọt vào pool chung mà tenantWhere cho mọi tenant đọc.)
      */
-    private async getOrCreateAutoKbDoc(): Promise<KbDocument> {
+    private async getOrCreateAutoKbDoc(tenantId: number): Promise<KbDocument> {
         const existing = await this.docRepo.findOne({
-            where: { title: 'Auto-learned Best Practices' },
+            where: { title: 'Auto-learned Best Practices', tenantId },
         });
         if (existing) return existing;
 
         const doc = this.docRepo.create({
             title: 'Auto-learned Best Practices',
+            tenantId,
             fileUrl: '',
             fileType: 'auto',
             fileSize: 0,
@@ -135,7 +153,7 @@ export class AutoKbService {
             chunkCount: 0,
         });
         const saved = await this.docRepo.save(doc);
-        this.logger.log(`📚 Created auto-KB document: ${saved.id}`);
+        this.logger.log(`📚 Created auto-KB document for tenant ${tenantId}: ${saved.id}`);
         return saved;
     }
 

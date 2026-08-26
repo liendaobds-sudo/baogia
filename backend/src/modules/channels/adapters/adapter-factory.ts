@@ -1,9 +1,11 @@
 import { ChannelType } from '../../../entities/channel.entity';
 import { IChannelAdapter } from './channel-adapter.interface';
 import { ZaloOaAdapter } from './zalo-oa.adapter';
+import { FacebookAdapter } from './facebook.adapter';
 
 const adapters: Record<string, IChannelAdapter> = {
     [ChannelType.ZALO_OA]: new ZaloOaAdapter(),
+    [ChannelType.FACEBOOK_PAGE]: new FacebookAdapter(),
 };
 
 /**

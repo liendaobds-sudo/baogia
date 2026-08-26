@@ -14,6 +14,7 @@ jest.mock('@/lib/auth-context', () => ({
 jest.mock('@/lib/api', () => ({ API_URL: 'http://api.test' }));
 
 import { OffsetQuoteConfigurator } from './OffsetQuoteConfigurator';
+import { useQuoteCart } from '../_store/useQuoteCart';
 
 const PRICEBOOK = {
     materials: [{ code: 'C150', materialName: 'Couche 150', aliases: [], type: 'couche', gsm: 150, priceVAT: 1000, sheetWidth: 65, sheetHeight: 86 }],
@@ -46,6 +47,10 @@ function mockFetch() {
 }
 
 describe('OffsetQuoteConfigurator', () => {
+    beforeEach(() => {
+        useQuoteCart.setState(useQuoteCart.getInitialState(), true);
+    });
+
     afterEach(() => jest.resetAllMocks());
 
     it('render form Tờ rơi khi activeType="to_roi"', async () => {
@@ -96,5 +101,56 @@ describe('OffsetQuoteConfigurator', () => {
         expect(screen.getByText(/Khổ in:/)).toBeInTheDocument();
         // Chế độ tĩnh ẩn đi → không còn dropdown "Kích thước".
         expect(screen.queryByText('Kích thước')).not.toBeInTheDocument();
+    });
+
+    it('payload engine chỉ lấy offsetEngineDiscountRate, không lấy chiết khấu đầu báo giá', async () => {
+        useQuoteCart.getState().setHeaderDiscount('percent', 25);
+        useQuoteCart.getState().setOffsetEngineDiscountRate(7);
+
+        const calculateBodies: Record<string, unknown>[] = [];
+        const readyPricebook = {
+            ...PRICEBOOK,
+            productConfig: {
+                to_roi: {
+                    allowedMaterials: ['C150'],
+                    allowedKhoIn: ['43cm x 65cm'],
+                    allowedKichThuoc: ['A5 tờ rơi'],
+                    defaults: {
+                        materialCode: 'C150',
+                        khoIn: '43cm x 65cm',
+                        kichThuoc: 'A5 tờ rơi',
+                    },
+                },
+            },
+        };
+        (global as any).fetch = jest.fn((url: string, init?: RequestInit) => {
+            if (url.includes('/pricing/offset/pricebook')) {
+                return Promise.resolve({
+                    json: () => Promise.resolve({ success: true, data: readyPricebook }),
+                });
+            }
+            if (url.includes('/pricing/offset/calculate')) {
+                calculateBodies.push(JSON.parse(String(init?.body)));
+                return Promise.resolve({
+                    json: () => Promise.resolve({
+                        success: true,
+                        data: {
+                            lines: [], tongChuaVAT: 0, haoHut: 0, vat: 0,
+                            tongGomVAT: 0, chietKhau: 0, khachTra: 0, donGia1SP: 0,
+                        },
+                    }),
+                });
+            }
+            return Promise.resolve({ json: () => Promise.resolve({}) });
+        });
+
+        render(<OffsetQuoteConfigurator activeType="to_roi" />);
+
+        await waitFor(() => expect(calculateBodies.length).toBeGreaterThan(0), {
+            timeout: 2500,
+        });
+        const lastPayload = calculateBodies[calculateBodies.length - 1];
+        expect(lastPayload.chietKhauRate).toBe(0.07);
+        expect(lastPayload).not.toHaveProperty('headerDiscountRate');
     });
 });

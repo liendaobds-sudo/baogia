@@ -23,6 +23,7 @@ import { FollowUp, FollowUpStatus } from '../../entities/follow-up.entity';
 import { AiProviderService } from './ai-provider.service';
 import { EventsGateway } from '../gateway/events.gateway';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { safeErrorMetadata } from '../../common/logging/safe-log-metadata';
 import { forEachTenant } from '../../common/tenant/tenant-background';
 
 // Stale thresholds per conversation status (in hours)
@@ -149,21 +150,26 @@ export class ProactiveOutreachService {
             });
             await this.followUpRepo.save(followUp);
 
-            // Notify agents via WebSocket
-            this.gateway.server.emit('proactive_followup', {
-                conversationId: convId,
-                contactName: conversation.contact?.displayName || 'Khách hàng',
-                message: followUpMessage.substring(0, 100),
-                status: conversation.status,
-                followUpId: followUp.id,
-            });
+            // Notify agents via WebSocket. Conversation legacy thiếu tenant bị drop fail-closed.
+            if (conversation.tenantId != null) {
+                this.gateway.emitProactiveFollowUp(conversation.tenantId, {
+                    conversationId: convId,
+                    contactName: conversation.contact?.displayName || 'Khách hàng',
+                    message: followUpMessage.substring(0, 100),
+                    status: conversation.status,
+                    followUpId: followUp.id,
+                });
+            }
 
             this.logger.log(
                 `🔔 Proactive follow-up generated for conv ${convId.slice(-6)} ` +
-                `(${conversation.contact?.displayName || 'unknown'}, status=${conversation.status})`
+                `(hasContact=${Boolean(conversation.contact)}, status=${conversation.status})`
             );
         } catch (err) {
-            this.logger.warn(`⚠️ Proactive outreach failed for conv ${conversation.id.slice(-6)}: ${(err as Error).message}`);
+            this.logger.warn(
+                `⚠️ Proactive outreach failed for conv ${conversation.id.slice(-6)} ` +
+                `(${safeErrorMetadata(err)})`,
+            );
         }
     }
 

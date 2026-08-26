@@ -8,6 +8,38 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+/** Khoá bị che khi ghi log ngữ cảnh request (so khớp KHÔNG phân biệt hoa/thường, theo chuỗi con). */
+const SENSITIVE_KEY_PATTERNS = [
+    'password', 'pass', 'pwd', 'secret', 'token', 'authorization', 'auth',
+    'apikey', 'api_key', 'key', 'credential', 'cookie', 'otp', 'refresh',
+];
+
+const isSensitiveKey = (key: string): boolean => {
+    const k = key.toLowerCase();
+    return SENSITIVE_KEY_PATTERNS.some((p) => k.includes(p));
+};
+
+/**
+ * Che dữ liệu nhạy cảm trước khi đưa vào log (audit 2026-07-25).
+ *
+ * Trước đây filter log NGUYÊN `request.body`, nên một lỗi 500 ở `POST /auth/login` là đủ để
+ * mật khẩu plaintext nằm trong log file/stdout. Hàm này giữ nguyên hình dạng dữ liệu (để log
+ * vẫn hữu ích cho chẩn đoán) nhưng thay giá trị của các khoá nhạy cảm bằng '[REDACTED]'.
+ *
+ * Thuần, không mutate đầu vào; có chặn độ sâu để không đệ quy vô hạn trên payload lạ.
+ */
+export function redactSensitive(input: unknown, depth = 0): unknown {
+    if (input == null || depth > 4) return input;
+    if (Array.isArray(input)) return input.map((v) => redactSensitive(v, depth + 1));
+    if (typeof input !== 'object') return input;
+
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+        out[k] = isSensitiveKey(k) ? '[REDACTED]' : redactSensitive(v, depth + 1);
+    }
+    return out;
+}
+
 /**
  * Global Exception Filter
  * 
@@ -61,8 +93,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
                 `[${errorId}] UNHANDLED ${request.method} ${request.url}`,
                 err.stack,
                 JSON.stringify({
-                    body: request.body,
-                    query: request.query,
+                    // Audit 2026-07-25: trước đây log NGUYÊN `request.body` ⇒ 500 tại
+                    // POST /auth/login đưa mật khẩu plaintext (và token/khoá API) vào log.
+                    body: redactSensitive(request.body),
+                    query: redactSensitive(request.query),
                     params: request.params,
                     user: (request as any).user?.id,
                     ip: request.ip,

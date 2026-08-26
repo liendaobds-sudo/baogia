@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, In } from 'typeorm';
+import { Repository, Not, In, IsNull } from 'typeorm';
 import { Conversation, ConversationStatus, ConversationPriority } from '../../entities/conversation.entity';
 import { ConversationParticipant, ParticipantRole } from '../../entities/conversation-participant.entity';
 import { Message } from '../../entities/message.entity';
@@ -9,6 +9,7 @@ import { FollowUp } from '../../entities/follow-up.entity';
 import { InternalNote } from '../../entities/internal-note.entity';
 import { EventsGateway } from '../gateway/events.gateway';
 import { ConversationOutcomeService } from '../suggestions/conversation-outcome.service';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
     [ConversationStatus.NEW]: ['in_progress', 'closed'],
@@ -30,7 +31,16 @@ export class ConversationsService {
         @InjectRepository(ConversationParticipant) private participantRepo: Repository<ConversationParticipant>,
         private gateway: EventsGateway,
         private outcomeService: ConversationOutcomeService,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) { }
+
+    /** App-level tenant filter (defense-in-depth before/alongside RLS). */
+    private applyTenantFilter(qb: ReturnType<Repository<Conversation>['createQueryBuilder']>, alias = 'c'): void {
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx && !ctx.bypass && ctx.tenantId != null) {
+            qb.andWhere(`(${alias}.tenantId = :_tid OR ${alias}.tenantId IS NULL)`, { _tid: ctx.tenantId });
+        }
+    }
 
     async findAll(query: {
         status?: string; assigneeId?: string; priority?: string;
@@ -48,6 +58,8 @@ export class ConversationsService {
             .addOrderBy('c.lastMessageAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit);
+
+        this.applyTenantFilter(qb, 'c');
 
         if (query.status) qb.andWhere('c.status = :status', { status: query.status });
         if (query.priority) qb.andWhere('c.priority = :priority', { priority: query.priority });
@@ -87,6 +99,13 @@ export class ConversationsService {
             relations: ['contact', 'channel', 'assignee'],
         });
         if (!conv) throw new NotFoundException('Hội thoại không tồn tại');
+        // Defense-in-depth: hide cross-tenant rows when context is set
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx && !ctx.bypass && ctx.tenantId != null) {
+            if (conv.tenantId != null && conv.tenantId !== ctx.tenantId) {
+                throw new NotFoundException('Hội thoại không tồn tại');
+            }
+        }
         return conv;
     }
 
@@ -104,7 +123,7 @@ export class ConversationsService {
         this.gateway.emitConversationUpdated({
             id: updated.id, status: updated.status, assigneeId: updated.assigneeId,
             assignee: updated.assignee ? { id: updated.assignee.id, fullName: updated.assignee.fullName } : null,
-        });
+        }, updated.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined);
         return updated;
     }
 
@@ -131,7 +150,10 @@ export class ConversationsService {
             );
         }
 
-        this.gateway.emitConversationUpdated({ id, status: newStatus });
+        this.gateway.emitConversationUpdated(
+            { id, status: newStatus },
+            conv.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+        );
         return this.findOne(id);
     }
 
@@ -144,7 +166,10 @@ export class ConversationsService {
         await this.convRepo.save(conv);
         this.logger.log(`📋 Conversation ${id} priority → ${priority}`);
 
-        this.gateway.emitConversationUpdated({ id, priority });
+        this.gateway.emitConversationUpdated(
+            { id, priority },
+            conv.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+        );
         return this.findOne(id);
     }
 
@@ -175,12 +200,13 @@ export class ConversationsService {
     /** Find conversations with breached SLA */
     async findBreachedSla(): Promise<Conversation[]> {
         const now = new Date();
-        return this.convRepo
+        const qb = this.convRepo
             .createQueryBuilder('c')
             .where('c.sla_breached = :breached', { breached: false })
             .andWhere('c.sla_deadline IS NOT NULL')
-            .andWhere('c.sla_deadline < :now', { now })
-            .getMany();
+            .andWhere('c.sla_deadline < :now', { now });
+        this.applyTenantFilter(qb, 'c');
+        return qb.getMany();
     }
 
     // ═══ Participant Management ═══
@@ -302,8 +328,14 @@ export class ConversationsService {
         // Load only tags column with a reasonable limit to avoid unbounded memory usage.
         // For very large datasets (>5000 open convs), consider migrating tags to a
         // separate junction table with SQL-level aggregation.
+        // Lọc tenant (audit 2026-08-13): dropdown tag không được lộ tag của tenant khác.
+        const baseWhere: any = { status: Not(In([ConversationStatus.CLOSED])) };
+        const ctx = this.tenantCtx?.get?.();
+        const where = (ctx && !ctx.bypass && ctx.tenantId != null)
+            ? [{ ...baseWhere, tenantId: ctx.tenantId }, { ...baseWhere, tenantId: IsNull() }]
+            : baseWhere;
         const convs = await this.convRepo.find({
-            where: { status: Not(In([ConversationStatus.CLOSED])) },
+            where,
             select: ['tags'],
             take: 5000,
         });
@@ -323,19 +355,28 @@ export class ConversationsService {
 
     /** Mark all conversations as read (reset unreadCount to 0) — bulk UPDATE */
     async markAllRead(): Promise<{ count: number }> {
-        // Single bulk UPDATE instead of loading all convs + loop save
-        const result = await this.convRepo
+        // Single bulk UPDATE instead of loading all convs + loop save.
+        // Lọc tenant (audit 2026-08-13): UPDATE hàng loạt không được chạm hội thoại
+        // của tenant khác (hàng NULL legacy vẫn nhận — nhất quán filter đọc, gỡ sau flip).
+        const qb = this.convRepo
             .createQueryBuilder()
             .update(Conversation)
             .set({ unreadCount: 0 })
-            .where('unread_count > 0')
-            .execute();
+            .where('unread_count > 0');
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx && !ctx.bypass && ctx.tenantId != null) {
+            qb.andWhere('(tenant_id = :_tid OR tenant_id IS NULL)', { _tid: ctx.tenantId });
+        }
+        const result = await qb.execute();
 
         const count = result.affected || 0;
 
         // Broadcast update to all connected clients
         if (count > 0) {
-            this.gateway.emitConversationUpdated({ _bulkMarkRead: true, unreadCount: 0 });
+            this.gateway.emitConversationUpdated(
+                { _bulkMarkRead: true, unreadCount: 0 },
+                ctx && !ctx.bypass ? ctx.tenantId : undefined,
+            );
         }
 
         this.logger.log(`✅ Marked ${count} conversations as read (bulk UPDATE)`);

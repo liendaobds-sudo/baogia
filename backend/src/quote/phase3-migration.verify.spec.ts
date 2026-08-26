@@ -10,8 +10,8 @@
  *      DB SQLite in-memory rồi SELECT ra để khẳng định — không hardcode kết quả.
  *  (2) BẢO TOÀN GIÁ QUA CATALOG: với mỗi loại offset đã vào catalog, giá lấy bằng cách
  *      ĐỊNH TUYẾN qua tầng method-agnostic (`OffsetMethodPlugin` bọc `EngineOffsetService`)
- *      — dùng chính `code`/`quote_type` đọc TỪ catalog — khớp ĐÚNG golden offset
- *      (`tongChuaVAT` của engine gọi trực tiếp), dung sai bằng KHÔNG (Req 9.5, Req 6.2).
+ *      — dùng chính `code`/`quote_type` đọc TỪ catalog — giữ ĐÚNG gross/discount/net
+ *      của engine gọi trực tiếp, dung sai bằng KHÔNG (Req 9.5, Req 6.2).
  *
  * Tái dùng cách tiếp cận golden của `plugins/__tests__/price-preservation.golden.spec.ts`.
  *
@@ -22,10 +22,6 @@ import * as path from 'path';
 import * as DatabaseCtor from 'better-sqlite3';
 import { EngineOffsetService } from '../modules/pricing/offset-engine/engine-offset.service';
 import { loadDefaultPricingData } from '../modules/pricing/offset-engine/default-data';
-import {
-    TUI_NEST_OPTIONS,
-    buildTuiOptions,
-} from '../modules/pricing/offset-engine/products/tui-giay';
 import { OffsetMethodPlugin } from './plugins/offset-method.plugin';
 import { MethodRegistry } from './method-registry.service';
 import { ProductRef, Specification } from './types/method-plugin.types';
@@ -84,7 +80,8 @@ const D = loadDefaultPricingData();
 const MAT = D.materials[0].code;
 const KHO = D.khoIn[0].khoIn;
 const VTBM = 'Không';
-const TUI_BAI = (buildTuiOptions(D)[0] ?? TUI_NEST_OPTIONS[0]).label;
+// Fixture hợp lệ cho túi 30×25×10; option đầu tiên có thể có soCon=0 và bị engine từ chối.
+const TUI_BAI = '42cm x 60cm (dán nối)';
 
 /** 5 golden fixture đại diện cho 5 loại offset, khoá theo `quote_type`. */
 function goldenOffsetInputs(): Record<string, any> {
@@ -249,7 +246,7 @@ describe('Phase 3 — di trú 5 loại offset vào unified_products (Task 9.2)',
         const registry = new MethodRegistry();
         const plugin = new OffsetMethodPlugin(engine, registry);
 
-        it('mọi loại offset trong catalog: priceBeforeVat (qua plugin) === tongChuaVAT (engine), dung sai = 0', async () => {
+        it('mọi loại offset trong catalog: plugin giữ đúng gross/discount/net engine, dung sai = 0', async () => {
             const db = applyMigration();
             try {
                 const rows = db
@@ -276,8 +273,12 @@ describe('Phase 3 — di trú 5 loại offset vào unified_products (Task 9.2)',
                     const viaCatalog = await plugin.calculate(product, toSpec(input), {});
 
                     expect(viaCatalog.ok).toBe(true);
-                    // Zero tolerance: bằng nhau tuyệt đối.
-                    expect(viaCatalog.priceBeforeVat).toBe(direct.data!.tongChuaVAT);
+                    // Zero tolerance: adapter giữ gross/discount và trả net trước VAT.
+                    expect(viaCatalog.sellingSubtotal).toBe(direct.data!.tongChuaVAT);
+                    expect(viaCatalog.discountAmount).toBe(direct.data!.chietKhau);
+                    expect(viaCatalog.priceBeforeVat).toBe(
+                        direct.data!.tongChuaVAT - direct.data!.chietKhau,
+                    );
                 }
             } finally {
                 db.close();

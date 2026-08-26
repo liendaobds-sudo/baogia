@@ -63,7 +63,9 @@ import { addTransactionalDataSource } from 'typeorm-transactional';
                     port: config.get<number>('REDIS_PORT', 6379),
                     maxRetriesPerRequest: null, // Don't crash if Redis is down
                     lazyConnect: true,
-                    retryStrategy: (times: number) => times > 3 ? null : Math.min(times * 500, 2000),
+                    // Retry vô hạn (trần 30s) — worker BullMQ tự hồi khi Redis quay lại,
+                    // không chết vĩnh viễn sau 3 lần thử như bản cũ.
+                    retryStrategy: (times: number) => Math.min(times * 500, 30_000),
                 },
             }),
         }),
@@ -108,6 +110,20 @@ import { addTransactionalDataSource } from 'typeorm-transactional';
                         schema: 'public',
                         autoLoadEntities: true,
                         synchronize: false,
+                        // ─── Pool & timeout (audit 2026-07-25) ───────────────────────────────
+                        // Trước đây KHÔNG cấu hình gì ⇒ driver `pg` mặc định 10 connection,
+                        // không statement_timeout, không connect timeout. Với polling 15s +
+                        // vài query quét bảng, 10 slot rất dễ cạn và một query treo có thể
+                        // giữ connection vô hạn (cạn pool → toàn app 500).
+                        extra: {
+                            max: config.get<number>('DB_POOL_MAX', 20),
+                            idleTimeoutMillis: config.get<number>('DB_POOL_IDLE_MS', 30_000),
+                            connectionTimeoutMillis: config.get<number>('DB_CONNECT_TIMEOUT_MS', 10_000),
+                            // Chặn query chạy vô hạn ở tầng server (ms). Tăng nếu có báo cáo/ETL nặng.
+                            statement_timeout: config.get<number>('DB_STATEMENT_TIMEOUT_MS', 30_000),
+                        },
+                        // Log cảnh báo query chậm để có đầu mối tối ưu (không đổi hành vi).
+                        maxQueryExecutionTime: config.get<number>('DB_SLOW_QUERY_MS', 3_000),
                     };
                 }
 

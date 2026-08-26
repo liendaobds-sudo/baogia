@@ -134,6 +134,52 @@ describe('Pricing FLOW — du lieu mau, kiem tra logic', () => {
         expect(d.grand_total).toBe(324000);         // x1.5 markup = 300.000, +8% VAT = 324.000
     });
 
+    // ── LARGE FORMAT + GIA CÔNG + PHỤ KIỆN (fix audit 2026-08-13: processing bị bỏ qua, qty phụ kiện bị ép 1) ──
+    it('LARGE_FORMAT: cong du gia cong per_m2/per_item/fixed va phu kien theo qty', async () => {
+        const { facade, tierRepo } = buildEngine();
+
+        (tierRepo.manager.query as jest.Mock).mockImplementation((sql: string, params?: any[]) => {
+            if (sql.includes('pricing_config')) {
+                return Promise.resolve([{ config_key: 'vat_rate', config_value: '8' }]);
+            }
+            if (sql.includes('processing_options')) {
+                const id = params?.[0];
+                if (id === 21) return Promise.resolve([{ name: 'Han bien', price: '5000', priceType: 'per_m2' }]);
+                if (id === 22) return Promise.resolve([{ name: 'Dong khoen', price: '2000', priceType: 'per_item' }]);
+                if (id === 23) return Promise.resolve([{ name: 'Phi setup', price: '30000', priceType: 'fixed' }]);
+                return Promise.resolve([]);
+            }
+            if (sql.includes('accessories')) {
+                return Promise.resolve([{ name: 'Day rut', price: '10000' }]);
+            }
+            return Promise.resolve([]);
+        });
+
+        const res: any = await facade.calculatePrice({
+            type: 'large_format',
+            material_id: 10,
+            width: 1000,
+            height: 2000,
+            quantity: 2,
+            print_type: 'uv',
+            processing: [{ id: 21 }, { id: 22 }, { id: 23 }],
+            accessories: [{ id: 30, qty: 3 }], // FE gửi `qty` — trước đây bị ép về 1
+            vat_rate: 8,
+        });
+
+        expect(res.success).toBe(true);
+        const d = res.data;
+
+        expect(d.material_cost).toBe(200000);   // 4 m2 x 50.000d
+        // per_m2: 5.000 x 4m2 = 20.000; per_item: 2.000 x 2 = 4.000; fixed: 30.000
+        expect(d.processing_cost).toBe(54000);
+        expect(d.processing_details).toHaveLength(3);
+        // 10.000d x qty 3 (không còn bị ép về 1)
+        expect(d.accessories_cost).toBe(30000);
+        expect(d.total).toBe(284000);           // 200k + 54k + 30k
+        expect(d.grand_total).toBeGreaterThan(d.total);
+    });
+
     // ── Quan he markup/VAT (nen tang cua fix B1) ──
     it('grand_total = round(selling_subtotal x (1 + VAT)) — markup + VAT ap dung dung tang', async () => {
         const { facade } = buildEngine();

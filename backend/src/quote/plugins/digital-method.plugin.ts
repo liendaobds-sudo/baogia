@@ -30,6 +30,9 @@ import {
 } from '../types/method-plugin.types';
 import { DIGITAL_QUOTE_TYPES } from '../method-mapping';
 
+/** Specification dùng cm; facade Digital dùng mm. Chuyển đúng một lần tại biên adapter. */
+const CM_TO_MM = 10;
+
 /** Parse một giá trị code/số về number; trả `undefined` nếu không phải số hợp lệ. */
 function toNumber(value: unknown): number | undefined {
     if (value === undefined || value === null || value === '') return undefined;
@@ -174,15 +177,17 @@ export class DigitalMethodPlugin implements MethodPlugin, OnModuleInit {
         const paperSizeId = toNumber(spec.paperSizeCode);
         if (paperSizeId !== undefined) input.paper_size_id = paperSizeId;
 
-        const width = spec.dimensions?.width;
-        if (width !== undefined) {
-            input.item_width = width; // loose/bound
-            input.width = width; // large_format
+        const widthCm = spec.dimensions?.width;
+        if (widthCm !== undefined) {
+            const widthMm = widthCm * CM_TO_MM;
+            input.item_width = widthMm; // loose/bound: mm
+            input.width = widthMm; // large_format: mm
         }
-        const height = spec.dimensions?.height;
-        if (height !== undefined) {
-            input.item_height = height;
-            input.height = height;
+        const heightCm = spec.dimensions?.height;
+        if (heightCm !== undefined) {
+            const heightMm = heightCm * CM_TO_MM;
+            input.item_height = heightMm;
+            input.height = heightMm;
         }
 
         if (spec.processing?.length) {

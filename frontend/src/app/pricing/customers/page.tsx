@@ -1,7 +1,8 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
 import CustomerModal from './_components/CustomerModal';
 
 import { API_URL as API } from '@/lib/api';
@@ -64,15 +65,24 @@ export default function CustomerCRMPage() {
         'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json',
     }), [token]);
 
+    // Audit 2026-07-25: mỗi ký tự gõ trước đây tạo 1 request, mà backend mỗi dòng khách còn
+    // chạy 2 subquery tương quan trên `quotes` (đếm đơn + tổng chi) ⇒ rất tốn. Debounce 300ms
+    // + AbortController để bỏ response cũ (chống hiển thị kết quả của từ khoá đã gõ dở).
+    const debouncedSearch = useDebouncedValue(search, 300);
+    const fetchAbortRef = useRef<AbortController | null>(null);
+
     const fetchCustomers = useCallback(async () => {
+        fetchAbortRef.current?.abort();
+        const controller = new AbortController();
+        fetchAbortRef.current = controller;
         try {
             const params = new URLSearchParams();
-            if (search) params.set('q', search);
+            if (debouncedSearch) params.set('q', debouncedSearch);
             if (lifecycleFilter) params.set('lifecycle_stage', lifecycleFilter);
             params.set('page', String(page));
             params.set('limit', '30');
 
-            const res = await fetch(`${API}/erp/customers?${params}`, { headers: headers() });
+            const res = await fetch(`${API}/erp/customers?${params}`, { headers: headers(), signal: controller.signal });
             const json = await res.json();
             if (json.success && json.data) {
                 const items = Array.isArray(json.data) ? json.data : (json.data.data || []);
@@ -81,8 +91,14 @@ export default function CustomerCRMPage() {
             } else {
                 setCustomers([]); setTotalCustomers(0);
             }
-        } catch (err) { console.error(err); setCustomers([]); }
-    }, [page, search, lifecycleFilter, headers]);
+        } catch (err) {
+            if ((err as Error)?.name === 'AbortError') return;
+            console.error(err); setCustomers([]);
+        }
+    }, [page, debouncedSearch, lifecycleFilter, headers]);
+
+    useEffect(() => { setPage(1); }, [debouncedSearch, lifecycleFilter]);
+    useEffect(() => () => fetchAbortRef.current?.abort(), []);
 
     const fetchDetail = useCallback(async (id: number) => {
         try {

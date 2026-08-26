@@ -80,12 +80,21 @@
     {
       "id": "test-chat",
       "title": "Test Chat",
-      "scope": "core",
+      "scope": "frozen",
       "axis": "cskh",
       "rule": "2.2",
-      "reason": "Màn hình thử nghiệm hội thoại AI giúp NV_CSKH và Chủ_Shop kiểm tra phản hồi trước khi gửi khách; là bề mặt CSKH trực tiếp (Req 2.2).",
+      "reason": "Công cụ dev/QA — ẩn khỏi menu production (backend cũng gate NODE_ENV + ENABLE_TEST_CHAT). Vào trực tiếp /test-chat khi cần với role admin.",
       "featureRef": "frontend/src/app/(app)/test-chat/",
-      "navItem": "test-chat"
+      "navItem": "test-chat",
+      "reenable": {
+        "trigger": "Cần đưa Test Chat lại menu CSKH cho nội bộ QA (hoặc bật ENABLE_TEST_CHAT trên staging)",
+        "steps": [
+          "Đặt scope của entry 'test-chat' về 'core' trong scope-registry.json",
+          "Đồng bộ bản sao runtime frontend/src/lib/scope/scope-registry.json nếu tách artefact",
+          "Đảm bảo ENABLE_TEST_CHAT=true trên môi trường non-prod nếu muốn gọi API /test-chat"
+        ],
+        "expected": "Mục Test Chat hiện lại trên menu CSKH; API /test-chat hoạt động với role admin/supervisor."
+      }
     },
     {
       "id": "ai-suggestions",

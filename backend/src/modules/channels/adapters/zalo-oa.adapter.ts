@@ -18,15 +18,20 @@ export class ZaloOaAdapter implements IChannelAdapter {
     verifyWebhook(body: any, signature: string, secret: string): boolean {
         if (!signature || !secret) return false;
 
+        // Nhận raw body (Buffer/string) khi có — HMAC trên bytes gốc; object là fallback.
+        const payload: Buffer = Buffer.isBuffer(body)
+            ? body
+            : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
         const computedSignature = crypto
             .createHmac('sha256', secret)
-            .update(JSON.stringify(body))
+            .update(payload)
             .digest('hex');
 
-        return crypto.timingSafeEqual(
-            Buffer.from(signature),
-            Buffer.from(computedSignature),
-        );
+        // timingSafeEqual ném lỗi nếu độ dài lệch — chặn trước để trả false an toàn.
+        const a = Buffer.from(signature);
+        const b = Buffer.from(computedSignature);
+        if (a.length !== b.length) return false;
+        return crypto.timingSafeEqual(a, b);
     }
 
     parseInboundMessage(body: any): ParsedMessage | null {

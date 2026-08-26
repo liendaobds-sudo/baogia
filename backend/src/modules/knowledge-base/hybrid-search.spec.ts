@@ -8,6 +8,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { KnowledgeBaseService } from './knowledge-base.service';
+import { EmbeddingService } from './embedding.service';
 import { KbDocument } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
@@ -44,6 +45,7 @@ describe('KnowledgeBaseService — hybrid retrieval (recall fix)', () => {
         const moduleRef: TestingModule = await Test.createTestingModule({
             providers: [
                 KnowledgeBaseService,
+                EmbeddingService,
                 { provide: getRepositoryToken(KbDocument), useValue: {} },
                 { provide: getRepositoryToken(KbChunk), useValue: chunkRepo },
                 { provide: HttpService, useValue: httpService },
@@ -73,5 +75,18 @@ describe('KnowledgeBaseService — hybrid retrieval (recall fix)', () => {
         chunkRepo.find.mockResolvedValue([]);
         const results = await service.searchChunks('bất kỳ', 5);
         expect(results).toEqual([]);
+    });
+
+    it('không log raw query hội thoại chứa PII', async () => {
+        const canary = 'Lan 0901234567 lan@example.test cần in card visit cán mờ';
+        const logger = { log: jest.fn(), warn: jest.fn() };
+        (service as any).logger = logger;
+
+        await service.searchChunks(canary, 5);
+
+        const logged = logger.log.mock.calls.flat().join(' ');
+        expect(logged).toContain(`queryChars=${canary.length}`);
+        expect(logged).not.toContain(canary);
+        expect(logged).not.toContain('0901234567');
     });
 });

@@ -1,9 +1,11 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
-import { useState, useEffect, useCallback } from 'react';
+import { downloadAuthenticatedFile } from '@/lib/authenticated-download';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 import { API_URL as API } from '@/lib/api';
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
 
 interface ContactItem {
     id: string;
@@ -19,7 +21,7 @@ interface ContactItem {
 }
 
 export default function ContactsPage() {
-    const { token } = useAuth();
+    const { token, authFetch } = useAuth();
     const [mounted, setMounted] = useState(false);
     const [contacts, setContacts] = useState<ContactItem[]>([]);
     const [total, setTotal] = useState(0);
@@ -34,18 +36,35 @@ export default function ContactsPage() {
         'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json',
     }), [token]);
 
+    // Audit 2026-07-25: trước đây `fetchContacts` phụ thuộc TRỰC TIẾP vào `search` ⇒ mỗi ký tự
+    // gõ là 1 request `LIKE %x%` + đếm hội thoại. Nay debounce 300ms (giống trang báo giá) và
+    // huỷ request cũ bằng AbortController để response cũ không ghi đè response mới.
+    const debouncedSearch = useDebouncedValue(search, 300);
+    const fetchAbortRef = useRef<AbortController | null>(null);
+
     const fetchContacts = useCallback(async () => {
+        fetchAbortRef.current?.abort();
+        const controller = new AbortController();
+        fetchAbortRef.current = controller;
         try {
             const params = new URLSearchParams({ page: String(page), limit: '15' });
-            if (search) params.set('search', search);
-            const res = await fetch(`${API}/contacts?${params}`, { headers: headers() });
+            if (debouncedSearch) params.set('search', debouncedSearch);
+            const res = await fetch(`${API}/contacts?${params}`, { headers: headers(), signal: controller.signal });
             if (res.ok) {
                 const data = await res.json();
                 setContacts(data.data || []);
                 setTotal(data.total || 0);
             }
-        } catch (err) { console.error(err); }
-    }, [headers, page, search]);
+        } catch (err) {
+            if ((err as Error)?.name !== 'AbortError') console.error(err);
+        }
+    }, [headers, page, debouncedSearch]);
+
+    // Đổi từ khoá tìm kiếm ⇒ về trang 1 (tránh ở trang 5 của kết quả cũ mà kết quả mới chỉ 1 trang).
+    useEffect(() => { setPage(1); }, [debouncedSearch]);
+
+    // Huỷ request đang bay khi unmount.
+    useEffect(() => () => fetchAbortRef.current?.abort(), []);
 
     const fetchDetail = useCallback(async (id: string) => {
         try {
@@ -73,8 +92,16 @@ export default function ContactsPage() {
         fetchDetail(selectedId);
     };
 
-    const handleExportCSV = () => {
-        window.open(`${API}/contacts/export/csv?token=${token}`, '_blank');
+    const handleExportCSV = async () => {
+        try {
+            await downloadAuthenticatedFile(
+                authFetch,
+                `${API}/contacts/export/csv`,
+                'contacts.csv',
+            );
+        } catch (error) {
+            console.error('Export contacts failed:', error);
+        }
     };
 
     if (!mounted) return (

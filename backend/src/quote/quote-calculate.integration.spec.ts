@@ -15,7 +15,8 @@
  *  - `POST /quote-tool/calculate` (digital): định tuyến tới DigitalMethodPlugin bọc facade thật,
  *    trả về Giá (`ok:true`, `priceBeforeVat > 0`) cho phương pháp ĐƯỢC BẬT + ÁP DỤNG ĐƯỢC.
  *  - `POST /quote-tool/calculate` (offset): định tuyến tới OffsetMethodPlugin bọc engine thật;
- *    `priceBeforeVat` khớp ĐÚNG `tongChuaVAT` engine tính trực tiếp (bảo toàn giá — Req 6.1).
+ *    `sellingSubtotal`/`discountAmount` giữ đúng gross/discount engine và `priceBeforeVat`
+ *    là giá net trước VAT (bảo toàn giá — Req 6.1).
  *  - Phương pháp KHÔNG khả dụng cho Đơn_Vị ⇒ bị chặn (HTTP 403) TRƯỚC khi gọi plugin (Req 4.7).
  *  - Endpoint cũ `POST /pricing/calculate` (digital) vẫn hoạt động (Req 9.3, 9.4).
  *  - Endpoint cũ `POST /pricing/offset/calculate` (offset) vẫn hoạt động (Req 9.3, 9.4).
@@ -238,7 +239,8 @@ describe('QuoteController (integration) — POST /quote-tool/calculate end-to-en
                 config: { discountRate: 0 },
                 spec: {
                     quantity: 1000,
-                    dimensions: { width: 90, height: 54 },
+                    // Specification dùng cm; DigitalMethodPlugin đổi một lần sang 90×54 mm.
+                    dimensions: { width: 9, height: 5.4 },
                     materialCode: '10',
                     paperSizeCode: '1',
                     processing: [{ code: '5', side: 'single' }],
@@ -283,8 +285,12 @@ describe('QuoteController (integration) — POST /quote-tool/calculate end-to-en
 
         expect(res.body.ok).toBe(true);
         expect(res.body.methodId).toBe('offset');
-        // Bảo toàn giá: priceBeforeVat (qua plugin) === tongChuaVAT (engine trực tiếp) — Req 6.1.
-        expect(res.body.priceBeforeVat).toBe(direct.data!.tongChuaVAT);
+        // Bảo toàn contract gross/discount/net của engine — Req 6.1.
+        expect(res.body.sellingSubtotal).toBe(direct.data!.tongChuaVAT);
+        expect(res.body.discountAmount).toBe(direct.data!.chietKhau);
+        expect(res.body.priceBeforeVat).toBe(
+            direct.data!.tongChuaVAT - direct.data!.chietKhau,
+        );
         expect(res.body.priceBeforeVat).toBeGreaterThan(0);
     });
 

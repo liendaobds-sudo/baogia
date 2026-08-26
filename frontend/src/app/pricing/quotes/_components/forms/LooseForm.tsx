@@ -367,6 +367,11 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                 {pricingResult && !(pricingResult as any).error && (
                                     <button 
                                         onClick={() => {
+                                            const mats = (masterData?.materials as any[]) || [];
+                                            const papers = (masterData?.paper_sizes as any[]) || [];
+                                            const mat = mats.find(m => String(m.id) === String(materialId));
+                                            const paper = papers.find(p => String(p.id) === String(paperSizeId));
+                                            const procNames = selectedProcessing.map(p => p.name || p.id).filter(Boolean);
                                             addItem({
                                                 name: fileName || productName || 'Báo giá In Nhanh Rời',
                                                 type: 'loose',
@@ -374,7 +379,13 @@ export function LooseForm({ state }: { state: QuoteState }) {
                                                 total: (pricingResult as any).selling_subtotal ?? (pricingResult as any).total,
                                                 unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
                                                 details: pricingResult,
-                                                configParams: { materialId, paperSizeId, itemWidth, itemHeight, printType, printSide },
+                                                // Denormalize tên vật tư/khổ để báo giá đã lưu hiển thị đủ quy cách
+                                                configParams: {
+                                                    materialId, paperSizeId, itemWidth, itemHeight, printType, printSide,
+                                                    materialName: mat?.name || mat?.name_vi || '',
+                                                    paperSizeName: paper?.name || paper?.name_vi || '',
+                                                    processingNames: procNames,
+                                                },
                                                 pricingPayload: lastPricingPayload ?? undefined,
                                             });
                                             setFileName('');

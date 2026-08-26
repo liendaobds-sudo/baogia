@@ -11,6 +11,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { KnowledgeBaseService } from './knowledge-base.service';
+import { EmbeddingService } from './embedding.service';
 import { KbDocument, KbDocStatus } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
@@ -49,6 +50,7 @@ describe('KnowledgeBaseService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 KnowledgeBaseService,
+                EmbeddingService,
                 { provide: getRepositoryToken(KbDocument), useValue: docRepo },
                 { provide: getRepositoryToken(KbChunk), useValue: chunkRepo },
                 { provide: HttpService, useValue: mockHttpService },
@@ -151,6 +153,25 @@ describe('KnowledgeBaseService', () => {
             // Since we use mock processDocument indirectly via fs mock, check if chunk repo was saved
             expect(chunkRepo.save).toHaveBeenCalled();
             expect(result.status).toBe(KbDocStatus.INDEXED);
+        });
+
+        it('không log filename/title upload chứa PII', async () => {
+            const canary = 'Ho-so-Lan-0901234567-lan@example.test.md';
+            const file = {
+                originalname: canary,
+                buffer: Buffer.from('safe content'),
+                mimetype: 'text/markdown',
+                size: 100,
+            };
+            docRepo.findOne.mockResolvedValue({ id: 'doc-1', title: canary, status: KbDocStatus.INDEXED });
+            const log = jest.spyOn((service as any).logger, 'log').mockImplementation(() => undefined);
+
+            await service.uploadAndProcess(file, 'user-1', ['tag1']);
+
+            const logged = log.mock.calls.flat().join(' ');
+            expect(logged).not.toContain(canary);
+            expect(logged).not.toContain('0901234567');
+            expect(logged).not.toContain('lan@example.test');
         });
     });
 

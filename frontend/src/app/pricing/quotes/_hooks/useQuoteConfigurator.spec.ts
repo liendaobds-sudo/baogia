@@ -20,9 +20,14 @@ describe('useQuoteConfigurator', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // `useQuoteConfigurator.apiFetch` kiểm `if (!r.ok) throw` trước khi đọc `.json()`.
+    // Mock THIẾU `ok: true` ⇒ mọi lời gọi bị coi là HTTP lỗi ⇒ masterData không nạp
+    // (đây chính là nguyên nhân 2 test này từng đỏ). Giữ `ok: true` ở MỌI nhánh mock.
     (global as any).fetch = jest.fn((url: string) => {
       if (url.includes('/pricing/master-data')) {
         return Promise.resolve({
+          ok: true,
+          status: 200,
           json: () => Promise.resolve({
             success: true,
             data: {
@@ -41,6 +46,8 @@ describe('useQuoteConfigurator', () => {
       }
       if (url.includes('/quote-templates') && !url.includes('/quote-templates/defaults')) {
         return Promise.resolve({
+          ok: true,
+          status: 200,
           json: () => Promise.resolve({
             success: true,
             data: { categories: [] }
@@ -49,6 +56,8 @@ describe('useQuoteConfigurator', () => {
       }
       if (url.includes('/pricing/calculate')) {
         return Promise.resolve({
+          ok: true,
+          status: 200,
           json: () => Promise.resolve({
             success: true,
             data: { total: 100000, price_per_item: 1000, type: 'loose' }
@@ -57,6 +66,8 @@ describe('useQuoteConfigurator', () => {
       }
       if (url.includes('/quote-templates/defaults')) {
         return Promise.resolve({
+          ok: true,
+          status: 200,
           json: () => Promise.resolve({
             template_name: 'Test Template',
             form_config: { item_width: 100, item_height: 50, shape: 'circle' },
@@ -65,7 +76,7 @@ describe('useQuoteConfigurator', () => {
           })
         } as any);
       }
-      return Promise.resolve({ json: () => Promise.resolve({}) } as any);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as any);
     });
   });
 

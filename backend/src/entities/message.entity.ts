@@ -53,6 +53,10 @@ export class Message {
     @Column({ name: 'conversation_id' })
     conversationId: string;
 
+    // Cô lập theo tenant (org-scoped). NULL = dùng chung/hệ thống. Cột do migration Pha A thêm.
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     @Column({ name: 'sender_type', type: 'varchar' })
     senderType: SenderType;
 

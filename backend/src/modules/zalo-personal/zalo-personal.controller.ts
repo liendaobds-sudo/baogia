@@ -11,6 +11,10 @@ import {
     HttpCode,
     BadRequestException,
     Logger,
+    Req,
+    ForbiddenException,
+    NotFoundException,
+    UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -19,11 +23,16 @@ import { ZaloAccount, ZaloAccountStatus } from '../../entities/zalo-account.enti
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { UserRole } from '../../entities';
+import { User } from '../../entities/user.entity';
 import { ZaloPoolService } from './zalo-pool.service';
 import { ZaloRateLimiterService } from './zalo-rate-limiter.service';
+import { ZaloAccountAccessInterceptor, resolveZaloRequestTenantId } from './zalo-account-access.interceptor';
+import { presentZaloAccount } from './zalo-account.presenter';
 
 @Controller('zalo-personal')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseInterceptors(ZaloAccountAccessInterceptor)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 export class ZaloPersonalController {
     private readonly logger = new Logger(ZaloPersonalController.name);
     constructor(
@@ -31,31 +40,31 @@ export class ZaloPersonalController {
         private readonly repo: Repository<ZaloAccount>,
         @InjectRepository(Channel)
         private readonly channelRepo: Repository<Channel>,
+        @InjectRepository(User)
+        private readonly userRepo: Repository<User>,
         private readonly pool: ZaloPoolService,
         private readonly rateLimiter: ZaloRateLimiterService,
     ) {}
 
     /** GET /zalo-personal/status — Check if zca-js is available */
     @Get('status')
-    getStatus() {
+    async getStatus(@Req() req: any) {
+        const accounts = await this.accessibleAccounts(req, false);
+        const ids = new Set(accounts.map((account) => account.id));
+        const statuses = this.pool.getAllStatuses();
+        const rateLimits = this.rateLimiter.getAllStats();
         return {
             available: this.pool.isAvailable(),
-            accounts: this.pool.getAllStatuses(),
-            rateLimits: this.rateLimiter.getAllStats(),
+            accounts: Object.fromEntries(Object.entries(statuses).filter(([id]) => ids.has(id))),
+            rateLimits: Object.fromEntries(Object.entries(rateLimits).filter(([id]) => ids.has(id))),
         };
     }
 
     @Get('accounts')
-    async listAccounts() {
-        const query = this.repo.createQueryBuilder('zalo')
-            .leftJoinAndSelect('zalo.channel', 'channel')
-            .where('channel.isActive = :active', { active: true })
-            .orderBy('zalo.createdAt', 'DESC');
+    async listAccounts(@Req() req: any) {
+        const accounts = await this.accessibleAccounts(req, true);
 
-        const accounts = await query.getMany();
-
-        return accounts.map((acc) => ({
-            ...acc,
+        return accounts.map((acc) => presentZaloAccount(acc, {
             liveStatus: this.pool.getStatus(acc.id),
             dailyQuota: this.rateLimiter.getRemainingQuota(acc.id),
         }));
@@ -66,13 +75,22 @@ export class ZaloPersonalController {
     @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     async createAccount(
         @Body() dto: { ownerUserId: string; phone?: string; displayName?: string },
+        @Req() req: any,
     ) {
+        const tenantId = resolveZaloRequestTenantId(req);
+        if (tenantId == null) {
+            throw new ForbiddenException('Hãy chọn tenant trước khi tạo tài khoản Zalo.');
+        }
+        const owner = await this.userRepo.findOne({ where: { id: dto.ownerUserId, tenantId } });
+        if (!owner) throw new NotFoundException('Người sở hữu không thuộc tenant hiện hành.');
+
         const channel = this.channelRepo.create({
             type: ChannelType.ZALO_PERSONAL,
             name: dto.displayName || 'Zalo cá nhân',
             externalId: `zalo_personal_${Date.now()}`,
             isActive: true,
-            config: { ownerUserId: dto.ownerUserId }
+            config: { ownerUserId: dto.ownerUserId },
+            tenantId,
         });
         const savedChannel = await this.channelRepo.save(channel);
 
@@ -88,7 +106,7 @@ export class ZaloPersonalController {
         savedChannel.accessTokenEnc = savedAccount.id;
         await this.channelRepo.save(savedChannel);
 
-        return savedAccount;
+        return presentZaloAccount(savedAccount);
     }
 
     /** POST /zalo-personal/accounts/:id/qr — Start QR login flow — ADMIN only */
@@ -135,9 +153,9 @@ export class ZaloPersonalController {
 
     /** POST /zalo-personal/sync-all — Sync missed messages for ALL accounts (auto-reconnect if needed) */
     @Post('sync-all')
-    async syncAll() {
-        // Get all accounts from DB
-        const accounts = await this.pool.getAllAccounts();
+    async syncAll(@Req() req: any) {
+        // Không dùng pool.getAllAccounts(): pool là singleton toàn hệ thống và không scope tenant.
+        const accounts = await this.accessibleAccounts(req, false);
         if (!accounts || accounts.length === 0) {
             return { success: false, error: 'Không có tài khoản Zalo nào.' };
         }
@@ -366,5 +384,26 @@ export class ZaloPersonalController {
         try {
             return { success: true, data: await this.pool.sendFriendRequest(id, dto.userId, dto.message) };
         } catch (e: any) { return { success: false, error: e.message }; }
+    }
+
+    private async accessibleAccounts(req: any, onlyActive: boolean): Promise<ZaloAccount[]> {
+        const user = req?.user;
+        if (!user) throw new ForbiddenException('Không có quyền truy cập tài khoản Zalo.');
+
+        const tenantId = resolveZaloRequestTenantId(req);
+        if (user.role !== UserRole.SUPER_ADMIN && tenantId == null) {
+            throw new ForbiddenException('Tài khoản đăng nhập không có tenant hợp lệ.');
+        }
+
+        const query = this.repo.createQueryBuilder('zalo')
+            .innerJoinAndSelect('zalo.channel', 'channel')
+            .orderBy('zalo.createdAt', 'DESC');
+        if (onlyActive) query.where('channel.isActive = :active', { active: true });
+        if (tenantId != null) {
+            const clause = onlyActive ? 'channel.tenantId = :tenantId' : 'channel.tenantId = :tenantId';
+            if (onlyActive) query.andWhere(clause, { tenantId });
+            else query.where(clause, { tenantId });
+        }
+        return query.getMany();
     }
 }

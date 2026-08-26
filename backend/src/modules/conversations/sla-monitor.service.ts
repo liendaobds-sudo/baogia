@@ -39,7 +39,7 @@ export class SlaMonitorService {
             this.gateway.emitConversationUpdated({
                 id: conv.id,
                 slaBreached: true,
-            });
+            }, conv.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined);
 
             // Notify assignee if any
             if (conv.assigneeId) {
@@ -47,7 +47,7 @@ export class SlaMonitorService {
                     type: 'sla_breach',
                     conversationId: conv.id,
                     message: `SLA đã vượt hạn cho hội thoại với ${conv.contactId}`,
-                });
+                }, conv.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined);
             }
         }
     }

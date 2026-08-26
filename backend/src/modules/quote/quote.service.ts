@@ -13,6 +13,12 @@ import {
 } from '../../entities';
 import { ParsedQuote, PricingResult, PricingBreakdownItem } from './quote.interfaces';
 import { getPricingBindingCode } from './extractors';
+import {
+    LOOSE_DEFAULT_SIZE,
+    BOUND_DEFAULT_PAGE_COUNT,
+    BOUND_DEFAULT_BINDING_CODE,
+    LARGE_FORMAT_DEFAULT_SIZE,
+} from './pricing-defaults';
 import { PricingApiService } from './pricing-api.service';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { applyTenantToConnection } from '../../common/tenant/tenant-transaction';
@@ -29,14 +35,55 @@ export class QuoteService implements OnModuleInit {
     private priceCache = new Map<string, { result: PricingResult; timestamp: number }>();
     private readonly PRICE_CACHE_TTL = 10 * 60 * 1000;
 
-    // Pricing master data cache for material/processing ID resolution
-    private pricingMaterialsCache: any[] = [];
-    private pricingProcessingCache: any[] = [];
-    private pricingPaperSizesCache: any[] = [];
-    private pricingFormOptionsCache: any = {};
-    private pricingAccessoriesCache: any[] = [];
-    private masterDataLastRefresh = 0;
+    /**
+     * Cache master-data giá — CÔ LẬP THEO TENANT (audit 2026-07-25).
+     *
+     * Vật tư / khổ / gia công / phụ kiện là dữ liệu org-scoped. Trước đây cache là các field
+     * singleton của service, nạp MỘT LẦN lúc boot (`onModuleInit`, ngoài mọi tenant context)
+     * ⇒ khi bật `TENANT_RLS_ENABLED`, tenant B sẽ nhận master-data (và qua đó là GIÁ) của
+     * tenant A — sai tiền + rò rỉ dữ liệu.
+     *
+     * Cách vá giữ nguyên toàn bộ ~30 call site: các field dưới trở thành getter/setter trỏ
+     * vào "ô cache" của tenant hiện hành. Khi flag TẮT (mặc định) hoặc ngoài tenant context,
+     * khoá ô là `'default'` ⇒ hành vi byte-for-byte như cũ.
+     */
+    private masterDataSlots = new Map<string, {
+        materials: any[]; processing: any[]; paperSizes: any[];
+        formOptions: any; accessories: any[]; lastRefresh: number;
+    }>();
     private readonly MASTER_DATA_TTL = 5 * 60 * 1000; // 5 min
+
+    /** Khoá ô cache theo tenant (chỉ khi RLS bật + có context), ngược lại 'default'. */
+    private masterDataSlotKey(): string {
+        if (tenantRlsEnabled()) {
+            const tenantId = this.tenantCtx?.currentTenantId?.();
+            if (tenantId != null) return `t${tenantId}`;
+        }
+        return 'default';
+    }
+
+    private get masterDataSlot() {
+        const key = this.masterDataSlotKey();
+        let slot = this.masterDataSlots.get(key);
+        if (!slot) {
+            slot = { materials: [], processing: [], paperSizes: [], formOptions: {}, accessories: [], lastRefresh: 0 };
+            this.masterDataSlots.set(key, slot);
+        }
+        return slot;
+    }
+
+    private get pricingMaterialsCache(): any[] { return this.masterDataSlot.materials; }
+    private set pricingMaterialsCache(v: any[]) { this.masterDataSlot.materials = v; }
+    private get pricingProcessingCache(): any[] { return this.masterDataSlot.processing; }
+    private set pricingProcessingCache(v: any[]) { this.masterDataSlot.processing = v; }
+    private get pricingPaperSizesCache(): any[] { return this.masterDataSlot.paperSizes; }
+    private set pricingPaperSizesCache(v: any[]) { this.masterDataSlot.paperSizes = v; }
+    private get pricingFormOptionsCache(): any { return this.masterDataSlot.formOptions; }
+    private set pricingFormOptionsCache(v: any) { this.masterDataSlot.formOptions = v; }
+    private get pricingAccessoriesCache(): any[] { return this.masterDataSlot.accessories; }
+    private set pricingAccessoriesCache(v: any[]) { this.masterDataSlot.accessories = v; }
+    private get masterDataLastRefresh(): number { return this.masterDataSlot.lastRefresh; }
+    private set masterDataLastRefresh(v: number) { this.masterDataSlot.lastRefresh = v; }
 
     private getCacheKey(parsed: ParsedQuote): string {
         // Gồm TẤT CẢ trường ảnh hưởng giá để các lựa chọn khác nhau (gia công, cán màng,
@@ -92,8 +139,10 @@ export class QuoteService implements OnModuleInit {
     onPricingChanged(): void {
         const n = this.priceCache.size;
         this.priceCache.clear();
-        this.masterDataLastRefresh = 0; // ép getMasterData refresh lần tới
-        this.logger.log(`♻️ pricing.changed → xoá ${n} mục price-cache + reset master-data cache`);
+        // Reset TẤT CẢ ô tenant (event không mang tenant, và cấu hình giá có thể đổi ở bất kỳ
+        // tenant nào) → ép getMasterData nạp lại cho mọi tenant ở lần truy vấn tới.
+        for (const slot of this.masterDataSlots.values()) slot.lastRefresh = 0;
+        this.logger.log(`♻️ pricing.changed → xoá ${n} mục price-cache + reset ${this.masterDataSlots.size} ô master-data cache`);
     }
 
     async onModuleInit() {
@@ -386,8 +435,8 @@ export class QuoteService implements OnModuleInit {
         if (parsed.product) pricingData.product_code = parsed.product;
 
         if (type === 'loose') {
-            pricingData.item_width = parsed.size?.width || 90;
-            pricingData.item_height = parsed.size?.height || 55;
+            pricingData.item_width = parsed.size?.width || LOOSE_DEFAULT_SIZE.width;
+            pricingData.item_height = parsed.size?.height || LOOSE_DEFAULT_SIZE.height;
             pricingData.print_side = parsed.printSides === 2 ? 'double' : 'single';
             pricingData.shape = parsed.shape || 'rectangle';
 
@@ -424,10 +473,10 @@ export class QuoteService implements OnModuleInit {
                 }
             }
         } else if (type === 'bound') {
-            pricingData.page_count = parsed.pageCount || 24;
+            pricingData.page_count = parsed.pageCount || BOUND_DEFAULT_PAGE_COUNT;
 
             // Convert chatbot binding code to Pricing code
-            const chatbotBindingCode = parsed.bindingType?.code || 'ghim_long';
+            const chatbotBindingCode = parsed.bindingType?.code || BOUND_DEFAULT_BINDING_CODE;
             pricingData.binding_type = parsed.bindingType?.pricingCode || getPricingBindingCode(chatbotBindingCode);
             this.logger.debug(`📍 Binding type: ${chatbotBindingCode} → Pricing: ${pricingData.binding_type}`);
 
@@ -467,8 +516,8 @@ export class QuoteService implements OnModuleInit {
                 }];
             }
         } else if (type === 'large_format') {
-            pricingData.width = parsed.size?.width || 600;
-            pricingData.height = parsed.size?.height || 1600;
+            pricingData.width = parsed.size?.width || LARGE_FORMAT_DEFAULT_SIZE.width;
+            pricingData.height = parsed.size?.height || LARGE_FORMAT_DEFAULT_SIZE.height;
 
             // Enforce mm unit for very small inputs that likely represent meters (e.g. 2x3m parsed as 2, 3)
             if (pricingData.width <= 20 && pricingData.width > 0) pricingData.width *= 1000;
@@ -755,8 +804,8 @@ export class QuoteService implements OnModuleInit {
             // ─── Route by product type ───
             if (productType === 'bound') {
                 // Bound: needs page_count, binding_type, cover{}, inner[]
-                const pageCount = input.page_count || 24;
-                const bindingType = input.binding_type || 'ghim_long';
+                const pageCount = input.page_count || BOUND_DEFAULT_PAGE_COUNT;
+                const bindingType = input.binding_type || BOUND_DEFAULT_BINDING_CODE;
 
                 const calcPayload: any = {
                     type: 'bound',

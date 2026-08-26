@@ -1,8 +1,11 @@
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, Inject, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, LessThan, MoreThan, Repository } from 'typeorm';
 import { runInTransaction } from 'typeorm-transactional';
+import { Cron } from '@nestjs/schedule';
+import * as path from 'path';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { forEachTenant } from '../../common/tenant/tenant-background';
 import { AppScopeService } from '../../common/app-scope/app-scope.service';
 import { Contact, Conversation, Message, Channel } from '../../entities';
 import { ConversationStatus, ConversationPriority } from '../../entities/conversation.entity';
@@ -16,6 +19,11 @@ import { ModuleRef } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { ChannelType } from '../../entities/channel.entity';
 import { ZaloPoolService } from '../zalo-personal/zalo-pool.service';
+import {
+    loadInternalChatAttachment,
+    PreparedOutboundAttachment,
+} from './outbound-attachment.helper';
+import { safeErrorMetadata } from '../../common/logging/safe-log-metadata';
 
 /**
  * Read image dimensions from buffer header (PNG, JPEG, WebP, GIF)
@@ -62,6 +70,26 @@ function getImageDimensions(buf: Buffer): { width: number; height: number } | nu
 @Injectable()
 export class MessageProcessorService {
     private readonly logger = new Logger(MessageProcessorService.name);
+
+    /**
+     * Serialize xử lý inbound theo từng khóa (channel + người gửi). Hai tin của CÙNG
+     * một liên hệ đến sát nhau (vd text + ảnh) sẽ chạy TUẦN TỰ thay vì song song →
+     * hết race tạo trùng Contact (ném UNIQUE, nuốt lỗi, mất tin) và trùng Conversation.
+     * Tin của các liên hệ KHÁC nhau vẫn xử lý song song bình thường.
+     * Chỉ dùng trong 1 tiến trình (mô hình deploy hiện tại).
+     */
+    private inboundChains = new Map<string, Promise<unknown>>();
+
+    private runSerialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
+        const prev = this.inboundChains.get(key) ?? Promise.resolve();
+        const next = prev.catch(() => undefined).then(fn);
+        // Lưu mắt xích mới; dọn khi nó là mắt xích cuối để Map không phình vô hạn.
+        this.inboundChains.set(key, next);
+        next.catch(() => undefined).finally(() => {
+            if (this.inboundChains.get(key) === next) this.inboundChains.delete(key);
+        });
+        return next;
+    }
 
     constructor(
         @InjectRepository(Contact) private contactRepo: Repository<Contact>,
@@ -110,7 +138,7 @@ export class MessageProcessorService {
                     id: conv.id,
                     contactName: contact.displayName,
                     contactAvatar: contact.avatarUrl,
-                });
+                }, conv.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined);
             }
         } catch (e: any) {
             this.logger.warn(`updateContactProfile failed: ${e.message}`);
@@ -127,15 +155,26 @@ export class MessageProcessorService {
      * qua connection có biến phiên (RLS). Khi tắt: chạy thẳng như cũ (không overhead).
      */
     async processInbound(channelId: string, parsedMessage: ParsedMessage): Promise<boolean> {
+        // Serialize theo (channel + người gửi) để tin cùng liên hệ không race tạo trùng
+        // Contact/Conversation. Khóa dùng externalUserId (nhóm đã có prefix 'g_').
+        const chainKey = `${channelId}:${parsedMessage.externalUserId}`;
+        return this.runSerialized(chainKey, () => this.processInboundDispatch(channelId, parsedMessage));
+    }
+
+    private async processInboundDispatch(channelId: string, parsedMessage: ParsedMessage): Promise<boolean> {
         if (process.env.TENANT_RLS_ENABLED !== 'true' || !this.tenantCtx) {
             return this.processInboundCore(channelId, parsedMessage);
         }
-        let tenantId = 1;
-        try {
-            const rows = await this.channelRepo.manager.query(
-                'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', [channelId]);
-            if (rows?.[0]?.tenant_id) tenantId = Number(rows[0].tenant_id);
-        } catch { /* fallback tenant 1 */ }
+        // Fail-loud (Req 2.3): KHÔNG mặc định tenant 1. Ghi tin nhắn của xưởng khác vào
+        // tenant 1 là rò dữ liệu chéo tenant — tệ hơn việc bỏ lỡ một tin (đã log rõ).
+        const rows = await this.channelRepo.manager.query(
+            'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', [channelId]);
+        const tenantId = rows?.[0]?.tenant_id ? Number(rows[0].tenant_id) : 0;
+        if (!tenantId) {
+            throw new Error(
+                `Không phân giải được tenant cho channel ${channelId} — từ chối xử lý inbound (msg ${parsedMessage.externalMessageId})`,
+            );
+        }
         return this.tenantCtx.withTenant(tenantId, () =>
             runInTransaction(async () => {
                 await this.channelRepo.manager.query(
@@ -147,12 +186,20 @@ export class MessageProcessorService {
 
     private async processInboundCore(channelId: string, parsedMessage: ParsedMessage): Promise<boolean> {
         try {
-        this.logger.log(`📩 Processing inbound from ${parsedMessage.senderName} via channel ${channelId}`);
+        this.logger.log(
+            `📩 Processing inbound via channel ${channelId} ` +
+            `(sender=${parsedMessage.isSelf ? 'self' : 'customer'}, ` +
+            `textChars=${parsedMessage.text?.length || 0}, attachmentCount=${parsedMessage.attachments?.length || 0})`,
+        );
 
         const channel = await this.channelRepo.findOne({ where: { id: channelId } });
         if (!channel) {
             this.logger.error(`Channel not found: ${channelId}`);
             return false;
+        }
+        const channelTenantId = Number(channel.tenantId ?? this.tenantCtx?.currentTenantId());
+        if (!Number.isSafeInteger(channelTenantId) || channelTenantId <= 0) {
+            throw new Error(`Channel ${channelId} thiếu tenant hợp lệ — từ chối xử lý inbound.`);
         }
 
         // Gate Trục CSKH theo tenant: nếu tenant tắt CSKH → bỏ qua inbound an toàn (Req 4.6, 9.3).
@@ -175,7 +222,7 @@ export class MessageProcessorService {
 
         // Idempotency check
         const existingMsg = await this.messageRepo.findOne({
-            where: { idempotencyKey: `inbound_${parsedMessage.externalMessageId}` },
+            where: { idempotencyKey: `inbound_${parsedMessage.externalMessageId}`, tenantId: channelTenantId },
         });
         if (existingMsg) {
             this.logger.warn(`Duplicate message, skipping: ${parsedMessage.externalMessageId}`);
@@ -191,16 +238,34 @@ export class MessageProcessorService {
         });
 
         if (!contact) {
-            contact = this.contactRepo.create({
+            const draft = this.contactRepo.create({
                 externalUserId: parsedMessage.externalUserId,
                 displayName: parsedMessage.contactName || (parsedMessage.isSelf ? 'Khách Zalo' : parsedMessage.senderName),
                 avatarUrl: parsedMessage.senderAvatar || '',
                 channel,
+                tenantId: channelTenantId,
             });
-            contact = await this.contactRepo.save(contact);
-            this.logger.log(`👤 New contact created: ${contact.displayName}`);
+            try {
+                contact = await this.contactRepo.save(draft);
+                this.logger.log(`👤 New contact created: ${contact.id}`);
+            } catch (err: any) {
+                // Lưới an toàn race: nếu một luồng khác vừa tạo cùng contact (vi phạm
+                // @Unique(['channel','externalUserId'])) → refetch thay vì để lỗi làm mất tin.
+                const existing = await this.contactRepo.findOne({
+                    where: { externalUserId: parsedMessage.externalUserId, channel: { id: channelId } },
+                });
+                if (!existing) throw err;
+                contact = existing;
+                this.logger.warn(`👤 Contact race resolved via refetch: ${contact.id}`);
+            }
         } else {
             let updated = false;
+            if (contact.tenantId == null) {
+                contact.tenantId = channelTenantId;
+                updated = true;
+            } else if (contact.tenantId !== channelTenantId) {
+                throw new Error(`Contact ${contact.id} không thuộc tenant của channel ${channelId}.`);
+            }
             
             if (parsedMessage.contactName && parsedMessage.contactName !== contact.displayName) {
                 // Update group name
@@ -246,14 +311,24 @@ export class MessageProcessorService {
                 lastMessageAt: now,
                 slaDeadline,
                 unreadCount: parsedMessage.isSelf ? 0 : 1,
+                tenantId: channelTenantId,
             });
             conversation = await this.convRepo.save(conversation);
             this.logger.log(`💬 New conversation created: ${conversation.id}`);
 
-            // Send welcome message with Quick Reply product buttons
-            this.sendWelcomeWithQuickReplies(channel, contact.externalUserId)
-                .catch(err => this.logger.warn(`⚠️ Welcome message failed: ${err.message}`));
+            // Send welcome message with Quick Reply product buttons.
+            // Guard giống auto-reply: KHÔNG gửi cho tin do chính mình gửi (isSelf) và
+            // KHÔNG gửi vào chat nhóm (prefix 'g_') — tránh chào nhầm nhóm / echo chính mình.
+            const isGroupChat = (parsedMessage.externalUserId || '').startsWith('g_');
+            if (!parsedMessage.isSelf && !isGroupChat) {
+                this.sendWelcomeWithQuickReplies(channel, contact.externalUserId)
+                    .catch(err => this.logger.warn(`⚠️ Welcome message failed: ${err.message}`));
+            }
         } else {
+            if (conversation.tenantId == null) conversation.tenantId = channelTenantId;
+            else if (conversation.tenantId !== channelTenantId) {
+                throw new Error(`Conversation ${conversation.id} không thuộc tenant của channel ${channelId}.`);
+            }
             if (conversation.status === ConversationStatus.CLOSED) {
                 conversation.status = ConversationStatus.NEW;
             }
@@ -262,7 +337,7 @@ export class MessageProcessorService {
             conversation.slaBreached = false;
             // Increment unread count ONLY if no one is viewing the conversation in Zeplao
             if (!parsedMessage.isSelf) {
-                const viewerCount = this.eventsGateway.getConversationRoomSize(conversation.id);
+                const viewerCount = this.eventsGateway.getConversationRoomSize(conversation.id, channelTenantId);
                 if (viewerCount === 0) {
                     conversation.unreadCount = (conversation.unreadCount || 0) + 1;
                 }
@@ -278,7 +353,7 @@ export class MessageProcessorService {
         if (!parsedMessage.isBackfill) {
             const warningMinutes = Math.max(slaMinutes - 5, 1);
             // Bắt tenantId TRƯỚC khi vào setTimeout (callback chạy ngoài AsyncLocalStorage scope).
-            const slaTenantId = this.tenantCtx?.currentTenantId() ?? undefined;
+            const slaTenantId = conversation.tenantId ?? channelTenantId;
             setTimeout(() => {
                 this.eventsGateway.emitSlaWarning(conversation!.id, 5, slaTenantId);
                 this.logger.log(`⏳ SLA warning emitted for conversation ${conversation!.id}`);
@@ -288,6 +363,7 @@ export class MessageProcessorService {
         // Create message
         const message = this.messageRepo.create({
             conversation,
+            tenantId: channelTenantId,
             senderType: parsedMessage.isSelf ? SenderType.AGENT : SenderType.CUSTOMER,
             senderName: parsedMessage.senderName, // <== Save sender's real name here
             senderAvatarUrl: parsedMessage.senderAvatar, // <== Save sender's actual avatar URL
@@ -321,7 +397,7 @@ export class MessageProcessorService {
                 senderAvatarUrl: savedMessage.senderAvatarUrl, // <== Propagate avatar to frontend
                 attachments: savedMessage.attachments,
                 quoteData: savedMessage.quoteData,
-            });
+            }, channelTenantId);
 
             this.eventsGateway.emitConversationUpdated({
                 id: conversation.id,
@@ -330,22 +406,23 @@ export class MessageProcessorService {
                 contactName: contact.displayName,
                 lastMessagePreview: (parsedMessage.text || '(attachment)').substring(0, 80),
                 slaDeadline: conversation.slaDeadline,
-            }, this.tenantCtx?.currentTenantId() ?? undefined);
+            }, channelTenantId);
 
             // Emit Dashboard update
             this.eventsGateway.emitDashboardUpdate({
                 event: 'new_message',
                 conversationId: conversation.id,
                 timestamp: now.toISOString(),
-            }, this.tenantCtx?.currentTenantId() ?? undefined);
+            }, channelTenantId);
         }
 
         // Trigger AI suggestion (async — don't block inbound, and do not trigger if message is sent by Agent/Self)
         if (this.aiSuggestService && !parsedMessage.isSelf && !parsedMessage.isBackfill) {
             // Nhánh AI chạy fire-and-forget SAU khi transaction nhận-tin đã commit/đóng.
-            // Khi RLS bật, bọc lại trong withTenant để công việc nền có tenant scope tự-chứa
-            // (KHÔNG phụ thuộc việc context propagate từ transaction đang đóng). RLS tắt → chạy như cũ.
-            const aiTenantId = this.tenantCtx?.currentTenantId() ?? null;
+            // Bọc lại trong withTenant ở MỌI chế độ để các service app-level (KB/cache/learning)
+            // vẫn lọc tenant ngay cả khi PostgreSQL RLS đang tắt. Không phụ thuộc context của
+            // transaction nhận-tin đã đóng.
+            const aiTenantId = conversation.tenantId ?? this.tenantCtx?.currentTenantId() ?? null;
             const fireAiSuggestion = () =>
                 this.aiSuggestService!.generateSuggestion(conversation!.id, savedMessage.id)
                 .then(s => {
@@ -364,7 +441,13 @@ export class MessageProcessorService {
                             .replace(/^\s*[-•]\s+/gm, '  ✦ ')
                             .replace(/\n{3,}/g, '\n\n')
                             .trim();
-                        this.processOutbound(conversation!.id, { text: cleanText }, 'ai-auto')
+                        this.processOutbound(
+                            conversation!.id,
+                            { text: cleanText },
+                            'ai-auto',
+                            undefined,
+                            aiTenantId ?? undefined,
+                        )
                             .then(() => {
                                 this.logger.log(`🤖 Auto-reply sent for conversation ${conversation!.id} (intent: ${s.intent})`);
                                 this.eventsGateway.emitAutoReply(conversation!.id, { text: cleanText }, aiTenantId ?? undefined);
@@ -375,9 +458,9 @@ export class MessageProcessorService {
                             .catch(err => this.logger.warn(`⚠️ Auto-reply failed: ${err.message}`));
                     }
                 })
-                .catch(err => this.logger.warn(`⚠️ AI suggestion failed: ${err.message}`));
+                .catch(err => this.logger.warn(`⚠️ AI suggestion failed (${safeErrorMetadata(err)})`));
 
-            if (process.env.TENANT_RLS_ENABLED === 'true' && this.tenantCtx && aiTenantId != null) {
+            if (this.tenantCtx && aiTenantId != null) {
                 // withTenant trả promise nhưng cố ý KHÔNG await (fire-and-forget) — chỉ để
                 // thiết lập AsyncLocalStorage scope cho toàn bộ chuỗi async của nhánh AI.
                 void this.tenantCtx.withTenant(aiTenantId, fireAiSuggestion);
@@ -401,24 +484,57 @@ export class MessageProcessorService {
         content: MessageContent,
         userId: string,
         idempotencyKey?: string,
+        requestTenantId?: number,
     ): Promise<Message> {
         this.logger.log(`📤 Processing outbound for conversation ${conversationId}`);
 
+        const explicitTenantId = Number.isSafeInteger(requestTenantId) && Number(requestTenantId) > 0
+            ? Number(requestTenantId)
+            : undefined;
+        const backgroundTenantId = this.tenantCtx?.currentTenantId();
+        const tenantId = explicitTenantId ?? (
+            userId === 'ai-auto' && Number.isSafeInteger(backgroundTenantId) && Number(backgroundTenantId) > 0
+                ? Number(backgroundTenantId)
+                : undefined
+        );
+
+        // Mọi đường gửi, kể cả auto-reply nền, phải mang tenant tường minh. Không
+        // fallback truy vấn chỉ theo UUID khi AsyncLocalStorage không propagate.
+        if (tenantId == null) {
+            throw new ForbiddenException('Không xác định được đơn vị gửi tin nhắn.');
+        }
+
         const conversation = await this.convRepo.findOne({
-            where: { id: conversationId },
+            where: { id: conversationId, tenantId },
             relations: ['channel', 'contact'],
         });
 
         if (!conversation) {
-            throw new Error(`Conversation not found: ${conversationId}`);
+            // 404 tránh làm lộ UUID hội thoại của tenant khác.
+            throw new NotFoundException(`Conversation not found: ${conversationId}`);
         }
 
-        // Idempotency check
+        // Scope theo tenant ở tầng app để không trả nhầm message của tenant khác khi RLS tắt.
+        // Unique constraint hiện vẫn toàn cục; đổi constraint cần migration riêng ngoài Wave 1.
         if (idempotencyKey) {
             const existing = await this.messageRepo.findOne({
-                where: { idempotencyKey },
+                where: { idempotencyKey, tenantId },
             });
             if (existing) return existing;
+        }
+
+        // Luôn xác minh tenant của hội thoại TRƯỚC khi realpath/stat/read tệp đính kèm.
+        let preparedAttachment: PreparedOutboundAttachment | undefined;
+        if (content.attachmentUrl) {
+            if (tenantId == null) {
+                throw new ForbiddenException('Không xác định được đơn vị sở hữu tệp đính kèm.');
+            }
+            const configuredBaseUrl = this.configService.get<string>('API_BASE_URL')?.trim();
+            const fallbackBaseUrl = `http://localhost:${this.configService.get<number>('PORT', 4000)}`;
+            preparedAttachment = await loadInternalChatAttachment(content.attachmentUrl, {
+                storageRoot: path.resolve(process.cwd(), 'uploads', 'chat'),
+                allowedBaseUrls: [configuredBaseUrl || fallbackBaseUrl],
+            });
         }
 
         // Save message with status 'sending'
@@ -430,6 +546,7 @@ export class MessageProcessorService {
 
         const message = this.messageRepo.create({
             conversation,
+            tenantId: conversation.tenantId ?? tenantId ?? null,
             senderType: SenderType.AGENT,
             contentType: msgContentType,
             content: content.text || (isImage ? '[Hình ảnh]' : ''),
@@ -451,17 +568,23 @@ export class MessageProcessorService {
             status: savedMessage.status,
             createdAt: savedMessage.createdAt,
             quoteId: savedMessage.quoteId,
-        });
+        }, tenantId);
 
         // Send via adapter in the background
-        this.executeBackgroundSend(conversation, savedMessage, content, userId).catch(err => {
+        this.executeBackgroundSend(conversation, savedMessage, content, userId, preparedAttachment).catch(err => {
             this.logger.error(`Background send failed for msg ${savedMessage.id}: ${err.message}`);
         });
 
         return savedMessage;
     }
 
-    private async executeBackgroundSend(conversation: Conversation, savedMessage: Message, content: MessageContent, userId: string) {
+    private async executeBackgroundSend(
+        conversation: Conversation,
+        savedMessage: Message,
+        content: MessageContent,
+        userId: string,
+        preparedAttachment?: PreparedOutboundAttachment,
+    ) {
         let lastError = '';
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
@@ -496,40 +619,17 @@ export class MessageProcessorService {
                     }
 
                     if (content.attachmentUrl) {
-                        let localPath: string = content.attachmentUrl;
-                        const parsedUrl = new URL(localPath, 'http://localhost');
-                        const ext = parsedUrl.pathname.split('.').pop()?.toLowerCase() || 'jpg';
-                        
-                        if (localPath.includes('/uploads/chat/')) {
-                            const filename = localPath.split('/uploads/chat/').pop()?.split('?')[0];
-                            localPath = require('path').resolve(process.cwd(), 'uploads', 'chat', filename);
-                        } else if (localPath.startsWith('http')) {
-                            const filename = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-                            localPath = require('path').resolve(process.cwd(), 'uploads', 'chat', filename);
-                            try {
-                                const response = await require('axios').get(content.attachmentUrl, { responseType: 'arraybuffer' });
-                                require('fs').writeFileSync(localPath, response.data);
-                            } catch (e) {
-                                this.logger.error("Failed to download attachment for Zalo", e);
-                            }
+                        if (!preparedAttachment) {
+                            throw new Error('Tệp đính kèm chưa được xác thực trước khi gửi.');
                         }
-                        
-                        let size = 0;
-                        let fileData = Buffer.from('');
+
                         let imgWidth = 800;
                         let imgHeight = 800;
-                        try {
-                            const fs = require('fs');
-                            size = fs.statSync(localPath).size;
-                            fileData = fs.readFileSync(localPath);
-                            
-                            // Read actual dimensions from image header
-                            const dims = getImageDimensions(fileData);
-                            if (dims) {
-                                imgWidth = dims.width;
-                                imgHeight = dims.height;
-                            }
-                        } catch(e) {}
+                        const dims = getImageDimensions(preparedAttachment.data);
+                        if (dims) {
+                            imgWidth = dims.width;
+                            imgHeight = dims.height;
+                        }
 
                         let sanitizedMsg = content.text || '';
                         if (sanitizedMsg.trim() === '[Hình ảnh]' || sanitizedMsg.trim() === '[Hình ảnh đính kèm]' || sanitizedMsg.trim() === '[Sticker Zalo]') {
@@ -538,9 +638,9 @@ export class MessageProcessorService {
 
                         payload.msg = sanitizedMsg;
                         payload.attachments = [{
-                            data: fileData,
-                            filename: require('path').basename(localPath),
-                            metadata: { width: imgWidth, height: imgHeight, totalSize: size }
+                            data: preparedAttachment.data,
+                            filename: preparedAttachment.filename,
+                            metadata: { width: imgWidth, height: imgHeight, totalSize: preparedAttachment.size }
                         }];
                     }
                     
@@ -574,7 +674,12 @@ export class MessageProcessorService {
                     conversation.status = ConversationStatus.IN_PROGRESS;
                     await this.convRepo.save(conversation);
 
-                    this.eventsGateway.emitMessageStatus(conversation.id, savedMessage.id, 'sent');
+                    this.eventsGateway.emitMessageStatus(
+                        conversation.id,
+                        savedMessage.id,
+                        'sent',
+                        conversation.tenantId ?? undefined,
+                    );
                     this.logger.log(`✅ Outbound sent: ${savedMessage.id}`);
 
                     // Feature 3: Schedule follow-up after agent sends (not for auto-replies)
@@ -592,6 +697,14 @@ export class MessageProcessorService {
                 this.logger.error(`Outbound attempt ${attempt} failed: ${err.message}`);
             }
 
+            // Chống GỬI TRÙNG: khi lỗi là TIMEOUT, Zalo có thể ĐÃ nhận tin nhưng phản hồi
+            // chậm >30s. Retry mù sẽ khiến khách nhận 2 tin. Dừng retry, đánh dấu FAILED để
+            // nhân viên tự kiểm tra + gửi lại nếu cần. Lỗi khác (network refused) vẫn retry.
+            if (/timeout/i.test(lastError)) {
+                this.logger.warn(`⏱️ Outbound timeout — dừng retry để tránh gửi trùng (tin có thể đã tới). Msg ${savedMessage.id}`);
+                break;
+            }
+
             if (attempt < 3) {
                 await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
             }
@@ -601,7 +714,47 @@ export class MessageProcessorService {
         savedMessage.status = MessageStatus.FAILED;
         savedMessage.errorDetail = lastError;
         await this.messageRepo.save(savedMessage);
-        this.eventsGateway.emitMessageStatus(conversation.id, savedMessage.id, 'failed');
+        this.eventsGateway.emitMessageStatus(
+            conversation.id,
+            savedMessage.id,
+            'failed',
+            conversation.tenantId ?? undefined,
+        );
+    }
+
+    /**
+     * Reconcile message kẹt SENDING (audit 2026-08-13): đường gửi outbound chạy
+     * in-process (executeBackgroundSend) — backend restart giữa chừng làm message
+     * giữ trạng thái SENDING vĩnh viễn, sale nhìn "đang gửi" mãi mà không biết hỏng.
+     * Đánh FAILED sau 10 phút để UI hiện trạng thái thật + cho gửi lại thủ công.
+     * KHÔNG auto-resend: Zalo có thể ĐÃ nhận trước khi crash — resend là gửi trùng.
+     * RLS bật → lặp từng tenant qua forEachTenant (cùng pattern các cron khác).
+     */
+    @Cron('30 */5 * * * *')
+    async reconcileStuckOutbound(): Promise<void> {
+        await forEachTenant(this.tenantCtx, this.messageRepo.manager, () => this.reconcileStuckOutboundCore());
+    }
+
+    private async reconcileStuckOutboundCore(): Promise<void> {
+        const cutoff = new Date(Date.now() - 10 * 60_000);
+        const stuck = await this.messageRepo.find({
+            where: { status: MessageStatus.SENDING, senderType: SenderType.AGENT, createdAt: LessThan(cutoff) },
+            select: ['id', 'conversationId', 'tenantId'],
+            take: 200,
+        });
+        if (stuck.length === 0) return;
+
+        await this.messageRepo.update(
+            { id: In(stuck.map(m => m.id)) },
+            {
+                status: MessageStatus.FAILED,
+                errorDetail: 'Kẹt ở trạng thái "đang gửi" quá 10 phút (khả năng backend khởi động lại giữa chừng). Vui lòng gửi lại nếu khách chưa nhận.',
+            },
+        );
+        for (const m of stuck) {
+            this.eventsGateway.emitMessageStatus(m.conversationId, m.id, 'failed', m.tenantId ?? undefined);
+        }
+        this.logger.warn(`♻️ Reconcile outbound: ${stuck.length} message kẹt SENDING > 10 phút → FAILED`);
     }
 
     /**
@@ -656,7 +809,10 @@ export class MessageProcessorService {
             // We read the message on Zalo app. Clear unreadCount!
             conversation.unreadCount = 0;
             await this.convRepo.save(conversation);
-            this.eventsGateway.emitConversationUpdated({ id: conversation.id, unreadCount: 0 });
+            this.eventsGateway.emitConversationUpdated(
+                { id: conversation.id, unreadCount: 0 },
+                conversation.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+            );
             this.logger.log(`👁️ Agent read message on Zalo. Cleared unreadCount for conv ${conversation.id}`);
         } else {
             // Customer read our message. Update message statuses.
@@ -670,7 +826,12 @@ export class MessageProcessorService {
             );
             
             // Broadcast the update so frontend gets latest status
-            this.eventsGateway.emitMessageStatus(conversation.id, highestMsgId || 'all', 'read');
+            this.eventsGateway.emitMessageStatus(
+                conversation.id,
+                highestMsgId || 'all',
+                'read',
+                conversation.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+            );
             this.logger.log(`👁️ Customer read messages in conv ${conversation.id}`);
         }
     }
@@ -690,7 +851,12 @@ export class MessageProcessorService {
         });
         if (!conversation) return;
 
-        this.eventsGateway.emitTyping(conversation.id, extUserId, isTyping);
+        this.eventsGateway.emitTyping(
+            conversation.id,
+            extUserId,
+            isTyping,
+            conversation.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+        );
     }
 
     /**
@@ -719,12 +885,17 @@ export class MessageProcessorService {
         await this.messageRepo.save(message);
 
         // Emit via socket
-        this.eventsGateway.server.to(`conversation:${message.conversation.id}`).emit('messageRecalled', {
-            conversationId: message.conversation.id,
-            messageId: message.id,
-            status: MessageStatus.RECALLED,
-            externalMsgId: extMsgId
-        });
+        this.eventsGateway.emitConversationScopedEvent(
+            message.tenantId ?? message.conversation.tenantId ?? this.tenantCtx?.currentTenantId(),
+            message.conversation.id,
+            'messageRecalled',
+            {
+                conversationId: message.conversation.id,
+                messageId: message.id,
+                status: MessageStatus.RECALLED,
+                externalMsgId: extMsgId,
+            },
+        );
         
         this.logger.log(`⏪ Handled undo for msg: ${extMsgId} → DB id: ${message.id}`);
     }
@@ -773,7 +944,12 @@ export class MessageProcessorService {
         await this.messageRepo.save(message);
 
         // Broadcast to frontend
-        this.eventsGateway.emitMessageReacted(message.conversation.id, message.id, reactions);
+        this.eventsGateway.emitMessageReacted(
+            message.conversation.id,
+            message.id,
+            reactions,
+            message.tenantId ?? message.conversation.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+        );
         this.logger.log(`💬 Reaction ${icon} → ${unicodeIcon} saved on msg ${message.id}`);
     }
 
@@ -799,7 +975,12 @@ export class MessageProcessorService {
         );
 
         if (result.affected && result.affected > 0) {
-            this.eventsGateway.emitMessageStatus(conversation.id, 'all', 'delivered');
+            this.eventsGateway.emitMessageStatus(
+                conversation.id,
+                'all',
+                'delivered',
+                conversation.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+            );
             this.logger.log(`📬 Marked ${result.affected} messages as delivered in conv ${conversation.id}`);
         }
     }
@@ -808,29 +989,40 @@ export class MessageProcessorService {
      * Sync unread marks from Zalo periodic polling
      */
     async syncUnreadMarks(channelId: string, unreadExtUserIds: string[]): Promise<void> {
-        // Find all conversations in this channel that currently have unreadCount > 0
-        const unreadConvs = await this.convRepo.find({
-            where: { channel: { id: channelId } },
-            relations: ['contact']
+        // HIỆU NĂNG (audit 2026-07-25): hàm này chạy mỗi 15s CHO MỖI account Zalo đang kết nối
+        // (zalo-pool.startUnreadPolling). Trước đây nạp TOÀN BỘ conversation của channel kèm
+        // relations rồi lọc `unreadCount > 0` bằng JS ⇒ hydrate hàng chục nghìn row 4 lần/phút.
+        // Nay đẩy điều kiện xuống SQL (MoreThan(0)) và chỉ lấy cột cần dùng.
+        const currentlyUnread = await this.convRepo.find({
+            where: { channel: { id: channelId }, unreadCount: MoreThan(0) },
+            relations: { contact: true },
+            select: { id: true, tenantId: true, unreadCount: true, contact: { id: true, externalUserId: true } },
         });
 
-        const currentlyUnread = unreadConvs.filter(c => (c.unreadCount || 0) > 0);
         if (currentlyUnread.length === 0) return;
 
         // If a conversation is marked unread in Zeplao, but NOT in Zalo's unread list,
         // it means it was read on Zalo. We should clear the badge!
-        for (const conv of currentlyUnread) {
-            const extId = conv.contact.externalUserId;
+        const toClear = currentlyUnread.filter((conv) => {
+            const extId = conv.contact?.externalUserId;
+            if (!extId) return false;
             // Zalo Group IDs are sometimes prefixed with g_ or just numbers
-            const isUnreadOnZalo = unreadExtUserIds.some(id => id === extId || id === `g_${extId}` || `g_${id}` === extId);
-            
-            if (!isUnreadOnZalo) {
-                conv.unreadCount = 0;
-                await this.convRepo.save(conv);
-                this.eventsGateway.emitConversationUpdated({ id: conv.id, unreadCount: 0 });
-                this.logger.log(`🔄 Sync: Cleared unreadCount for conv ${conv.id} because it was read on Zalo`);
-            }
+            return !unreadExtUserIds.some(id => id === extId || id === `g_${extId}` || `g_${id}` === extId);
+        });
+        if (toClear.length === 0) return;
+
+        // Một UPDATE gộp thay vì save() từng entity trong vòng lặp (tránh N round-trip mỗi 15s).
+        // Dùng update() thay save() vì entity chỉ được select một phần cột.
+        await this.convRepo.update({ id: In(toClear.map(c => c.id)) }, { unreadCount: 0 });
+
+        for (const conv of toClear) {
+            this.eventsGateway.emitConversationUpdated(
+                { id: conv.id, unreadCount: 0 },
+                conv.tenantId ?? this.tenantCtx?.currentTenantId() ?? undefined,
+            );
         }
+        // §11: 1 dòng tổng hợp thay vì logger.log mỗi conversation trong vòng lặp polling.
+        this.logger.debug(`Sync unread: cleared ${toClear.length} conversation(s) read on Zalo (channel=${channelId})`);
     }
 }
 

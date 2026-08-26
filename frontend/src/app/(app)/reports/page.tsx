@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
+import { downloadAuthenticatedFile } from '@/lib/authenticated-download';
 import { useState, useEffect, useCallback } from 'react';
 
 import { API_URL as API } from '@/lib/api';
@@ -21,7 +22,7 @@ const AVATAR_COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#16a34a', '#d97706', '#
 const getColor = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
 
 export default function ReportsPage() {
-    const { token } = useAuth();
+    const { token, authFetch } = useAuth();
     const [mounted, setMounted] = useState(false);
     const [agents, setAgents] = useState<AgentMetrics[]>([]);
     const [summary, setSummary] = useState<Summary | null>(null);
@@ -48,6 +49,18 @@ export default function ReportsPage() {
     useEffect(() => { setMounted(true); }, []);
     useEffect(() => { if (mounted && token) fetchData(); }, [mounted, token, fetchData]);
 
+    const handleExportCSV = async () => {
+        try {
+            await downloadAuthenticatedFile(
+                authFetch,
+                `${API}/reports/export/csv`,
+                'agent-report.csv',
+            );
+        } catch (error) {
+            console.error('Export report failed:', error);
+        }
+    };
+
     if (!mounted) return (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#94a3b8' }}>
             <div style={{ textAlign: 'center' }}>
@@ -72,7 +85,7 @@ export default function ReportsPage() {
                     <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>Phân tích hoạt động hỗ trợ khách hàng</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <button onClick={() => window.open(`${API}/reports/export/csv`, '_blank')}
+                    <button onClick={handleExportCSV}
                         style={{
                             padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600,
                             background: '#fff', border: '1px solid #e2e8f0', color: '#334155',

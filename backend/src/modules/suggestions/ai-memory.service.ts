@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Conversation, ConversationStatus } from '../../entities/conversation.entity';
 import { Message } from '../../entities/message.entity';
 import { AiSuggestion } from '../../entities/ai-suggestion.entity';
+import { EmbeddingService } from '../knowledge-base/embedding.service';
 
 @Injectable()
 export class AiMemoryService {
@@ -13,27 +14,29 @@ export class AiMemoryService {
         @InjectRepository(Conversation) private convRepo: Repository<Conversation>,
         @InjectRepository(Message) private msgRepo: Repository<Message>,
         @InjectRepository(AiSuggestion) private suggestRepo: Repository<AiSuggestion>,
+        @InjectDataSource() private dataSource: DataSource,
+        private embeddings: EmbeddingService,
     ) {}
 
     /**
      * Retrieve successful past Q&A pairs (Few-Shot examples) matching the current intent/product.
      * Extracts exact Customer Question and final Agent Reply from WON conversations.
-     * TODO: Upgrade to Vector DB (pgvector/Pinecone) for deep semantic search in the future.
+     *
+     * Postgres + pgvector: truy candidate WON theo NN ngữ nghĩa trên summary_embedding
+     * (vector của "productType intent") → bắt được hội thoại cùng ý dù khác từ ngữ.
+     * SQLite/thiếu vector: fallback về LIKE trên outcomeData như cũ.
      */
-    async retrieveMemoryContext(intent: string, productType: string): Promise<string> {
+    async retrieveMemoryContext(intent: string, productType: string, tenantId?: number | null): Promise<string> {
         if (!intent) return '';
 
-        // Query WON conversations matching the product or intent
-        const wonConvs = await this.convRepo.createQueryBuilder('c')
-            .where('c.status = :status', { status: ConversationStatus.WON })
-            .andWhere('(c.productType = :product OR c.outcomeData::text LIKE :intentKey)', { 
-                product: productType || '',
-                intentKey: `%${intent}%`
-            })
-            .orderBy('c.closedAt', 'DESC')
-            .limit(10)
-            .getMany();
+        // CÔ LẬP TENANT (fail-closed): few-shot lấy từ hội thoại chốt đơn thật —
+        // không rõ tenant thì không trộn ký ức (tránh lộ câu chốt/giá chéo tenant).
+        if (tenantId == null) {
+            this.logger.debug('Bỏ qua memory few-shot: thiếu tenantId (fail-closed)');
+            return '';
+        }
 
+        const wonConvs = await this.findCandidateWonConvs(intent, productType, tenantId);
         if (wonConvs.length === 0) return '';
 
         let memoryContext = '\n\n## 🧠 KÝ ỨC CHỐT SALE (Few-shot Examples)\n';
@@ -86,5 +89,48 @@ export class AiMemoryService {
 
         this.logger.log(`🧠 Injected ${addedCount} memory few-shots for intent [${intent}]`);
         return memoryContext;
+    }
+
+    /**
+     * Tìm candidate WON conversations cho trí nhớ few-shot.
+     * Postgres + pgvector: NN ngữ nghĩa trên summary_embedding (vector của "productType intent").
+     * SQLite/thiếu vector/không embed được: fallback về LIKE trên outcomeData như cũ.
+     * Lọc tenant TƯỜNG MINH — không trông cậy RLS (đang chờ flip).
+     */
+    private async findCandidateWonConvs(intent: string, productType: string, tenantId: number): Promise<Conversation[]> {
+        // Nhánh vector (chỉ Postgres).
+        if (this.dataSource.options.type === 'postgres') {
+            const queryText = `${productType || ''} ${intent}`.trim();
+            const qvec = await this.embeddings.generateEmbedding(queryText);
+            if (qvec) {
+                const rows = await this.dataSource.query(
+                    `SELECT id FROM conversations
+                     WHERE status = 'won' AND summary_embedding IS NOT NULL
+                       AND tenant_id = $2
+                     ORDER BY summary_embedding <=> $1::vector
+                     LIMIT 10`,
+                    [`[${qvec.join(',')}]`, tenantId],
+                );
+                if (rows && rows.length > 0) {
+                    const ids: string[] = rows.map((r: any) => r.id);
+                    const convs = await this.convRepo.findByIds(ids);
+                    const byId = new Map(convs.map(c => [c.id, c]));
+                    return ids.map(id => byId.get(id)).filter(Boolean) as Conversation[];
+                }
+                // Chưa có vector nào (chưa backfill) → rơi xuống fallback LIKE.
+            }
+        }
+
+        // Fallback: LIKE trên outcomeData như bản gốc (thêm lưới lọc tenant).
+        return this.convRepo.createQueryBuilder('c')
+            .where('c.status = :status', { status: ConversationStatus.WON })
+            .andWhere('c.tenant_id = :tenantId', { tenantId })
+            .andWhere('(c.productType = :product OR c.outcomeData::text LIKE :intentKey)', {
+                product: productType || '',
+                intentKey: `%${intent}%`,
+            })
+            .orderBy('c.closedAt', 'DESC')
+            .limit(10)
+            .getMany();
     }
 }

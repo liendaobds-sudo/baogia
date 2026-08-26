@@ -23,7 +23,7 @@ import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { EventsGateway } from '../gateway/events.gateway';
 import { QuoteParserService } from '../quote/quote-parser.service';
 import { QuoteService } from '../quote/quote.service';
-import { PricingResult } from '../quote/quote.interfaces';
+import { isAuthoritativePricingResult, PricingResult } from '../quote/quote.interfaces';
 import { CannedResponseService } from '../canned-responses/canned-response.service';
 import { AiLearningService } from './ai-learning.service';
 import { AiProviderService } from './ai-provider.service';
@@ -38,6 +38,7 @@ import { AutoReplyService } from './auto-reply.service';
 import { ConversationSummaryService } from './conversation-summary.service';
 import { OutcomeLearningService } from './outcome-learning.service';
 import { ConversationSearchService } from './conversation-search.service';
+import { Intent, INTENT_TAG_MAP, MEMORY_TRIGGER_INTENTS, normalizeIntent } from './intents';
 import { AiMemoryService } from './ai-memory.service';
 import { ProductsService } from '../pricing/services/products.service';
 import {
@@ -45,6 +46,7 @@ import {
     type ProductTemplate,
 } from '../quote/extractors';
 import { checkPrintingConstraints } from './printing-constraints';
+import { safeErrorMetadata, sensitiveTextMetadata } from '../../common/logging/safe-log-metadata';
 
 // Pricing API URL is now fetched via ConfigService
 
@@ -103,6 +105,24 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         private aiMemory: AiMemoryService,
         private productsService: ProductsService,
     ) { }
+
+    /** Mọi realtime suggestion phải có tenant tường minh; thiếu tenant thì drop fail-closed. */
+    private emitSuggestionGenerated(
+        tenantId: number | null | undefined,
+        conversationId: string,
+        suggestion: AiSuggestion,
+    ): void {
+        if (tenantId == null) {
+            this.logger.warn(`Bỏ realtime suggestion cho conv ${conversationId}: thiếu tenantId`);
+            return;
+        }
+        this.gateway.emitSuggestionGenerated(
+            tenantId,
+            conversationId,
+            suggestion,
+            suggestion.id,
+        );
+    }
 
     async onModuleInit() {
         // Load product templates (non-critical — AI detection works without them)
@@ -183,6 +203,15 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
 
         const lastMsg = messages[messages.length - 1];
 
+        // Tenant của hội thoại — luồn qua các nhánh "học" (outcome/similar-won/memory/agent)
+        // để không trộn dữ liệu chốt đơn chéo tenant. Message có thể NULL (hàng cũ) →
+        // fallback đọc từ conversation.
+        let convTenantId: number | null = messages.find(m => m.tenantId != null)?.tenantId ?? null;
+        if (convTenantId == null) {
+            const convRow = await this.convRepo.findOne({ where: { id: conversationId }, select: ['id', 'tenantId'] });
+            convTenantId = convRow?.tenantId ?? null;
+        }
+
         // Build chat history with conversation compression
         const chatHistory = await this.summaryService.buildChatHistory(conversationId, messages);
 
@@ -197,10 +226,16 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         if (productMatch?.templateId) {
             matchedTemplate = findProductTemplateById(productMatch.templateId);
             this.logger.log(`🎯 Pricing product detected: ${matchedTemplate?.name} (${productMatch.product}) confidence=${productMatch.confidence}`);
-            // Tôn trọng cài đặt sản phẩm: nếu tắt AI cho sản phẩm này → KHÔNG sinh gợi ý/tự trả lời.
+            // Tôn trọng cài đặt sản phẩm: nếu tắt AI cho sản phẩm này → KHÔNG tự trả lời khách,
+            // NHƯNG vẫn tạo một gợi ý nhắc nhân viên xử lý tay (tránh "im lặng" bỏ rơi khách).
             if (matchedTemplate && (matchedTemplate as any).ai_enabled === false) {
-                this.logger.log(`🚫 AI bị TẮT cho sản phẩm "${matchedTemplate.name}" → bỏ qua gợi ý (để nhân viên tư vấn tay).`);
-                return null as any;
+                this.logger.log(`🚫 AI bị TẮT cho sản phẩm "${matchedTemplate.name}" → tạo gợi ý nhắc nhân viên tư vấn tay (không tự gửi khách).`);
+                return await this.saveHandoffSuggestion(
+                    conversationId,
+                    triggerMessageId || lastMsg.id,
+                    `Sản phẩm "${matchedTemplate.name}" được cấu hình tư vấn thủ công. Nhân viên vui lòng trả lời khách trực tiếp.`,
+                    'ai-disabled',
+                );
             }
         }
 
@@ -234,6 +269,22 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         const isShortFollowUp = lastCustomerMsg.trim().length < 15 && customerMessages.length > 1;
         const isGenericReply = SHORT_REPLIES.includes(lastCustomerMsg.trim().toLowerCase());
 
+        // 5.0. Chửi bậy / cần escalate: bắt NGAY ở luồng chính (trước đây chỉ bắt ở
+        // template-fallback khi AI chết). Short-circuit thành handoff cho nhân viên,
+        // KHÔNG đẩy vào LLM — tránh bot tự đối đáp với khách đang bức xúc.
+        const edgeMatch = this.contextInference.matchEdgeCase(lastCustomerMsg.toLowerCase());
+        if (edgeMatch?.response === 'ESCALATE_TO_HUMAN') {
+            this.logger.warn(
+                `🚨 Edge-case escalate (${sensitiveTextMetadata('message', lastCustomerMsg)}) → chuyển nhân viên`,
+            );
+            return await this.saveHandoffSuggestion(
+                conversationId,
+                triggerMessageId || lastMsg.id,
+                'Khách có dấu hiệu bức xúc/ngôn từ nhạy cảm. Nhân viên vui lòng vào xử lý trực tiếp.',
+                'edge-escalate',
+            );
+        }
+
         let matchedCanned: any[] = [];
         let cannedContext = '';
         let directCannedReply: { text: string; title: string; autoReply: boolean } | null = null;
@@ -244,7 +295,10 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
 
         if (matchedCanned.length > 0) {
             const best = matchedCanned[0];
-            const hasMultipleIntents = matchedCanned.length > 1 || !!productMatch;
+            // Chỉ chặn canned auto-reply khi THỰC SỰ có nhiều canned khớp (mơ hồ intent).
+            // Trước đây `|| !!productMatch` vô hiệu canned mỗi khi phát hiện sản phẩm —
+            // khiến canned auto-reply gần như không bao giờ kích hoạt dù chỉ có 1 khớp rõ.
+            const hasMultipleIntents = matchedCanned.length > 1;
             if (best.autoReply && !hasMultipleIntents) {
                 directCannedReply = { text: best.content, title: best.title, autoReply: true };
             }
@@ -270,7 +324,6 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
             productMatch ? productMatch.product : '',
             combinedCustomerText
         );
-        const hasPricingCatalog = pricingCatalogContext.length > 0;
 
         // 7. Detect intents (comparison, objection, order status)
         const isComparison = /(?:khác|so sánh|vs|hay|nên chọn|khác nhau|với).+(?:gì|nào|sao|không)/i.test(combinedCustomerText);
@@ -290,7 +343,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
             productFieldsContext = `📦 Mô tả sản phẩm "${matchedTemplate.name}": ${matchedTemplate.description}\n\n${productFieldsContext}`;
         }
         if (productFieldsContext) {
-            this.logger.log(`📋 Product fields context (${productFieldsContext.length} chars): ${productFieldsContext.substring(0, 500)}`);
+            this.logger.log(`📋 Product fields context: ${sensitiveTextMetadata('context', productFieldsContext)}`);
         }
         const quoteContext = quoteResult ? this.promptBuilder.formatQuoteForPrompt(quoteResult) : '';
         const printingKnowledgeContext = this.contextInference.buildPrintingKnowledgeContext(
@@ -314,7 +367,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         let learningContext = '';
         try {
             const detectedIntent = isObjection ? 'objection' : isComparison ? 'comparison' : undefined;
-            learningContext = await this.learningService.buildLearningContext(detectedIntent);
+            learningContext = await this.learningService.buildLearningContext(detectedIntent, convTenantId);
         } catch { /* optional */ }
 
         // Phase 2: Outcome-based learning + similar won conversations
@@ -326,15 +379,18 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                 this.outcomeLearning.buildOutcomeContext(
                     isObjection ? 'objection' : undefined,
                     productMatch?.product,
+                    convTenantId,
                 ),
                 this.convSearch.buildSimilarConversationContext(
                     productMatch?.product,
                     combinedCustomerText,
                     isObjection ? 'objection' : isComparison ? 'comparison' : undefined,
+                    convTenantId,
                 ),
                 this.aiMemory.retrieveMemoryContext(
                     isObjection ? 'objection' : isComparison ? 'comparison' : detectedObjections.length > 0 ? detectedObjections[0] : 'chung',
-                    productMatch?.product || ''
+                    productMatch?.product || '',
+                    convTenantId,
                 ),
             ]);
             outcomeContext = outcome;
@@ -408,7 +464,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                     const printingKnowledge = this.contextInference.getKnowledgeData();
                     const agentResult = await this.agentPipeline.runAgentPipeline(
                         conversationId, systemPrompt, userPrompt,
-                        { productMatch, printingKnowledge },
+                        { productMatch, printingKnowledge, tenantId: convTenantId },
                     );
                     if (agentResult.usedAgent && agentResult.toolCalls.length > 0) {
                         agentContext = '\n\n## THÔNG TIN BỔ SUNG TỪ AGENT:\n' +
@@ -418,8 +474,14 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                         this.logger.log(`🤖 Agent enriched prompt with ${agentResult.toolCalls.length} tool results`);
                     }
                 } catch (e) {
-                    this.logger.warn(`⚠️ Agent pipeline failed, using standard path: ${(e as Error).message}`);
+                    this.logger.warn(
+                        `⚠️ Agent pipeline failed, using standard path (${safeErrorMetadata(e)})`,
+                    );
                 }
+            } else if (requiresDeepReasoning && !productMatch) {
+                // Câu phức tạp (so sánh/phản đối/hỏi đơn/tin dài) nhưng KHÔNG nhận diện được sản phẩm
+                // → agent pipeline bị bỏ qua (cần product context để gọi tool). Log để không "chết lặng".
+                this.logger.log(`ℹ️ Bỏ qua agent pipeline: câu cần suy luận sâu nhưng chưa nhận diện được sản phẩm — dùng luồng LLM chuẩn.`);
             }
 
             // Standard AI call with enriched prompt
@@ -435,17 +497,21 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
             }
         }
 
-        // 9.5. Post-AI pricing: if AI returned parsed_quote with direct Pricing IDs, re-calculate
-        if (result?.parsed_quote?.material_id) {
-            const pq = result.parsed_quote;
+        // 9.5. Post-AI pricing: if AI returned parsed_quote with direct Pricing IDs, re-calculate.
+        // CHỐNG BỊA QUY CÁCH: chỉ recalc khi LLM cung cấp ĐỦ số thật (số lượng + kích thước).
+        // Trước đây thiếu size → mặc định 90×55 / SL 100 rồi hiển thị như "giá hệ thống" xác thực
+        // → báo giá sai quy cách. Nay thiếu bất kỳ số nào → KHÔNG tính, để nguyên là gợi ý cho NV.
+        const pq = result?.parsed_quote;
+        const hasRealSpec = pq?.material_id && pq.quantity > 0 && pq.width > 0 && pq.height > 0;
+        if (hasRealSpec) {
             this.logger.log(`🎯 AI provided parsed_quote: material_id=${pq.material_id}, processing=${JSON.stringify(pq.processing_ids || [])}`);
             try {
                 const pricingResult: any = await this.quoteService.calculateMiniQuote({
                     material_id: pq.material_id,
                     paper_size_id: pq.paper_size_id || undefined,
-                    quantity: pq.quantity || 100,
-                    item_width: pq.width || 90,
-                    item_height: pq.height || 55,
+                    quantity: pq.quantity,
+                    item_width: pq.width,
+                    item_height: pq.height,
                     print_side: pq.print_side || undefined,
                     processing: (pq.processing_ids || []).map((id: number) => ({ id })),
                 });
@@ -455,7 +521,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                     : pricingResult?.total;
                 if (pricingResult && !pricingResult.requiresManualQuote && sellTotal) {
                     this.logger.log(`💰 Re-calculated via AI parsed_quote: ${sellTotal.toLocaleString()}đ (direct IDs, no fuzzy match)`);
-                    const qty = pq.quantity || 100;
+                    const qty = pq.quantity;
                     quoteResult = {
                         productType: quoteResult?.productType || 'unknown',
                         type: quoteResult?.type,
@@ -476,7 +542,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         }
 
         // 10. Anti-hallucination validation
-        result = this.validateAiResult(result, quoteResult, relevantKb, hasPricingCatalog);
+        result = this.validateAiResult(result, quoteResult, relevantKb);
 
         // 10.5. Hard-coded constraint validation — catches rule violations even when AI ignores prompt
         const constraintWarnings = this.checkPrintingConstraints(chatHistory, lastCustomerMsg, productMatch);
@@ -494,9 +560,10 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
 
         // 12. Auto-reply eligibility
         const latencyMs = Date.now() - start;
-        const intent = result.intent || 'chung';
+        const intent = normalizeIntent(result.intent);
         const confidence = result.confidence || 0.4;
-        const hasPrice = quoteResult?.total != null;
+        const authoritativeQuote = isAuthoritativePricingResult(quoteResult) ? quoteResult : null;
+        const hasPrice = authoritativeQuote !== null;
         const autoReplyEligible = this.autoReplyService.checkAutoReplyEligibility(
             conversationId, intent, confidence, hasPrice, usedModel, directCannedReply,
         );
@@ -504,12 +571,13 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         // 13. Save suggestion
         const suggestion = this.suggestRepo.create({
             conversationId,
+            tenantId: convTenantId,
             triggerMessageId: triggerMessageId || lastMsg.id,
             replies: result.replies || [{ text: 'Xin chào, để em kiểm tra và phản hồi bạn sớm nhé!', label: 'Phản hồi mặc định' }],
             missingInfo: result.missing_info || [],
             sources: [
                 // KB sources only when NO pricing result (avoid noise when Pricing already answers)
-                ...(!(quoteResult?.total && quoteResult.total > 0) && usedModel !== 'template' && kbResults.length > 0 ? kbResults.map((c: any) => ({
+                ...(!hasPrice && usedModel !== 'template' && kbResults.length > 0 ? kbResults.map((c: any) => ({
                     docId: c.documentId,
                     chunkId: c.id,
                     docName: kbDocTitles.get(c.documentId) || '',
@@ -518,13 +586,13 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                     score: c._score || 0.5,
                 })) : []),
                 // Pricing pricing source when available
-                ...(quoteResult?.total && quoteResult.total > 0 ? [{
+                ...(authoritativeQuote ? [{
                     docName: 'Hệ thống Báo giá (Pricing)',
-                    heading: quoteResult.productType || 'Báo giá',
-                    excerpt: quoteResult.breakdown?.map((b: any) =>
+                    heading: authoritativeQuote.productType || 'Báo giá',
+                    excerpt: authoritativeQuote.breakdown?.map((b: any) =>
                         `${b.item}: ${b.cost.toLocaleString('vi-VN')}đ${b.detail ? ` (${b.detail})` : ''}`
-                    ).join('\n') + `\n💰 Tổng: ${quoteResult.total.toLocaleString('vi-VN')}đ` +
-                        (quoteResult.unitPrice ? ` | Đơn giá: ${quoteResult.unitPrice.toLocaleString('vi-VN')}đ/cái` : ''),
+                    ).join('\n') + `\n💰 Tổng: ${authoritativeQuote.total.toLocaleString('vi-VN')}đ` +
+                        (authoritativeQuote.unitPrice ? ` | Đơn giá: ${authoritativeQuote.unitPrice.toLocaleString('vi-VN')}đ/cái` : ''),
                     score: 1.0,
                 }] : []),
             ],
@@ -550,22 +618,21 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
 
         // 13.6 Async memory extraction (fire-and-forget, non-blocking)
         // UPGRADE 2: Optimize Memory Extraction Frequency
-        const isConclusiveIntent = ['chốt_đơn', 'đặt_hàng', 'khiếu_nại', 'tư_vấn'].includes(intent);
+        const isConclusiveIntent = MEMORY_TRIGGER_INTENTS.includes(intent);
         const shouldExtractMemory = isConclusiveIntent || (messages.length >= 6 && messages.length % 6 === 0);
         
         if (shouldExtractMemory) {
             this.extractAndSaveMemory(conversationId, messages.slice(-10)).catch(err =>
-                this.logger.warn(`Memory extraction failed: ${err.message}`)
+                this.logger.warn(`Memory extraction failed (${safeErrorMetadata(err)})`)
             );
         }
 
         this.logger.log(`💡 Suggestion generated for ${conversationId} (${latencyMs}ms)` +
             (autoReplyEligible ? ' [AUTO-REPLY]' : '') +
-            (quoteResult?.total ? ` [Quote: ${quoteResult.total.toLocaleString()}đ]` : ''));
+            (authoritativeQuote ? ` [Quote: ${authoritativeQuote.total.toLocaleString()}đ]` : ''));
 
-        // 14. Emit via WebSocket
-        this.gateway.server.to(`conversation:${conversationId}`).emit('new_suggestion', { conversationId, suggestion });
-        this.gateway.server.emit('suggestion_available', { conversationId, suggestionId: suggestion.id });
+        // 14. Emit via WebSocket (tenant-scoped; thiếu tenant không được broadcast global)
+        this.emitSuggestionGenerated(convTenantId, conversationId, suggestion);
 
         return suggestion;
     }
@@ -589,25 +656,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                 const existingTags = new Set<string>(conv.tags || []);
                 const originalSize = existingTags.size;
 
-                // Intent → Tag mapping
-                const INTENT_TAG_MAP: Record<string, string> = {
-                    'hỏi_giá': 'báo_giá',
-                    'báo_giá': 'báo_giá',
-                    'hỏi_giao_hàng': 'giao_hàng',
-                    'khiếu_nại': 'khiếu_nại',
-                    'feedback': 'khiếu_nại',
-                    'hỏi_vật_tư': 'tư_vấn',
-                    'tư_vấn': 'tư_vấn',
-                    'hỏi_gia_công': 'tư_vấn',
-                    'chào_hỏi': 'chào_hỏi',
-                    'cảm_ơn': 'chào_hỏi',
-                    'tạm_biệt': 'chào_hỏi',
-                    'xác_nhận': 'chốt_đơn',
-                    'đặt_hàng': 'chốt_đơn',
-                    'hỏi_file': 'chờ_file',
-                    'q&a_template': 'tư_vấn',
-                };
-
+                // Intent → Tag mapping (nguồn sự thật: intents.ts)
                 const tag = INTENT_TAG_MAP[intent];
                 if (tag) existingTags.add(tag.toLowerCase().trim());
 
@@ -739,7 +788,10 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
                         }
                     }
                     await this.contactRepo.update(contact.id, { customerProfile: merged });
-                    this.logger.log(`👤 Profile updated for ${contact.displayName || contact.id.slice(-6)}: ${JSON.stringify(merged).substring(0, 200)}`);
+                    this.logger.log(
+                        `👤 Profile updated for contact ${contact.id.slice(-6)} ` +
+                        `(fieldCount=${Object.keys(merged).length})`,
+                    );
                 }
 
                 if (extractedFacts.length === 0) return;
@@ -769,10 +821,12 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
                 ].slice(-20);
 
                 await this.contactRepo.update(contact.id, { memoryFacts: allFacts });
-                this.logger.log(`🧠 Memory: ${newFacts.length} new facts saved for contact ${contact.displayName || contact.id.slice(-6)}`);
+                this.logger.log(
+                    `🧠 Memory: ${newFacts.length} new facts saved for contact ${contact.id.slice(-6)}`,
+                );
             } catch (err: unknown) {
                 // Non-critical
-                this.logger.warn(`Memory extraction error: ${(err as Error).message}`);
+                this.logger.warn(`Memory extraction error (${safeErrorMetadata(err)})`);
             }
         });
     }
@@ -863,7 +917,7 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
                     }
                 }
             } catch (e) {
-                this.logger.warn(`⚠️ KB search failed for expanded query: ${(e as Error).message}`);
+                this.logger.warn(`⚠️ KB search failed for expanded query (${safeErrorMetadata(e)})`);
             }
         }
 
@@ -924,7 +978,7 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
                     + altResults.map((r: any) => r.content.substring(0, 500)).join('\n---\n');
             }
         } catch (e) {
-            this.logger.warn(`⚠️ Failed to fetch KB alternatives: ${(e as Error).message}`);
+            this.logger.warn(`⚠️ Failed to fetch KB alternatives (${safeErrorMetadata(e)})`);
         }
         return '';
     }
@@ -1018,9 +1072,43 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
     }
 
     /**
+     * Tạo + lưu + emit một suggestion "chuyển nhân viên xử lý tay" (handoff).
+     * Dùng khi KHÔNG muốn AI tự trả lời (vd sản phẩm tắt AI, hoặc chửi bậy cần escalate)
+     * nhưng vẫn phải cho nhân viên thấy hội thoại — tránh im lặng bỏ rơi khách.
+     * autoReplyEligible LUÔN false → không bao giờ tự gửi khách.
+     */
+    private async saveHandoffSuggestion(
+        conversationId: string,
+        triggerMessageId: string,
+        note: string,
+        model: string,
+    ): Promise<AiSuggestion> {
+        const convRow = await this.convRepo.findOne({ where: { id: conversationId }, select: ['id', 'tenantId'] });
+        const suggestion = this.suggestRepo.create({
+            conversationId,
+            tenantId: convRow?.tenantId ?? null,
+            triggerMessageId,
+            replies: [{ text: note, label: '👤 Nhân viên xử lý' }],
+            missingInfo: [],
+            sources: [],
+            confidence: 0,
+            intent: Intent.CHUNG,
+            model,
+            latencyMs: 0,
+            autoReplyEligible: false,
+            status: SuggestionStatus.GENERATED,
+            promptVersion: 'v3.0-refactored',
+            quoteResult: null,
+        });
+        await this.suggestRepo.save(suggestion);
+        this.emitSuggestionGenerated(suggestion.tenantId, conversationId, suggestion);
+        return suggestion;
+    }
+
+    /**
      * Anti-hallucination: validate & sanitize AI responses
      */
-    validateAiResult(result: any, quoteResult: PricingResult | null, kbChunks: any[], hasPricingCatalog = false): any {
+    validateAiResult(result: any, quoteResult: PricingResult | null, kbChunks: any[]): any {
         if (!result || !result.replies) {
             return {
                 replies: [{ text: 'Dạ, em sẽ kiểm tra và phản hồi bạn sớm nhất ạ!', label: 'Phản hồi an toàn' }],
@@ -1036,16 +1124,24 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
         if (typeof result.confidence !== 'number') result.confidence = 0.4;
 
         const pricePatternSources = [
-            '\\d[\\d.,]*\\s*(?:đ(?:ồng)?|VND|vnđ)',
+            '\\d[\\d.,\\s]*\\s*(?:đ(?:ồng)?|VND|vnđ)',
             '\\d[\\d.,]*\\s*(?:triệu|tr)\\b',
             '\\d[\\d.,]*\\s*(?:nghìn|ngàn|k)\\b',
             '(?:khoảng|tầm|từ|chỉ|giá)\\s*\\d[\\d.,]*\\s*[-–~]\\s*\\d[\\d.,]*',
+            '(?:giá|chi phí|đơn giá|tổng tiền|thành tiền)\\s*(?:là|khoảng|tầm|chỉ|từ)?\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d{4,})(?!\\s*(?:cm|mm|gsm|cái|cuốn|sp|sản phẩm))',
         ];
 
-        // Only trust prices from verified Pricing calculation OR from pricing catalog context
-        const hasVerifiedPrice = (quoteResult?.total && quoteResult.total > 0) || hasPricingCatalog;
-        // But only append price block when we actually have a calculated total
-        const hasQuoteTotal = quoteResult?.total && quoteResult.total > 0;
+        // Giá trong prose luôn do LLM/canned/KB sinh ra nên không có provenance. Kể cả
+        // LLM viết trùng total, server vẫn gỡ nó và dựng lại đúng một khối canonical.
+        const hasVerifiedPrice = isAuthoritativePricingResult(quoteResult);
+        const canonicalMarker = 'Báo giá hệ thống (từ bảng giá):';
+
+        if (result.replies.length > 0 && typeof result.replies[0]?.text === 'string') {
+            const markerIndex = result.replies[0].text.indexOf(canonicalMarker);
+            if (markerIndex >= 0) {
+                result.replies[0].text = result.replies[0].text.slice(0, markerIndex).trimEnd();
+            }
+        }
 
         for (const reply of result.replies) {
             if (!reply.text) continue;
@@ -1053,14 +1149,18 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
             for (const src of pricePatternSources) {
                 const detectPattern = new RegExp(src, 'gi');
                 const matches = reply.text.match(detectPattern);
-                if (matches && !hasVerifiedPrice) {
-                    this.logger.warn(`🚫 Anti-hallucination: Detected fabricated price "${matches[0]}"`);
-                    // BUGFIX 7: Strip fabricated prices to prevent customer confusion
-                    reply.text = reply.text.replace(detectPattern, '***');
+                if (matches) {
+                    this.logger.warn(`🚫 Anti-hallucination: Detected untrusted price claim "${matches[0]}"`);
+                    // Khi có quote thật, hướng người đọc xuống khối canonical do server dựng.
+                    // Khi chưa có quote, giữ placeholder rõ nghĩa và chuyển nhân viên báo giá.
+                    const replacement = hasVerifiedPrice
+                        ? '[xem báo giá hệ thống bên dưới]'
+                        : '[giá]';
+                    reply.text = reply.text.replace(detectPattern, replacement);
                     fabricatedFound = true;
                 }
             }
-            if (fabricatedFound && !reply.text.includes('Nhân viên sẽ báo giá')) {
+            if (fabricatedFound && !hasVerifiedPrice && !reply.text.includes('Nhân viên sẽ báo giá')) {
                 reply.text += '\n\n⚠️ Lưu ý: Nhân viên bên mình đang tính toán chi tiết và sẽ báo giá chính xác nhất cho bạn ngay ạ.';
             }
             // Lưới an toàn chống "máy móc": gỡ markdown (**, ##, ``) khỏi reply của LLM
@@ -1068,19 +1168,16 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
             reply.text = this.stripMarkdown(reply.text);
         }
 
-        if (hasQuoteTotal && result.replies.length > 0) {
+        if (hasVerifiedPrice && result.replies.length > 0) {
             const firstReply = result.replies[0];
-            const breakdownText = quoteResult!.breakdown
+            const breakdownText = (quoteResult.breakdown || [])
                 .map((b: any) => `  • ${b.item}: ${b.cost.toLocaleString('vi-VN')}đ`)
                 .join('\n');
             // Khối báo giá viết MỘC (không markdown/emoji tiêu đề) — rõ ràng mà không máy móc.
-            const priceBlock = `\n\nBáo giá hệ thống (từ bảng giá):\n${breakdownText}\nTổng: ${quoteResult!.total!.toLocaleString('vi-VN')}đ` +
-                (quoteResult!.unitPrice ? `\nĐơn giá: ${quoteResult!.unitPrice.toLocaleString('vi-VN')}đ/cái` : '');
-
-            const verifiedTotalStr = quoteResult!.total!.toLocaleString('vi-VN');
-            if (!firstReply.text.includes(verifiedTotalStr)) {
-                firstReply.text += priceBlock;
-            }
+            const breakdownBlock = breakdownText ? `${breakdownText}\n` : '';
+            const priceBlock = `\n\n${canonicalMarker}\n${breakdownBlock}Tổng: ${quoteResult.total.toLocaleString('vi-VN')}đ` +
+                (quoteResult.unitPrice ? `\nĐơn giá: ${quoteResult.unitPrice.toLocaleString('vi-VN')}đ/cái` : '');
+            firstReply.text = firstReply.text.trimEnd() + priceBlock;
         }
 
         if (result.confidence > 0.9 && !hasVerifiedPrice) {
@@ -1137,10 +1234,24 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
     async markAutoSent(id: string, conversationId: string): Promise<void> {
         try {
             this.autoReplyService.recordAutoReplySent(conversationId);
-            await this.suggestRepo.update(id, { status: SuggestionStatus.SENT });
-            this.gateway.server.to(`conversation:${conversationId}`).emit('suggestion_sent', {
-                conversationId, suggestionId: id, auto: true,
+            const persisted = await this.suggestRepo.findOne({
+                where: { id },
+                select: ['id', 'tenantId'],
             });
+            let tenantId = persisted?.tenantId ?? null;
+            if (tenantId == null) {
+                const conversation = await this.convRepo.findOne({
+                    where: { id: conversationId },
+                    select: ['id', 'tenantId'],
+                });
+                tenantId = conversation?.tenantId ?? null;
+            }
+            await this.suggestRepo.update(id, { status: SuggestionStatus.SENT });
+            if (tenantId != null) {
+                this.gateway.emitSuggestionSent(tenantId, conversationId, id, true);
+            } else {
+                this.logger.warn(`Bỏ suggestion_sent cho conv ${conversationId}: thiếu tenantId`);
+            }
         } catch (e: any) {
             this.logger.warn(`markAutoSent failed for ${id}: ${e.message}`);
         }

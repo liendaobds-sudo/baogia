@@ -59,6 +59,8 @@ export interface TokenResult {
 export interface IChannelAdapter {
     /**
      * Verify webhook signature (HMAC, etc.)
+     * `body` nên là RAW BODY (Buffer/string) khi có — HMAC tính trên bytes gốc;
+     * object đã parse chỉ là fallback (stringify có thể lệch byte với bản gốc).
      */
     verifyWebhook(body: any, signature: string, secret: string): boolean;
 
@@ -66,6 +68,13 @@ export interface IChannelAdapter {
      * Parse inbound webhook payload into standardized message
      */
     parseInboundMessage(body: any): ParsedMessage | null;
+
+    /**
+     * Parse TOÀN BỘ event trong một lần gọi webhook (provider có thể batch nhiều
+     * entry/messaging — Facebook chắc chắn có). Adapter nào không hỗ trợ thì
+     * controller rơi về parseInboundMessage đơn lẻ.
+     */
+    parseInboundMessages?(body: any): ParsedMessage[];
 
     /**
      * Send outbound message to channel

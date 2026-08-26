@@ -107,7 +107,8 @@ beforeEach(() => {
     mockPush.mockClear();
     mockBack.mockClear();
     mockToastShow.mockClear();
-    useQuoteCart.getState().clearCart();
+    useQuoteCart.setState(useQuoteCart.getInitialState(), true);
+    window.history.replaceState(null, '', '/pricing/quotes/new');
     global.fetch = jest.fn();
 });
 
@@ -171,11 +172,85 @@ describe('NewQuotePage — luồng tạo Báo giá', () => {
         expect(item).not.toHaveProperty('width');
         expect(item).not.toHaveProperty('config_params');
         expect(item).not.toHaveProperty('calculation_details');
+        // Header discount mặc định = 0; JSON bỏ field type undefined và không tự lấy
+        // chiết khấu nội bộ của bất kỳ engine nào.
+        expect(body).not.toHaveProperty('discount_type');
+        expect(body.discount_value).toBe(0);
+        expect(body.discount_amount).toBe(0);
 
         await waitFor(() =>
             expect(mockPush).toHaveBeenCalledWith('/pricing/quotes'),
         );
         expect(mockToastShow).toHaveBeenCalledWith('success', expect.any(String));
+    });
+
+    it('chỉ dùng header discount cho discount_* của báo giá', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, data: { id: 1 } }),
+        });
+        useQuoteCart.getState().setHeaderDiscount('percent', 10);
+        useQuoteCart.getState().setOffsetEngineDiscountRate(80);
+
+        seedCartItem();
+        render(<NewQuotePage />);
+        typeCustomerName('Anh Minh');
+        fireEvent.click(getSaveButton());
+
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+        const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+        expect(body.discount_type).toBe('percent');
+        expect(body.discount_value).toBe(10);
+        expect(body.discount_amount).toBe(10_000);
+        expect(body.vat_amount).toBe(9_000);
+        expect(body.grand_total).toBe(99_000);
+    });
+
+    it('gửi fixed discount đúng amount, không diễn giải nhầm thành phần trăm', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true, data: { id: 1 } }),
+        });
+        useQuoteCart.getState().setHeaderDiscount('fixed', 12_500);
+
+        seedCartItem();
+        render(<NewQuotePage />);
+        typeCustomerName('Anh Minh');
+        fireEvent.click(getSaveButton());
+
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+        const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);
+        expect(body.discount_type).toBe('fixed');
+        expect(body.discount_value).toBe(12_500);
+        expect(body.discount_amount).toBe(12_500);
+        expect(body.vat_amount).toBe(8_750);
+        expect(body.grand_total).toBe(96_250);
+    });
+
+    it('hydrate edit giữ nguyên fixed discount thay vì đổi thành 0', async () => {
+        window.history.replaceState(null, '', '/pricing/quotes/new?edit=42');
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                success: true,
+                data: {
+                    id: 42,
+                    customer_name: 'Khách cũ',
+                    discount_type: 'fixed',
+                    discount_value: 25_000,
+                    items: [],
+                },
+            }),
+        });
+
+        render(<NewQuotePage />);
+
+        await waitFor(() => {
+            expect(useQuoteCart.getState().headerDiscountType).toBe('fixed');
+            expect(useQuoteCart.getState().headerDiscountValue).toBe(25_000);
+        });
     });
 
     it('hiển thị toast lỗi và KHÔNG điều hướng khi fetch thất bại (res.ok=false)', async () => {

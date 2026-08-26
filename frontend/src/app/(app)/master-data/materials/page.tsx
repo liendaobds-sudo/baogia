@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { API_URL } from '@/lib/api';
 
 export default function MaterialsPage() {
     const { token } = useAuth();
@@ -13,7 +14,7 @@ export default function MaterialsPage() {
         if (!token) return;
         const fetchMaterials = async () => {
             try {
-                const res = await fetch('http://localhost:4000/api/v1/erp/materials?limit=50', {
+                const res = await fetch(`${API_URL}/erp/materials?limit=50`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) {

@@ -2,9 +2,8 @@ import { Injectable, NotFoundException, BadRequestException, Optional } from '@n
 import { Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { Quote, QuoteItem, Customer, User } from '../../entities';
+import { Quote, QuoteItem, User } from '../../entities';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
-import { applyTenantToConnection } from '../../common/tenant/tenant-transaction';
 
 @Injectable()
 export class QuoteCrudService {
@@ -18,6 +17,12 @@ export class QuoteCrudService {
         try {
         const qb = this.dataSource.getRepository(Quote).createQueryBuilder('q')
             .orderBy('q.createdAt', 'DESC');
+
+        // Tenant filter (defense-in-depth; reads still allowed for legacy list UIs)
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx && !ctx.bypass && ctx.tenantId != null) {
+            qb.andWhere('(q.tenantId = :_tid OR q.tenantId IS NULL)', { _tid: ctx.tenantId });
+        }
 
         if (query.date_from) qb.andWhere('DATE(q.createdAt) >= :from', { from: query.date_from });
         if (query.date_to) qb.andWhere('DATE(q.createdAt) <= :to', { to: query.date_to });
@@ -68,211 +73,58 @@ export class QuoteCrudService {
         }
     }
 
+    /**
+     * Chốt IDOR (audit 2026-08-13): bản ghi thuộc tenant khác → 404 như không tồn tại
+     * (cùng pattern assertConversationInTenant của messages). Hàng legacy tenant NULL
+     * vẫn đọc được — nhất quán với findAll; sẽ siết khi gỡ nới lỏng sau flip RLS.
+     */
+    private assertQuoteInTenant(quote: { tenantId?: number | null } | null): void {
+        if (!quote) throw new NotFoundException('Quote not found');
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx && !ctx.bypass && ctx.tenantId != null
+            && (quote as any).tenantId != null && (quote as any).tenantId !== ctx.tenantId) {
+            throw new NotFoundException('Quote not found');
+        }
+    }
+
     async findOne(id: number) {
         const quote = await this.dataSource.getRepository(Quote).createQueryBuilder('q')
             .leftJoinAndMapOne('q.createdBy', User, 'u', 'q.createdBy = u.id')
             .where('q.id = :id', { id })
             .getOne();
 
-        if (!quote) throw new NotFoundException('Quote not found');
-        quote.items = await this.dataSource.getRepository(QuoteItem).find({ where: { quoteId: quote.id } });
-        return quote;
+        this.assertQuoteInTenant(quote);
+        quote!.items = await this.dataSource.getRepository(QuoteItem).find({ where: { quoteId: quote!.id } });
+        return quote!;
     }
 
-    async createQuote(data: any, userId: number) {
-        if (!data.code) throw new BadRequestException('Quote code is required');
-        
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-
-        try {
-            await applyTenantToConnection(queryRunner, this.tenantCtx);
-            let customerId: number | undefined = undefined;
-            if (data.customer_phone) {
-                let customer = await queryRunner.manager.findOne(Customer, { where: { phone: data.customer_phone } });
-                if (!customer) {
-                    customer = queryRunner.manager.create(Customer, {
-                        name: data.customer_name || undefined,
-                        phone: data.customer_phone,
-                        email: data.customer_email || undefined,
-                        address: data.customer_address || undefined,
-                        company: data.customer_unit || undefined,
-                        source: 'erp'
-                    });
-                    await queryRunner.manager.save(customer);
-                }
-                customerId = customer.id;
-            }
-
-            const newQuote = queryRunner.manager.create(Quote, {
-                code: data.code,
-                type: data.type || 'In nhanh',
-                customerId,
-                customerName: data.customer_name || 'Khách lẻ',
-                customerPhone: data.customer_phone || undefined,
-                customerUnit: data.customer_unit || undefined,
-                taxCode: data.tax_code || undefined,
-                customerAddress: data.customer_address || undefined,
-                customerNote: data.customer_note || undefined,
-                total: data.total || 0,
-                discountType: data.discount_type || undefined,
-                discountValue: data.discount_value || 0,
-                discountAmount: data.discount_amount || 0,
-                createdBy: userId,
-                status: 'draft',
-                validityDays: data.validity_days || 7,
-                source: 'erp'
-            });
-
-            await queryRunner.manager.save(newQuote);
-
-            if (data.items && Array.isArray(data.items)) {
-                for (const item of data.items) {
-                    const mappedItem = this.mapInputToItemEntity(item);
-                    mappedItem.quoteId = newQuote.id;
-                    const dbItem = queryRunner.manager.create(QuoteItem, mappedItem);
-                    await queryRunner.manager.save(dbItem);
-                }
-            }
-
-            await queryRunner.commitTransaction();
-            return this.findOne(newQuote.id);
-        } catch (e) {
-            await queryRunner.rollbackTransaction();
-            throw e;
-        } finally {
-            await queryRunner.release();
-        }
-    }
-
-    async updateQuote(id: number, data: any, userId: number) {
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-
-        try {
-            await applyTenantToConnection(queryRunner, this.tenantCtx);
-            const quote = await queryRunner.manager.findOne(Quote, { where: { id } });
-            if (!quote) throw new NotFoundException('Quote not found');
-
-            const allowedFields = {
-                customer_name: 'customerName', customer_phone: 'customerPhone', 
-                customer_unit: 'customerUnit', tax_code: 'taxCode', 
-                customer_address: 'customerAddress', customer_note: 'customerNote', 
-                total: 'total', status: 'status', discount_type: 'discountType', 
-                discount_value: 'discountValue', discount_amount: 'discountAmount'
-            };
-
-            for (const [key, prop] of Object.entries(allowedFields)) {
-                if (data[key] !== undefined) (quote as any)[prop] = data[key];
-            }
-
-            await queryRunner.manager.save(quote);
-
-            if (data.items && Array.isArray(data.items)) {
-                await queryRunner.manager.delete(QuoteItem, { quoteId: id });
-                for (const item of data.items) {
-                    const mappedItem = this.mapInputToItemEntity(item);
-                    mappedItem.quoteId = quote.id;
-                    const dbItem = queryRunner.manager.create(QuoteItem, mappedItem);
-                    await queryRunner.manager.save(dbItem);
-                }
-            }
-            await queryRunner.commitTransaction();
-            return this.findOne(id);
-        } catch (e) {
-            await queryRunner.rollbackTransaction();
-            throw e;
-        } finally {
-            await queryRunner.release();
-        }
-    }
-
-    async deleteQuote(id: number) {
-        const quote = await this.dataSource.getRepository(Quote).findOne({ where: { id } });
-        if (!quote) throw new NotFoundException('Quote not found');
-        await this.dataSource.getRepository(Quote).delete(id);
-        return { message: 'Quote deleted successfully' };
-    }
-
-    async cloneQuote(id: number, userId: number) {
-        const originalQuote = await this.findOne(id);
-        const code = `BG-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-        const dataToCopy = {
-            code,
-            type: originalQuote.type,
-            customer_name: originalQuote.customerName,
-            customer_phone: originalQuote.customerPhone,
-            customer_unit: originalQuote.customerUnit,
-            tax_code: originalQuote.taxCode,
-            customer_address: originalQuote.customerAddress,
-            customer_note: originalQuote.customerNote,
-            total: originalQuote.total,
-            validity_days: originalQuote.validityDays,
-            items: originalQuote.items.map(i => {
-                const itemObj: any = { ...i };
-                // revert entity keys to snake_case inputs for the creator
-                return {
-                    item_type: itemObj.itemType, product_name: itemObj.productName, unit: itemObj.unit,
-                    material_id: itemObj.materialId, paper_size_id: itemObj.paperSizeId,
-                    quantity: itemObj.quantity, print_side: itemObj.printSide, print_type: itemObj.printType,
-                    shape: itemObj.shape, items_per_sheet: itemObj.itemsPerSheet, sheets_needed: itemObj.sheetsNeeded,
-                    item_total: itemObj.itemTotal, product_type: itemObj.productType, bound_size: itemObj.boundSize,
-                    page_count: itemObj.pageCount, binding_type: itemObj.bindingType,
-                };
-            })
-        };
-
-        return this.createQuote(dataToCopy, userId);
-    }
+    // LƯU Ý (dọn 2026-08-13): createQuote/updateQuote/deleteQuote/cloneQuote đã XÓA.
+    // Các endpoint tương ứng trả 410 Gone từ trước (quote.controller.ts) và không còn
+    // call-site nào; bản service cũ nhận `total`/`item_total` thẳng từ client (không
+    // recompute) — giữ code chết này lại chỉ để lại một đường sửa giá tay. Đường ghi
+    // chính thống: POST/PUT /erp/orders (OrdersService — recompute server-side).
 
     async sendQuote(id: number) {
         const quote = await this.dataSource.getRepository(Quote).findOne({ where: { id } });
-        if (!quote) throw new NotFoundException('Quote not found');
-        if (quote.status !== 'draft') throw new BadRequestException('Quote must be draft to send');
-        quote.status = 'sent';
-        await this.dataSource.getRepository(Quote).save(quote);
+        this.assertQuoteInTenant(quote);
+        if (quote!.status !== 'draft') throw new BadRequestException('Quote must be draft to send');
+        quote!.status = 'sent';
+        await this.dataSource.getRepository(Quote).save(quote!);
         return { message: 'Quote marked as sent' };
     }
 
-    private mapInputToItemEntity(item: any): Partial<QuoteItem> {
-        return {
-            itemType: item.item_type || 'loose',
-            productName: item.product_name || 'Sản phẩm',
-            unit: item.unit || 'Tờ',
-            materialId: item.material_id || undefined,
-            materialName: item.material_name || undefined,
-            paperSizeId: item.paper_size_id || undefined,
-            paperSizeName: item.paper_size_name || undefined,
-            quantity: item.quantity || 0,
-            printSide: item.print_side || 'single',
-            printType: item.print_type || undefined,
-            shape: item.shape || 'rectangle',
-            itemsPerSheet: item.items_per_sheet || 0,
-            sheetsNeeded: item.sheets_needed || 0,
-            processingDetails: item.processing_details ? JSON.stringify(item.processing_details) : undefined,
-            printingDetail: item.printing_detail ? JSON.stringify(item.printing_detail) : undefined,
-            itemTotal: item.item_total || 0,
-            productType: item.product_type || undefined,
-            boundSize: item.bound_size || item.size || undefined,
-            pageCount: item.page_count || 0,
-            bindingType: item.binding_type || undefined,
-            coverMaterialId: item.cover_material_id || undefined,
-            innerMaterialId: item.inner_material_id || undefined,
-            coverMaterialName: item.cover_material_name || undefined,
-            innerMaterialName: item.inner_material_name || undefined,
-            coverPrint: item.cover_print || undefined,
-            innerPrint: item.inner_print || undefined,
-            coverFinishing: item.cover_finishing ? JSON.stringify(item.cover_finishing) : undefined,
-            extraServices: item.extra_services ? JSON.stringify(item.extra_services) : undefined,
-            itemWidth: item.item_width || 0,
-            itemHeight: item.item_height || 0,
-            coverSheetsNeeded: item.cover_sheets_needed || 0,
-            innerSheetsNeeded: item.inner_sheets_needed || 0,
-            productId: item.product_id || undefined
-        };
+    /**
+     * Escape HTML — chống HTML/script injection vào trang in. customerNote/customerName
+     * có thể bắt nguồn từ chatbot public (khách tự nhập); trước đây nội suy thẳng vào
+     * template (audit 2026-08-13) trong khi QuotePdfService đã có esc() từ lâu.
+     */
+    private esc(value: unknown): string {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /** Generate professional HTML invoice for PDF printing */
@@ -281,12 +133,13 @@ export class QuoteCrudService {
         const items = quote.items || [];
         const fmt = (n: number) => new Intl.NumberFormat('vi-VN').format(n);
         const date = new Date(quote.createdAt).toLocaleDateString('vi-VN');
+        const esc = (v: unknown) => this.esc(v);
 
         const rows = items.map((item: any, i: number) => `
             <tr>
                 <td style="padding:10px;border:1px solid #e2e8f0;text-align:center">${i + 1}</td>
-                <td style="padding:10px;border:1px solid #e2e8f0">${item.productName || 'Sản phẩm'}</td>
-                <td style="padding:10px;border:1px solid #e2e8f0;text-align:center">${item.unit || 'Tờ'}</td>
+                <td style="padding:10px;border:1px solid #e2e8f0">${esc(item.productName || 'Sản phẩm')}</td>
+                <td style="padding:10px;border:1px solid #e2e8f0;text-align:center">${esc(item.unit || 'cái')}</td>
                 <td style="padding:10px;border:1px solid #e2e8f0;text-align:right">${fmt(item.quantity || 0)}</td>
                 <td style="padding:10px;border:1px solid #e2e8f0;text-align:right">${item.quantity ? fmt(Math.round((item.itemTotal || 0) / item.quantity)) : '—'}</td>
                 <td style="padding:10px;border:1px solid #e2e8f0;text-align:right;font-weight:600">${fmt(item.itemTotal || 0)}₫</td>
@@ -318,15 +171,15 @@ th{background:#f1f5f9;padding:10px;border:1px solid #e2e8f0;font-weight:600;colo
 </style></head><body>
 <div class="header">
     <div><div class="company">🖨️ ZeplaoPrint<small>In ấn chuyên nghiệp • Báo giá nhanh</small></div></div>
-    <div class="quote-info"><div class="code">${quote.code}</div><div class="date">Ngày: ${date}</div>
+    <div class="quote-info"><div class="code">${esc(quote.code)}</div><div class="date">Ngày: ${date}</div>
     <div class="date">Hiệu lực: ${quote.validityDays || 7} ngày</div></div>
 </div>
 <div class="section"><h3>Thông tin khách hàng</h3>
 <div class="info-grid">
-    <span class="label">Tên:</span><span class="value">${quote.customerName || 'Khách lẻ'}</span>
-    <span class="label">SĐT:</span><span class="value">${quote.customerPhone || '—'}</span>
-    <span class="label">Đơn vị:</span><span class="value">${quote.customerUnit || '—'}</span>
-    <span class="label">Địa chỉ:</span><span class="value">${quote.customerAddress || '—'}</span>
+    <span class="label">Tên:</span><span class="value">${esc(quote.customerName || 'Khách lẻ')}</span>
+    <span class="label">SĐT:</span><span class="value">${esc(quote.customerPhone || '—')}</span>
+    <span class="label">Đơn vị:</span><span class="value">${esc(quote.customerUnit || '—')}</span>
+    <span class="label">Địa chỉ:</span><span class="value">${esc(quote.customerAddress || '—')}</span>
 </div></div>
 <div class="section"><h3>Chi tiết sản phẩm</h3>
 <table><thead><tr><th style="text-align:center">STT</th><th>Sản phẩm</th><th style="text-align:center">ĐVT</th><th style="text-align:right">SL</th><th style="text-align:right">Đơn giá</th><th style="text-align:right">Thành tiền</th></tr></thead>
@@ -335,7 +188,7 @@ th{background:#f1f5f9;padding:10px;border:1px solid #e2e8f0;font-weight:600;colo
     ${quote.discountAmount ? `<div>Chiết khấu: -${fmt(quote.discountAmount)}₫</div>` : ''}
     <div class="grand">Tổng cộng: ${fmt(quote.total || 0)}₫</div>
 </div></div>
-${quote.customerNote ? `<div class="section"><h3>Ghi chú</h3><p style="font-size:13px;color:#475569">${quote.customerNote}</p></div>` : ''}
+${quote.customerNote ? `<div class="section"><h3>Ghi chú</h3><p style="font-size:13px;color:#475569">${esc(quote.customerNote)}</p></div>` : ''}
 <div class="footer">Báo giá được tạo tự động bởi ZeplaoPrint ERP • ${date}</div>
 </body></html>`;
     }

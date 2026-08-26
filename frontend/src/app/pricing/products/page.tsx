@@ -9,7 +9,7 @@ import BatchMiniQuoteModal from './BatchMiniQuoteModal';
 // ─── Types ────────────────────────────────────
 interface Product {
     id: number; code: string; name_vi: string; name_en?: string;
-    quote_type: string; category_id?: string; category_name?: string;
+    quote_type: string; unit?: string | null; category_id?: string; category_name?: string;
     icon?: string; is_active: boolean;
     has_auto_pricing?: boolean; ai_enabled?: boolean;
     allowed_materials?: unknown[]; allowed_paper_sizes?: unknown[];
@@ -122,6 +122,7 @@ export default function ProductsPage() {
             return <span className="text-sm text-slate-600">{cat?.name_vi || '—'}</span>;
         }},
         { header: 'Loại', cell: (p) => { const [l, c] = typeMap[p.quote_type] || [p.quote_type, 'bg-slate-100 text-slate-700']; return <span className={`px-2 py-0.5 rounded text-xs font-medium ${c}`}>{l}</span>; }},
+        { header: 'ĐV', cell: (p) => <span className="text-sm text-slate-600">{p.unit || '—'}</span> },
         { header: 'Flags', cell: (p) => {
             const notReady = !(p.allowed_materials?.length) || !(p.allowed_paper_sizes?.length);
             return (

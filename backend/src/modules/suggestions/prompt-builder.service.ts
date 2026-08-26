@@ -5,8 +5,9 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PricingResult } from '../quote/quote.interfaces';
+import { isAuthoritativePricingResult, PricingResult } from '../quote/quote.interfaces';
 import { type ProductTemplate, type ProductField } from '../quote/extractors';
+import { PROMPT_INTENT_MENU, Intent } from './intents';
 
 // Map field codes to master data type
 const MATERIAL_FIELDS = ['material', 'vat_lieu', 'chat_lieu', 'giay', 'paper', 'coverMaterial', 'innerMaterial'];
@@ -56,12 +57,12 @@ Bạn là CHUYÊN GIA, không phải chatbot hỏi form:
 
 ## QUY TẮC BẮT BUỘC:
 1. Tiếng Việt, thân thiện, xưng "mình", gọi "bạn". Dùng từ phổ thông, giữ nguyên Couche/PVC/gsm. Chỉ dịch thuật ngữ Anh chuyên ngành (matte lamination→cán mờ, die-cut→bế, saddle stitch→đóng ghim).
-2. GIÁ: Nhân viên sẽ tính giá chính xác qua hệ thống báo giá. KHÔNG bịa giá. Nếu có [Kết quả báo giá] → copy chính xác. Nếu không → "Mình sẽ báo giá chi tiết cho bạn ngay nha."
+2. GIÁ: Nhân viên sẽ tính giá chính xác qua hệ thống báo giá. KHÔNG bịa giá. Chỉ được nêu số tiền từ [Kết quả báo giá tự động] hợp lệ và phải copy chính xác. Nếu không có → "Mình sẽ báo giá chi tiết cho bạn ngay nha."
 3. TRÍCH XUẤT từ TOÀN BỘ lịch sử: đọc TẤT CẢ tin nhắn trước để lấy thông tin. KHÔNG hỏi lại thông tin khách ĐÃ NÓI.
 4. PHÁT HIỆN MÂU THUẪN: Nếu thông tin khách cung cấp MÂU THUẪN nhau → PHẢI hỏi xác nhận, KHÔNG im lặng bỏ qua. (Ví dụ in hình vuông nhưng yêu cầu 4×5cm).
-5. KHÔNG nhận định giá ("giá tốt", "giá rẻ"). Chỉ tư vấn dựa trên [Tài liệu nội bộ].
+5. KHÔNG nhận định giá ("giá tốt", "giá rẻ"). KB chỉ dùng cho kiến thức kỹ thuật; không lấy số tiền từ [Tài liệu nội bộ].
 6. TRẢ LỜI NGẮN GỌN: max 4-6 dòng, đúng câu hỏi, không lan man.
-7. THAY ĐỔI THÔNG SỐ: Khi khách thay đổi 1 thông số → TRẢ LỜI TRỰC TIẾP bằng giá mới. KHÔNG hỏi lại các trường đã có.
+7. THAY ĐỔI THÔNG SỐ: Khi khách thay đổi 1 thông số → cập nhật thông số và chỉ nêu giá mới nếu có [Kết quả báo giá tự động] hợp lệ. KHÔNG hỏi lại các trường đã có.
 8. SẢN PHẨM NGOÀI DANH MỤC: Kiểm tra sản phẩm khách yêu cầu có trong [Danh sách sản phẩm] hoặc [Tài liệu nội bộ] không. Nếu KHÔNG CÓ → TRẢ LỜI THẲNG: "Dạ hiện tại bên mình chưa cung cấp dịch vụ [tên sản phẩm] ạ...".
 9. TRƯỚC KHI đưa câu hỏi vào missing_info, HÃY KIỂM TRA lại ngữ cảnh. Tự suy luận nếu có thể. Mọi thiếu sót phải được cảnh báo.
 
@@ -86,7 +87,7 @@ Bạn là CHUYÊN GIA, không phải chatbot hỏi form:
 - "có"/"không"/"ok" = trả lời câu hỏi trước → ghi nhận, tiến tiếp.
 
 ## FORMAT JSON:
-{"replies":[{"text":"nội dung","label":"nhãn ngắn"}],"sources":[{"doc":"tên KB","section":"heading"}],"missing_info":[{"slot":"tên","question":"câu hỏi"}],"parsed_quote":{"material_id":null,"paper_size_id":null,"processing_ids":[],"quantity":null,"width":null,"height":null,"print_side":null},"intent":"hỏi_giá|hỏi_sản_phẩm|hỏi_kỹ_thuật|đặt_hàng|phàn_nàn|chào_hỏi|chung","sentiment":1-5,"confidence":0.0-1.0}
+{"replies":[{"text":"nội dung","label":"nhãn ngắn"}],"sources":[{"doc":"tên KB","section":"heading"}],"missing_info":[{"slot":"tên","question":"câu hỏi"}],"parsed_quote":{"material_id":null,"paper_size_id":null,"processing_ids":[],"quantity":null,"width":null,"height":null,"print_side":null},"intent":"${PROMPT_INTENT_MENU.join('|')}","sentiment":1-5,"confidence":0.0-1.0}
 - sources=[] nếu không dùng KB.
 - missing_info: CHỈ chứa thông tin THỰC SỰ CHƯA BIẾT. Nếu khách đã nói chất liệu (VD: "decal giấy") → KHÔNG đưa vào missing_info dù có nhiều ID trùng tên. Nếu bạn đã suy luận được → KHÔNG đưa vào missing_info. missing_info=[] nếu đủ info.
 - parsed_quote: Khi khách nói chất liệu (VD: "decal giấy") → tìm ID khớp nhất trong danh sách, điền vào material_id. Nếu có nhiều ID cùng tên → chọn ID đầu tiên khớp. CHỈ để null khi THỰC SỰ không biết chất liệu. KHÔNG bịa ID.`;
@@ -191,10 +192,10 @@ Dựa trên toàn bộ ngữ cảnh trên, soạn phản hồi cho tin nhắn cu
 - TRƯỚC TIÊN: tổng hợp TẤT CẢ thông tin đã có từ toàn bộ lịch sử hội thoại (số lượng, sản phẩm, chất liệu, kích thước, hình dạng, gia công). KHÔNG hỏi lại bất kỳ thông tin nào đã xuất hiện ở BẤT KỲ tin nhắn nào trước đó.
 - KIỂM TRA MÂU THUẪN: nếu thông tin khách cung cấp mâu thuẫn (vd: "vuông" + "4×5cm", "in 2 mặt" + "decal") → HỎI XÁC NHẬN thay vì bỏ qua.
 - missing_info CHỈ chứa thông tin THỰC SỰ CHƯA CÓ. Trước khi thêm vào missing_info, đọc lại TẤT CẢ tin nhắn khách — nếu đã nói rồi, KHÔNG thêm.
-- Nếu có[Kết quả báo giá] với giá cụ thể → ĐƯA GIÁ vào phản hồi.
+- CHỈ được nêu số tiền khi có [Kết quả báo giá tự động] hợp lệ; copy chính xác số do hệ thống cung cấp.
 - Nếu có[Thông tin cần thu thập] với nhiều trường BẮT BUỘC còn thiếu → HỏI TẤT CẢ trường thiếu trong 1 lượt reply, dạng danh sách rõ ràng. KHÔNG chỉ hỏi 1-2 trường rồi chờ.
 - Loại bỏ khỏi danh sách hỏi những trường đã có trong lịch sử chat.
-- Nếu tài liệu nội bộ có bảng giá tham khảo → đưa range giá để khách tham khảo, kèm disclaimer.
+- Giá/range trong tài liệu nội bộ, câu trả lời mẫu, lịch sử hội thoại hoặc kết quả agent KHÔNG phải nguồn báo giá; tuyệt đối không nêu lại các số tiền đó.
 - Khi hỏi chất liệu → GỢI Ý cụ thể 2 - 3 lựa chọn từ KB, KHÔNG hỏi chung chung.
 - Trả về JSON đúng format đã quy định trong system prompt.`;
 
@@ -206,7 +207,7 @@ Dựa trên toàn bộ ngữ cảnh trên, soạn phản hồi cho tin nhắn cu
         if (params.isComparison) {
             instructions += `\n\n## ĐẶC BIỆT — KHÁCH ĐANG HỎI SO SÁNH:
 Khách hỏi so sánh giữa các loại / phương án.Bạn PHẢI:
-1. So sánh CỤ THỂ theo tiêu chí: độ dày, ứng dụng, ưu điểm, mức giá
+1. So sánh CỤ THỂ theo tiêu chí kỹ thuật: độ dày, ứng dụng và ưu điểm. Chỉ so sánh số tiền nếu có [Kết quả báo giá tự động] hợp lệ.
 2. Sử dụng format danh sách: mỗi tiêu chí 1 dòng
 3. Đưa ra KHUYẾN NGHỊ rõ ràng: "Nếu cần X → chọn A. Nếu cần Y → chọn B."
 4. Lấy data từ[Tài liệu nội bộ] — KHÔNG bịa.`;
@@ -231,10 +232,10 @@ Bạn PHẢI áp dụng pattern XỬ LÝ PHẢN ĐỐI đã quy định ở Giai
 1. Công nhận cảm nhận khách TRƯỚC — không phủ nhận.
 2. Giải thích giá trị / đưa giải pháp thay thế.
 3. Kết thúc bằng CTA mời khách hành động tiếp.
-4. intent PHẢI là "phản_đối".
+4. intent PHẢI là "phàn_nàn".
 
 ⚠️ QUAN TRỌNG: CHỈ gợi ý phương án thay thế từ[Tài liệu nội bộ]hoặc[Phương án thay thế từ KB].
-KHÔNG được bịa loại giấy, định lượng, hoặc giá không có trong tài liệu.
+KHÔNG được bịa loại giấy, định lượng. Không nêu giá từ tài liệu; số tiền chỉ được lấy từ [Kết quả báo giá tự động].
 Nếu không có data thay thế → nói: "Em sẽ kiểm tra và gửi bạn các phương án tiết kiệm hơn ạ."${params.kbAlternatives}`;
         }
 
@@ -437,7 +438,7 @@ Bạn BẮT BUỘC PHẢI THỰC HIỆN:
 
         let text = '\n## Kết quả báo giá tự động:\n';
 
-        if (quoteResult.total && quoteResult.total > 0) {
+        if (isAuthoritativePricingResult(quoteResult)) {
             text += `Sản phẩm: ${quoteResult.productType}\n`;
             text += `Tổng: ${quoteResult.total.toLocaleString('vi-VN')}đ (giá tham khảo, CHƯA gồm VAT)\n`;
             if (quoteResult.unitPrice) {

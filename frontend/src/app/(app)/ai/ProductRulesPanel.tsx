@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { API_URL } from '@/lib/api';
 
-const PRICING_API = 'http://localhost:4000/api/v1/erp';
+const PRICING_API = `${API_URL}/erp`;
 
 interface ProductField {
     id: number;
@@ -57,6 +58,7 @@ export default function ProductRulesPanel() {
     const [toast, setToast] = useState<string | null>(null);
     const [confirmDeleteFieldId, setConfirmDeleteFieldId] = useState<number | null>(null);
     const [filter, setFilter] = useState<string>('all');
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
     // Backend /erp/* yêu cầu JWT → luôn đính token (trước đây gọi trần → 401 sau khi khoá auth).
     const authHeaders = useCallback((json = false): Record<string, string> => {
@@ -68,13 +70,21 @@ export default function ProductRulesPanel() {
 
     const fetchTemplates = useCallback(async () => {
         setLoading(true);
+        setFetchError(null);
         try {
             const res = await fetch(`${PRICING_API}/products`, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setTemplates(data.data || data || []);
+            } else {
+                setFetchError(res.status === 401 || res.status === 403
+                    ? 'Bạn không có quyền xem cấu hình này.'
+                    : `Không tải được danh sách sản phẩm (lỗi ${res.status}).`);
             }
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            console.error(err);
+            setFetchError('Không kết nối được máy chủ. Vui lòng thử lại.');
+        }
         finally { setLoading(false); }
     }, [authHeaders]);
 
@@ -97,6 +107,8 @@ export default function ProductRulesPanel() {
                 showToast('✅ Đã lưu thay đổi');
                 fetchTemplates();
                 setEditingField(null);
+            } else {
+                showToast('❌ Lỗi khi lưu');
             }
         } catch (err) { showToast('❌ Lỗi khi lưu'); }
         finally { setSaving(false); }
@@ -104,16 +116,20 @@ export default function ProductRulesPanel() {
 
     const deleteField = async (fieldId: number) => {
         try {
-            await fetch(`${PRICING_API}/ai-fields/${fieldId}`, { method: 'DELETE', headers: authHeaders() });
-            setConfirmDeleteFieldId(null);
-            showToast('🗑️ Đã xóa');
-            fetchTemplates();
+            const res = await fetch(`${PRICING_API}/ai-fields/${fieldId}`, { method: 'DELETE', headers: authHeaders() });
+            if (res.ok) {
+                setConfirmDeleteFieldId(null);
+                showToast('🗑️ Đã xóa');
+                fetchTemplates();
+            } else {
+                showToast('❌ Lỗi khi xóa');
+            }
         } catch (err) { showToast('❌ Lỗi khi xóa'); }
     };
 
     const addField = async (templateId: number) => {
         try {
-            await fetch(`${PRICING_API}/products/${templateId}/ai-fields`, {
+            const res = await fetch(`${PRICING_API}/products/${templateId}/ai-fields`, {
                 method: 'POST',
                 headers: authHeaders(true),
                 body: JSON.stringify({
@@ -124,8 +140,12 @@ export default function ProductRulesPanel() {
                     sort_order: 99,
                 }),
             });
-            showToast('➕ Đã thêm trường mới');
-            fetchTemplates();
+            if (res.ok) {
+                showToast('➕ Đã thêm trường mới');
+                fetchTemplates();
+            } else {
+                showToast('❌ Lỗi khi thêm trường');
+            }
         } catch (err) { showToast('❌ Lỗi'); }
     };
 
@@ -194,6 +214,20 @@ export default function ProductRulesPanel() {
                     ))}
                 </div>
             </div>
+
+            {/* Error state */}
+            {fetchError && (
+                <div style={{ padding: '14px 18px', borderRadius: 12, background: '#fef2f2', color: '#dc2626', fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+                    ⚠️ {fetchError}
+                </div>
+            )}
+
+            {/* Empty state */}
+            {!fetchError && templates.length === 0 && (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                    Chưa có sản phẩm nào. Thêm sản phẩm ở trang Bảng giá để cấu hình trường AI.
+                </div>
+            )}
 
             {/* Product groups */}
             {Object.entries(groups).map(([type, products]) => {

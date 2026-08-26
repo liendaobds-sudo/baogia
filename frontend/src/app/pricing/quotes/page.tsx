@@ -23,7 +23,7 @@ import RouteAccessGuard from '@/components/RouteAccessGuard';
  */
 export default function QuoteListPage() {
     return (
-        <RouteAccessGuard requiredCapability="quote.create">
+        <RouteAccessGuard requiredCapability="quote.view">
             <QuoteOrderListView defaultView="quote" />
         </RouteAccessGuard>
     );

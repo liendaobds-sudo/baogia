@@ -36,6 +36,10 @@ export class Contact {
     @Column({ name: 'channel_id' })
     channelId: string;
 
+    // Cô lập theo tenant (org-scoped). NULL = dùng chung/hệ thống. Cột do migration Pha A thêm.
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     @Column({ name: 'external_user_id' })
     externalUserId: string;
 

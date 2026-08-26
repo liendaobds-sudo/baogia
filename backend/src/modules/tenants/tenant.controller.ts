@@ -7,7 +7,7 @@ import { UserRole } from '../../entities';
 
 @Controller('tenants')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.SUPER_ADMIN)
 export class TenantController {
     constructor(private readonly tenantService: TenantService) {}
 

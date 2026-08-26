@@ -202,7 +202,7 @@ export default function PricingLargeFormatPage() {
         setShowForm(false);
         setEditModeKey(null);
         setDeletedTierIds([]);
-        setFormData({ materialId: '', minCharge: 0, isActive: true, tiers: initFormTiers as any });
+        setFormData({ materialId: '', printerId: '', minCharge: 0, isActive: true, tiers: initFormTiers as any });
     };
 
     const handleSubmit = async () => {

@@ -1,9 +1,10 @@
-import { Controller, Get, Query, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Res, Optional, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Conversation, ConversationStatus, Message, AiSuggestion, User, SenderType, SuggestionStatus } from '../../entities';
+import { Conversation, ConversationStatus, Message, AiSuggestion, User, SenderType } from '../../entities';
 import { Response } from 'express';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 
 @Controller('reports')
 @UseGuards(AuthGuard('jwt'))
@@ -13,49 +14,61 @@ export class ReportsController {
         @InjectRepository(Message) private msgRepo: Repository<Message>,
         @InjectRepository(AiSuggestion) private sugRepo: Repository<AiSuggestion>,
         @InjectRepository(User) private userRepo: Repository<User>,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) { }
 
+    private currentTenantId(req?: any): number | null {
+        const fromCtx = this.tenantCtx?.get?.();
+        if (fromCtx && !fromCtx.bypass && fromCtx.tenantId != null) return fromCtx.tenantId;
+        const fromUser = req?.user?.tenantId;
+        return fromUser != null ? Number(fromUser) : null;
+    }
+
     @Get('agents')
-    async agentPerformance(@Query('days') days?: number) {
+    async agentPerformance(@Query('days') days?: number, @Req() req?: any) {
         const d = Math.min(days || 7, 90);
         const since = new Date(Date.now() - d * 24 * 3600_000);
+        const tid = this.currentTenantId(req);
 
-        // Get all agents
-        const users = await this.userRepo.find();
+        const users = tid != null
+            ? await this.userRepo.find({ where: { tenantId: tid } as any })
+            : await this.userRepo.find();
         const userIds = users.map(u => u.id);
 
-        // --- Batch aggregate queries instead of N+1 per user ---
-
-        // 1. Conversations assigned per user (single query)
-        const convCountsRaw = await this.convRepo
+        // Fix audit 2026-08-13: `since` được tính nhưng KHÔNG áp vào query nào —
+        // nhãn báo cáo ghi "7 ngày" nhưng số liệu là all-time. Nay áp cho cả 3 query.
+        const convQb = this.convRepo
             .createQueryBuilder('c')
             .select('c.assignee_id', 'assigneeId')
             .addSelect('COUNT(*)', 'count')
             .where('c.assignee_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] })
-            .groupBy('c.assignee_id')
-            .getRawMany();
+            .andWhere('c.created_at >= :since', { since });
+        if (tid != null) convQb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+        const convCountsRaw = await convQb.groupBy('c.assignee_id').getRawMany();
         const convCounts = new Map<string, number>(convCountsRaw.map(r => [r.assigneeId, parseInt(r.count, 10)]));
 
-        // 2. Messages sent per agent (single query)
-        const msgCountsRaw = await this.msgRepo
+        const msgQb = this.msgRepo
             .createQueryBuilder('m')
             .select('m.sender_id', 'senderId')
             .addSelect('COUNT(*)', 'count')
             .where('m.sender_type = :st', { st: SenderType.AGENT })
             .andWhere('m.sender_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] })
-            .groupBy('m.sender_id')
-            .getRawMany();
+            .andWhere('m.created_at >= :since', { since });
+        if (tid != null) msgQb.andWhere('(m.tenant_id = :tid OR m.tenant_id IS NULL)', { tid });
+        const msgCountsRaw = await msgQb.groupBy('m.sender_id').getRawMany();
         const msgCounts = new Map<string, number>(msgCountsRaw.map(r => [r.senderId, parseInt(r.count, 10)]));
 
-        // 3. SLA breached per user — recent 20 conversations each
-        //    Use a single query to get recent conversations for all users
-        const recentConvs = await this.convRepo
+        // Trước đây getMany() KHÔNG LIMIT — nạp toàn bộ bảng conversations vào RAM
+        // rồi mới cắt 20/agent bằng JS. Nay lọc theo kỳ + trần 2000 dòng gần nhất.
+        const recentQb = this.convRepo
             .createQueryBuilder('c')
             .where('c.assignee_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] })
+            .andWhere('c.updated_at >= :since', { since })
             .orderBy('c.updated_at', 'DESC')
-            .getMany();
+            .take(2000);
+        if (tid != null) recentQb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+        const recentConvs = await recentQb.getMany();
 
-        // Group by assignee, take top 20 each
         const convsByAssignee = new Map<string, Conversation[]>();
         for (const c of recentConvs) {
             if (!c.assigneeId) continue;
@@ -97,12 +110,27 @@ export class ReportsController {
     }
 
     @Get('summary')
-    async summary() {
-        const totalConvs = await this.convRepo.count();
-        const totalMsgs = await this.msgRepo.count();
+    async summary(@Req() req?: any) {
+        const tid = this.currentTenantId(req);
+        const convWhere: any = tid != null ? [{ tenantId: tid }, { tenantId: null as any }] : undefined;
+        // TypeORM count with OR is awkward — use query builder
+        const convQb = this.convRepo.createQueryBuilder('c');
+        const msgQb = this.msgRepo.createQueryBuilder('m');
+        if (tid != null) {
+            convQb.where('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+            msgQb.where('(m.tenant_id = :tid OR m.tenant_id IS NULL)', { tid });
+        }
+        const totalConvs = await convQb.getCount();
+        const totalMsgs = await msgQb.getCount();
         const totalSugs = await this.sugRepo.count();
-        const breached = await this.convRepo.count({ where: { slaBreached: true } });
-        const resolved = await this.convRepo.count({ where: { status: ConversationStatus.CLOSED } });
+        const breachedQb = this.convRepo.createQueryBuilder('c').where('c.sla_breached = :b', { b: true });
+        const resolvedQb = this.convRepo.createQueryBuilder('c').where('c.status = :s', { s: ConversationStatus.CLOSED });
+        if (tid != null) {
+            breachedQb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+            resolvedQb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+        }
+        const breached = await breachedQb.getCount();
+        const resolved = await resolvedQb.getCount();
 
         return {
             conversations: { total: totalConvs, resolved, breached },
@@ -113,39 +141,40 @@ export class ReportsController {
     }
 
     @Get('export/csv')
-    async exportCSV(@Res() res: Response) {
-        const users = await this.userRepo.find();
+    async exportCSV(@Res() res: Response, @Req() req?: any) {
+        const tid = this.currentTenantId(req);
+        const users = tid != null
+            ? await this.userRepo.find({ where: { tenantId: tid } as any })
+            : await this.userRepo.find();
         const userIds = users.map(u => u.id);
 
-        // --- Batch aggregate queries instead of N+1 per user ---
-
-        const convCountsRaw = await this.convRepo
+        const convQb = this.convRepo
             .createQueryBuilder('c')
             .select('c.assignee_id', 'assigneeId')
             .addSelect('COUNT(*)', 'count')
-            .where('c.assignee_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] })
-            .groupBy('c.assignee_id')
-            .getRawMany();
+            .where('c.assignee_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] });
+        if (tid != null) convQb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+        const convCountsRaw = await convQb.groupBy('c.assignee_id').getRawMany();
         const convCounts = new Map<string, number>(convCountsRaw.map(r => [r.assigneeId, parseInt(r.count, 10)]));
 
-        const msgCountsRaw = await this.msgRepo
+        const msgQb = this.msgRepo
             .createQueryBuilder('m')
             .select('m.sender_id', 'senderId')
             .addSelect('COUNT(*)', 'count')
             .where('m.sender_type = :st', { st: SenderType.AGENT })
-            .andWhere('m.sender_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] })
-            .groupBy('m.sender_id')
-            .getRawMany();
+            .andWhere('m.sender_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] });
+        if (tid != null) msgQb.andWhere('(m.tenant_id = :tid OR m.tenant_id IS NULL)', { tid });
+        const msgCountsRaw = await msgQb.groupBy('m.sender_id').getRawMany();
         const msgCounts = new Map<string, number>(msgCountsRaw.map(r => [r.senderId, parseInt(r.count, 10)]));
 
-        const slaCountsRaw = await this.convRepo
+        const slaQb = this.convRepo
             .createQueryBuilder('c')
             .select('c.assignee_id', 'assigneeId')
             .addSelect('COUNT(*)', 'count')
             .where('c.assignee_id IN (:...ids)', { ids: userIds.length ? userIds : ['__none__'] })
-            .andWhere('c.sla_breached = :b', { b: true })
-            .groupBy('c.assignee_id')
-            .getRawMany();
+            .andWhere('c.sla_breached = :b', { b: true });
+        if (tid != null) slaQb.andWhere('(c.tenant_id = :tid OR c.tenant_id IS NULL)', { tid });
+        const slaCountsRaw = await slaQb.groupBy('c.assignee_id').getRawMany();
         const slaCounts = new Map<string, number>(slaCountsRaw.map(r => [r.assigneeId, parseInt(r.count, 10)]));
 
         const header = 'Agent,Email,Hội thoại,Tin nhắn,SLA vi phạm\n';

@@ -36,6 +36,8 @@ export default function QuickRepliesPage() {
     const [searchQ, setSearchQ] = useState('');
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     const [form, setForm] = useState({ title: '', content: '', category: 'chung', shortcut: '/', triggerKeywords: '', autoReply: false });
+    const [formError, setFormError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
 
     const headers = useCallback(() => ({
         'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json',
@@ -55,31 +57,57 @@ export default function QuickRepliesPage() {
     useEffect(() => { if (mounted && token) fetchItems(); }, [mounted, token, fetchItems]);
 
     const handleSave = async () => {
+        // Validate client trước khi gửi (tránh tạo mẫu rỗng).
+        if (!form.title.trim() || !form.content.trim()) {
+            setFormError('Vui lòng nhập tiêu đề và nội dung.');
+            return;
+        }
+        setSaving(true);
+        setFormError(null);
         try {
-            if (editingId) {
-                await fetch(`${API}/canned-responses/${editingId}`, {
+            const res = editingId
+                ? await fetch(`${API}/canned-responses/${editingId}`, {
                     method: 'PUT', headers: headers(), body: JSON.stringify(form),
-                });
-            } else {
-                await fetch(`${API}/canned-responses`, {
+                })
+                : await fetch(`${API}/canned-responses`, {
                     method: 'POST', headers: headers(), body: JSON.stringify(form),
                 });
+            if (!res.ok) {
+                setFormError(res.status === 401 || res.status === 403
+                    ? 'Bạn không có quyền lưu mẫu trả lời.'
+                    : `Lưu thất bại (lỗi ${res.status}).`);
+                return;
             }
             setShowForm(false);
             setEditingId(null);
             setForm({ title: '', content: '', category: 'chung', shortcut: '/', triggerKeywords: '', autoReply: false });
             fetchItems();
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            console.error(err);
+            setFormError('Không kết nối được máy chủ.');
+        } finally { setSaving(false); }
     };
 
     const handleDelete = async (id: string) => {
-        await fetch(`${API}/canned-responses/${id}`, { method: 'DELETE', headers: headers() });
-        setConfirmDeleteId(null);
-        fetchItems();
+        try {
+            const res = await fetch(`${API}/canned-responses/${id}`, { method: 'DELETE', headers: headers() });
+            if (!res.ok) {
+                setFormError(res.status === 401 || res.status === 403
+                    ? 'Bạn không có quyền xóa mẫu trả lời.'
+                    : `Xóa thất bại (lỗi ${res.status}).`);
+                return;
+            }
+            setConfirmDeleteId(null);
+            fetchItems();
+        } catch (err) {
+            console.error(err);
+            setFormError('Không kết nối được máy chủ.');
+        }
     };
 
     const startEdit = (item: CannedItem) => {
         setEditingId(item.id);
+        setFormError(null);
         setForm({ title: item.title, content: item.content, category: item.category, shortcut: item.shortcut, triggerKeywords: item.triggerKeywords || '', autoReply: item.autoReply || false });
         setShowForm(true);
     };
@@ -120,7 +148,7 @@ export default function QuickRepliesPage() {
                     <span style={{ fontSize: 12, padding: '6px 12px', borderRadius: 10, background: '#eef2ff', color: '#4f46e5', fontWeight: 600 }}>
                         {items.length} mẫu
                     </span>
-                    <button onClick={() => { setShowForm(true); setEditingId(null); setForm({ title: '', content: '', category: 'chung', shortcut: '/', triggerKeywords: '', autoReply: false }); }}
+                    <button onClick={() => { setShowForm(true); setEditingId(null); setFormError(null); setForm({ title: '', content: '', category: 'chung', shortcut: '/', triggerKeywords: '', autoReply: false }); }}
                         style={{
                             padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
                             background: '#4f46e5', color: '#fff', border: 'none',
@@ -161,6 +189,12 @@ export default function QuickRepliesPage() {
                         </svg>
                         {editingId ? 'Sửa mẫu' : 'Tạo mẫu mới'}
                     </div>
+                    {formError && (
+                        <div style={{
+                            padding: '8px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13, fontWeight: 500,
+                            background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
+                        }}>{formError}</div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                         <div>
                             <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Tiêu đề</label>
@@ -216,7 +250,7 @@ export default function QuickRepliesPage() {
                             onMouseEnter={e => { e.currentTarget.style.background = '#4338ca'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = '#4f46e5'; }}
                         >{editingId ? '💾 Cập nhật' : '✨ Tạo mẫu'}</button>
-                        <button onClick={() => { setShowForm(false); setEditingId(null); }}
+                        <button onClick={() => { setShowForm(false); setEditingId(null); setFormError(null); }}
                             style={{
                                 padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 500,
                                 background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0',

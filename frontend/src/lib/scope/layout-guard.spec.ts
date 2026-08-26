@@ -37,7 +37,6 @@ const CORE_ROUTES = [
   '/dashboard',
   '/reports',
   '/settings',
-  '/test-chat',
   '/profile',
   // Super Admin — bật lại thành Lõi để quản lý multi-tenant (unfreeze, xem scope-registry.json).
   '/super-admin',
@@ -50,6 +49,7 @@ const FROZEN_ROUTES = [
   '/settings/api-docs',
   '/settings/webhooks',
   '/settings/product-configs',
+  '/test-chat', // dev tool — frozen from production nav (ENABLE_TEST_CHAT for API)
 ] as const;
 
 describe('Guard cấp layout — artefact thật scope-registry.json (Req 4.6)', () => {

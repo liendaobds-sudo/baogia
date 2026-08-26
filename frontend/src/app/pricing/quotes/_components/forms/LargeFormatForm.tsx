@@ -25,6 +25,21 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
 
     const formatCurrency = formatVND;
 
+    /**
+     * Giá BÁN trước VAT của hạng mục khổ lớn — LẤY TỪ SERVER, không tự cộng thêm.
+     *
+     * `PricingFacadeService.calculateLargeFormat` đã cộng `accessories_cost` vào `subtotal`,
+     * rồi facade áp markup MỘT LẦN ⇒ `selling_subtotal` đã bao gồm phụ kiện. Backend khi lưu
+     * cũng ghi `item_total = selling_subtotal` (OrdersService.recomputeDigitalItems), nên đây
+     * là con số duy nhất khớp giữa: số báo cho khách ⇄ giỏ hàng ⇄ báo giá đã lưu ⇄ PDF.
+     */
+    const lfSellingSubtotal = (() => {
+        const r = pricingResult as any;
+        if (!r || r.type !== 'large_format') return 0;
+        const n = Number(r.selling_subtotal ?? r.total);
+        return Number.isFinite(n) ? n : 0;
+    })();
+
                     const allMats = (masterData?.materials as any[]) || [];
                     const allProc = (masterData?.processing_options as any[]) || [];
                     
@@ -281,20 +296,27 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
                                         <div className="flex flex-col gap-1.5 bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100">
                                             <div className="flex justify-between items-center text-emerald-700 font-medium">
                                                 <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Phụ kiện ({lfSelectedAcc.length}):</span>
-                                                <span className="font-bold text-emerald-800">{formatCurrency(lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0))}</span>
+                                                {/* Giá vốn phụ kiện do SERVER trả về (đã nằm trong subtotal → đã được markup vào
+                                                    "Thành tiền"). Dòng này chỉ để tham chiếu, KHÔNG cộng thêm lần nữa. */}
+                                                <span className="font-bold text-emerald-800">{formatCurrency((pricingResult as any)?.accessories_cost ?? lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0))}</span>
                                             </div>
+                                            <div className="text-[10px] text-emerald-600 font-medium">Đã bao gồm trong Thành tiền</div>
                                         </div>
                                     )}
                                 </div>
                                 <div className="border-t-2 border-dashed border-slate-200 pt-4 mt-auto">
                                     <div className="flex justify-between items-end mb-1">
                                         <span className="text-slate-800 font-extrabold text-[13px] uppercase tracking-wide">Thành tiền:</span>
+                                        {/* NGUỒN SỰ THẬT DUY NHẤT = `selling_subtotal` của server: facade đã cộng phụ kiện
+                                            vào subtotal RỒI mới áp markup (pricing-facade.service.ts: nhánh large_format).
+                                            Trước đây FE cộng thêm Σ(phụ kiện) ⇒ số báo cho khách CAO hơn số backend lưu
+                                            (orders.service.recomputeDigitalItems ghi item_total = selling_subtotal). */}
                                         <span className="font-black text-[26px] text-indigo-600 leading-none tracking-tight" style={{textShadow: '0 2px 4px rgba(79, 70, 229, 0.15)'}}>
-                                            {pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency(((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0)) : '0 ₫'}
+                                            {pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency(lfSellingSubtotal) : '0 ₫'}
                                         </span>
                                     </div>
                                     <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide mt-1">
-                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency((((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0)) / lfQuantity) : '-'}</span> / sản phẩm
+                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'large_format' && lfQuantity > 0 ? formatCurrency(lfSellingSubtotal / lfQuantity) : '-'}</span> / sản phẩm
                                     </div>
                                     <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-md border border-amber-200 font-medium flex items-center gap-1.5">
                                         <span>💡</span> Chưa bao gồm VAT & phí giao hàng — xem tổng cuối tại sidebar trái
@@ -309,14 +331,21 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
                                 {pricingResult && !(pricingResult as any).error && (
                                     <button 
                                         onClick={() => {
+                                            const mats = (masterData?.materials as any[]) || [];
+                                            const mat = mats.find(m => String(m.id) === String(lfMaterialId));
                                             addItem({
                                                 name: fileName || 'In Khổ Lớn',
                                                 type: 'large_format',
                                                 quantity: lfQuantity,
-                                                total: ((pricingResult as any).selling_subtotal ?? (pricingResult as any).total) + lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0),
+                                                // Khớp chính xác giá server sẽ ghi khi lưu (item_total = selling_subtotal).
+                                                total: lfSellingSubtotal,
                                                 unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
                                                 details: pricingResult,
-                                                configParams: { lfWidth, lfHeight, lfMaterialId, lfPrintType },
+                                                configParams: {
+                                                    lfWidth, lfHeight, lfMaterialId, lfPrintType,
+                                                    materialName: mat?.name || mat?.name_vi || '',
+                                                    accessoryNames: lfSelectedAcc.map(a => a.name || a.id).filter(Boolean),
+                                                },
                                                 pricingPayload: lastPricingPayload ?? undefined,
                                             });
                                             setFileName('');

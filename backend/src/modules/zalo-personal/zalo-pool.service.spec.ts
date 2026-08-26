@@ -45,6 +45,8 @@ const createMockEventsGateway = () => ({
     to: jest.fn().mockReturnThis(),
   },
   emitConversationUpdated: jest.fn(),
+  emitTenantScopedEvent: jest.fn(),
+  emitAccountScopedEvent: jest.fn(),
 });
 
 const createMockApi = (overrides: any = {}) => ({
@@ -99,12 +101,21 @@ function injectInstance(service: any, accountId: string, api?: any, status = 'co
     lastActivity: new Date(),
     recentEvents: [],
   });
+  // Kết nối thật resolve tenant trước khi tạo instance; fixture phải mô phỏng cùng invariant.
+  (service as any).accountTenantCache.set(accountId, 7);
   return mockApi;
 }
 
 // ══════════════════════ TESTS ══════════════════════
 
 describe('ZaloPoolService', () => {
+  it('scopes profile/group cache keys by account', () => {
+    const { service } = createService();
+
+    expect((service as any).cacheKey('tenant-a-account', 'same-user'))
+      .not.toBe((service as any).cacheKey('tenant-b-account', 'same-user'));
+  });
+
   // ── Basic State ──
 
   describe('isAvailable', () => {
@@ -333,7 +344,8 @@ describe('ZaloPoolService', () => {
         (service as any).handleDisconnect('acc-1');
       }
 
-      expect(eventsGateway.server.emit).toHaveBeenCalledWith(
+      expect(eventsGateway.emitTenantScopedEvent).toHaveBeenCalledWith(
+        7,
         'zalo:reconnect-failed',
         expect.objectContaining({ accountId: 'acc-1' }),
       );
@@ -449,16 +461,40 @@ describe('ZaloPoolService', () => {
   // ── Emit helpers ──
 
   describe('emit helpers', () => {
-    it('emitBroadcast should call server.emit', () => {
+    it('emitBroadcast chỉ phát vào tenant room đã resolve', () => {
       const { service, eventsGateway } = createService();
-      (service as any).emitBroadcast('test-event', { foo: 'bar' });
-      expect(eventsGateway.server.emit).toHaveBeenCalledWith('test-event', { foo: 'bar' });
+      injectInstance(service, 'acc-1');
+      (service as any).emitBroadcast('test-event', { accountId: 'acc-1', foo: 'bar' });
+      expect(eventsGateway.emitTenantScopedEvent).toHaveBeenCalledWith(
+        7,
+        'test-event',
+        { accountId: 'acc-1', foo: 'bar' },
+      );
+      expect(eventsGateway.server.emit).not.toHaveBeenCalled();
     });
 
-    it('emit should call server.to().emit()', () => {
+    it('emit account chỉ phát vào account room gắn tenant', () => {
       const { service, eventsGateway } = createService();
+      injectInstance(service, 'acc-1');
+      (service as any).emit('account:acc-1', 'test-event', { accountId: 'acc-1', data: 1 });
+      expect(eventsGateway.emitAccountScopedEvent).toHaveBeenCalledWith(
+        7,
+        'acc-1',
+        'test-event',
+        { accountId: 'acc-1', data: 1 },
+      );
+      expect(eventsGateway.server.to).not.toHaveBeenCalled();
+    });
+
+    it('thiếu tenant/account thì drop, không fallback global', () => {
+      const { service, eventsGateway } = createService();
+      (service as any).emitBroadcast('test-event', { foo: 'bar' });
       (service as any).emit('room-1', 'test-event', { data: 1 });
-      expect(eventsGateway.server.to).toHaveBeenCalledWith('room-1');
+
+      expect(eventsGateway.emitTenantScopedEvent).not.toHaveBeenCalled();
+      expect(eventsGateway.emitAccountScopedEvent).not.toHaveBeenCalled();
+      expect(eventsGateway.server.emit).not.toHaveBeenCalled();
+      expect(eventsGateway.server.to).not.toHaveBeenCalled();
     });
   });
 

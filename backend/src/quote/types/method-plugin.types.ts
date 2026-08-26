@@ -25,6 +25,7 @@ export interface ProductRef {
 /** Thông số dùng chung — không phụ thuộc phương pháp (Req 3.2). */
 export interface Specification {
     quantity: number;
+    /** Kích thước thành phẩm chuẩn hoá theo centimet (cm). Plugin đổi sang đơn vị engine đúng một lần. */
     dimensions?: { width?: number; height?: number; depth?: number };
     materialCode?: string;
     paperSizeCode?: string;

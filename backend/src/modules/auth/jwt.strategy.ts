@@ -2,8 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { requireSecret } from '../../common/config/secret-validation';
 import { AuthService } from './auth.service';
 
 @Injectable()
@@ -11,12 +10,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     constructor(
         private configService: ConfigService,
         private authService: AuthService,
-        @InjectDataSource() private dataSource: DataSource,
     ) {
-        const jwtSecret = configService.get<string>('JWT_SECRET');
-        if (!jwtSecret) {
-            throw new Error('JWT_SECRET must be set in environment variables. Cannot start with insecure default.');
-        }
+        // Audit 2026-07-25: ngoài việc BẮT BUỘC có secret, ở production còn chặn secret yếu
+        // (quá ngắn) hoặc secret mẫu dạng "your-secret…" — vì `.env` dev đang nằm trên đường
+        // nạp config nên rất dễ đi lên prod mà app vẫn khởi động bình thường.
+        const jwtSecret = requireSecret(
+            'JWT_SECRET',
+            configService.get<string>('JWT_SECRET'),
+            configService.get<string>('NODE_ENV') === 'production',
+        );
         super({
             jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
             ignoreExpiration: false,
@@ -24,9 +26,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         });
     }
 
-    async validate(payload: { sub: string; email: string; role: string; jti: string }) {
+    async validate(payload: { sub: string; email: string; role: string; jti: string; sid?: string }) {
+        // Token do hệ thống hiện tại luôn có JTI. Cho token thiếu JTI đi tiếp sẽ tạo
+        // một access token không thể blacklist khi logout, lệch với WebSocket handshake.
+        if (
+            typeof payload?.sub !== 'string'
+            || !payload.sub
+            || typeof payload?.jti !== 'string'
+            || !payload.jti
+        ) {
+            throw new UnauthorizedException('Token thiếu định danh phiên');
+        }
+
         // Check if this token has been blacklisted (logout, rotation)
-        if (payload.jti && (await this.authService.isTokenBlacklisted(payload.jti))) {
+        if (await this.authService.isTokenBlacklisted(payload.jti, payload.sid)) {
             throw new UnauthorizedException('Token đã bị vô hiệu hóa');
         }
 
@@ -35,27 +48,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             throw new UnauthorizedException();
         }
 
-        // Load permissions from role_permissions table (public schema)
-        let permissions: string[] = [];
-        const role = (user.role || '').toLowerCase();
-        if (role === 'admin' || role === 'super_admin') {
-            permissions = ['*']; // Admin has all permissions
-        } else {
-            try {
-                const rows = await this.dataSource.query(
-                    `SELECT rp.permission FROM public.role_permissions rp
-                     JOIN public.roles r ON rp.role_id = r.id
-                     WHERE LOWER(r.name) = $1`, [role],
-                );
-                permissions = rows.map((r: any) => r.permission);
-            } catch (err) {
-                // Fail-closed: on any error loading permissions, grant nothing.
-                // Log role + error message only — never the token/payload.
-                const message = err instanceof Error ? err.message : String(err);
-                console.error(`[JwtStrategy] Failed to load permissions for role="${role}"; denying all permissions (fail-closed). Error: ${message}`);
-                permissions = [];
-            }
-        }
+        // Phân giải quyền theo CẶP (tên role, tenant của user) — dùng chung
+        // AuthService.loadPermissions (fail-closed, ưu tiên role riêng tenant,
+        // role hệ thống tenant_id NULL làm baseline). Xem Req 9.3/9.4.
+        const permissions = await this.authService.loadPermissions(user.role, user.tenantId ?? null);
 
         return { id: user.id, email: user.email, role: user.role, fullName: user.fullName, tenantId: user.tenantId, permissions };
     }

@@ -1,15 +1,12 @@
 /**
  * Unit tests cho ProductModal (Màn_Cài_Đặt_Sản_Phẩm).
  *
- * Phủ các hành vi của Quy_Tắc_Phạm_Vi trên UI:
- *  - Danh sách Tài_Nguyên_Dùng_Chung render qua `filterForProductType`: chỉ hiển thị tài
- *    nguyên thuộc Phạm_Vi của `quote_type` đang chọn, loại Tài_Nguyên_Chỉ_Offset (Req 4.1, 4.2).
- *  - Phần tử trong Danh_Sách_Được_Phép nhưng ngoài phạm vi hiện badge "ngoài phạm vi" (Req 4.3).
- *  - Lưu bị chặn (KHÔNG gọi create/update API) khi còn vi phạm, có thông báo lỗi (Req 4.5).
- *
- * _Validates: Requirements 4.1, 4.2, 4.3, 4.5_
+ * Phủ hành vi Phạm_Vi trên UI:
+ *  - Chỉ render Tài_Nguyên thuộc Phạm_Vi của `quote_type` (loại offset-only).
+ *  - Mục đã tick nhưng ngoài phạm vi: TỰ GỠ, KHÔNG hiện banner đỏ.
+ *  - Lưu được sau khi auto-prune (không chặn vì “ngoài phạm vi”).
  */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import ProductModal from './ProductModal';
 import { api } from '../_components/apiClient';
 
@@ -26,9 +23,6 @@ const mockGet = api.get as jest.Mock;
 const mockPost = api.post as jest.Mock;
 const mockPut = api.put as jest.Mock;
 
-// ─── Dữ liệu master kiểm soát được ───────────────────────────────────────────
-// processing_options dùng smallint (0/1); materials snake_case boolean; paper_sizes camelCase.
-// Mỗi nhóm có 1 item TRONG phạm vi `loose` và 1 item NGOÀI phạm vi (offset-only / khác scope).
 const PROC_IN_SCOPE = { id: 20, name: 'Cán màng bóng', scope_loose: 1, scope_bound: 0, scope_large_format: 0, scope_offset: false, is_active: 1 };
 const PROC_OFFSET_ONLY = { id: 21, name: 'Bế nổi khuôn', scope_loose: 0, scope_bound: 0, scope_large_format: 0, scope_offset: true, is_active: 1 };
 
@@ -45,8 +39,6 @@ function setupGet(productDetail?: unknown) {
         if (endpoint === '/erp/processing-options') return Promise.resolve({ success: true, data: [PROC_IN_SCOPE, PROC_OFFSET_ONLY] });
         if (endpoint === '/erp/product-categories') return Promise.resolve({ success: true, data: [] });
         if (endpoint === '/pricing/master-data?type=accessories') return Promise.resolve({ success: true, data: { accessories: [] } });
-        // loadAiFields (fire-and-forget trong initProduct): mock rõ để async setState settle trong act,
-        // không rò ra ngoài test (nguồn warning "update not wrapped in act" ở ProductModal).
         if (endpoint.startsWith('/erp/ai-config')) return Promise.resolve({ success: true, data: { fields: [] } });
         if (endpoint.includes('/mini-quote-fields')) return Promise.resolve({ success: true, data: { master_fields: [] } });
         if (endpoint.startsWith('/erp/products/')) return Promise.resolve({ success: true, data: productDetail ?? {} });
@@ -54,14 +46,12 @@ function setupGet(productDetail?: unknown) {
     });
 }
 
-// Chuyển sang tab "Cấu hình & Ràng buộc" nơi render các danh sách Tài_Nguyên_Dùng_Chung.
 async function goToQuoteTab() {
     fireEvent.click(screen.getByRole('button', { name: /Cấu hình & Ràng buộc/ }));
 }
 
 beforeEach(() => {
     jest.clearAllMocks();
-    // Tránh "Not implemented: window.confirm" của jsdom; mặc định xác nhận.
     jest.spyOn(window, 'confirm').mockReturnValue(true);
 });
 
@@ -69,23 +59,26 @@ afterEach(() => {
     jest.restoreAllMocks();
 });
 
-describe('ProductModal — Quy_Tắc_Phạm_Vi trên UI', () => {
-    test('chỉ render Tài_Nguyên_Trong_Phạm_Vi (loose); loại Tài_Nguyên_Chỉ_Offset (Req 4.1, 4.2)', async () => {
+describe('ProductModal — Phạm_Vi UI (chỉ hiện + auto-prune)', () => {
+    test('chỉ render tài nguyên trong phạm vi loose; không hiện offset-only', async () => {
         setupGet();
         render(<ProductModal isOpen onClose={() => {}} onSaved={() => {}} product={null} />);
 
         await goToQuoteTab();
 
-        // Gia_Công thuộc phạm vi `loose` hiển thị; gia công chỉ-offset bị loại khỏi danh sách.
         expect(await screen.findByText('Cán màng bóng')).toBeInTheDocument();
         expect(screen.queryByText('Bế nổi khuôn')).not.toBeInTheDocument();
+        expect(screen.queryByText(/ngoài phạm vi/i)).not.toBeInTheDocument();
     });
 
-    test('hiển thị badge "ngoài phạm vi" cho phần tử allowed vi phạm Phạm_Vi (Req 4.3)', async () => {
-        // Edit mode: sản phẩm loose đã tick một gia công chỉ-offset (id 21) → ngoài phạm vi.
+    test('mục allowed ngoài phạm vi: tự gỡ, không hiện badge đỏ', async () => {
         setupGet({
             id: 100, code: 'namecard', quote_type: 'loose', name_vi: 'Danh thiếp',
-            quote_config: { allowed_processing: ['21'], allowed_materials: ['1'], allowed_paper_sizes: ['10'] },
+            quote_config: {
+                allowed_processing: ['21'], // offset-only → prune
+                allowed_materials: ['1'],
+                allowed_paper_sizes: ['10'],
+            },
         });
         render(
             <ProductModal
@@ -97,19 +90,25 @@ describe('ProductModal — Quy_Tắc_Phạm_Vi trên UI', () => {
         );
 
         await goToQuoteTab();
+        await screen.findByText('Cán màng bóng');
 
-        // Gia công chỉ-offset đã tick nay hiện ra kèm badge "ngoài phạm vi".
-        const violating = await screen.findAllByText('Bế nổi khuôn');
-        expect(violating.length).toBeGreaterThan(0);
-        // Badge "ngoài phạm vi" xuất hiện (banner cảnh báo + nhãn trên item).
-        expect(screen.getAllByText(/ngoài phạm vi/i).length).toBeGreaterThan(0);
+        // Không hiện item ngoài scope, không banner
+        expect(screen.queryByText('Bế nổi khuôn')).not.toBeInTheDocument();
+        expect(screen.queryByText(/ngoài phạm vi/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Tài nguyên ngoài phạm vi/i)).not.toBeInTheDocument();
     });
 
-    test('chặn lưu khi còn vi phạm: KHÔNG gọi create/update API và báo lỗi (Req 4.5)', async () => {
+    test('lưu được sau auto-prune (không chặn vì ngoài phạm vi)', async () => {
         setupGet({
             id: 100, code: 'namecard', quote_type: 'loose', name_vi: 'Danh thiếp',
-            quote_config: { allowed_processing: ['21'], allowed_materials: ['1'], allowed_paper_sizes: ['10'] },
+            quote_config: {
+                allowed_processing: ['21'],
+                allowed_materials: ['1'],
+                allowed_paper_sizes: ['10'],
+            },
         });
+        mockPut.mockResolvedValue({ success: true, data: {} });
+
         render(
             <ProductModal
                 isOpen
@@ -119,16 +118,20 @@ describe('ProductModal — Quy_Tắc_Phạm_Vi trên UI', () => {
             />,
         );
 
-        // Chờ quote_config nạp xong (badge vi phạm xuất hiện) trước khi lưu.
         await goToQuoteTab();
-        await screen.findAllByText('Bế nổi khuôn');
+        await screen.findByText('Cán màng bóng');
 
-        fireEvent.click(screen.getByRole('button', { name: /Lưu sản phẩm/ }));
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /Lưu sản phẩm/ }));
+        });
 
-        // Thông báo lỗi nêu đích danh tài nguyên vi phạm; KHÔNG ghi qua API.
-        await screen.findByText(/Không thể lưu/);
-        expect(screen.getAllByText(/Bế nổi khuôn/).length).toBeGreaterThan(0);
-        expect(mockPut).not.toHaveBeenCalled();
-        expect(mockPost).not.toHaveBeenCalled();
+        await waitFor(() => {
+            expect(mockPut).toHaveBeenCalled();
+        });
+        // Payload không còn processing id 21
+        const payload = mockPut.mock.calls[0][1];
+        const allowedProc = payload?.quote_config?.allowed_processing || [];
+        expect(allowedProc).not.toContain('21');
+        expect(allowedProc).not.toContain(21);
     });
 });

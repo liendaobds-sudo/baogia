@@ -221,6 +221,42 @@ describe('AiProviderService', () => {
         it('should throw for completely invalid text', () => {
             expect(() => service.parseJsonResponse('not json at all', 'test')).toThrow();
         });
+
+        it('không log raw provider response khi JSON lỗi', () => {
+            const canary = 'Lan 0901234567 lan@example.test sk-live-SECRET';
+            const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+            expect(() => service.parseJsonResponse(`not-json ${canary}`, 'test')).toThrow('invalid JSON response');
+
+            const logged = warn.mock.calls.flat().join(' ');
+            expect(logged).toContain('responseChars=');
+            expect(logged).not.toContain(canary);
+            expect(logged).not.toContain('sk-live-SECRET');
+        });
+    });
+
+    describe('provider error redaction', () => {
+        it('không đưa HTTP error body vào Error mà fallback logger có thể ghi', async () => {
+            process.env.OPENAI_API_KEY = 'sk-test';
+            const provider = service.getProviders().find((item) => item.name === 'openai')!;
+            const canary = 'provider echoed prompt Lan 0901234567 sk-live-SECRET';
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                ok: false,
+                status: 400,
+                text: jest.fn().mockResolvedValue(canary),
+            } as any);
+
+            await expect(
+                (service as any).callOpenAICompatible(provider, 'system prompt', 'user prompt'),
+            ).rejects.toThrow('openai API 400');
+
+            try {
+                await (service as any).callOpenAICompatible(provider, 'system prompt', 'user prompt');
+            } catch (error) {
+                expect((error as Error).message).not.toContain(canary);
+                expect((error as Error).message).not.toContain('sk-live-SECRET');
+            }
+        });
     });
 
     // ─── Circuit Breaker ───

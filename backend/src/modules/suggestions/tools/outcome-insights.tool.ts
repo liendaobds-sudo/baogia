@@ -28,7 +28,11 @@ export class OutcomeInsightsTool implements BaseTool {
     constructor(private readonly outcomeLearning: OutcomeLearningService) {}
 
     async execute(args: { intent?: string; product?: string }, context: any): Promise<string> {
-        const result = await this.outcomeLearning.buildOutcomeContext(args.intent, args.product);
+        // tenantId do agent-pipeline luồn từ hội thoại hiện tại — thiếu thì service
+        // fail-closed (trả rỗng), không tổng hợp win-rate chéo tenant.
+        const result = await this.outcomeLearning.buildOutcomeContext(
+            args.intent, args.product, context?.tenantId ?? null,
+        );
         return result || 'Chưa có đủ dữ liệu kết quả để phân tích (cần ít nhất 3 cuộc hội thoại đã kết thúc).';
     }
 }

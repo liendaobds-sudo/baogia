@@ -16,22 +16,28 @@ export class ErpSystemSettingsController {
     async update(@Body() body: { site: Record<string, string>; system: Record<string, string> }) { await this.service.updateSettings(body); return { success: true, message: 'Settings updated successfully' }; }
 }
 
-@UseGuards(AuthGuard('jwt'))
+// Audit 2026-07-25: 3 controller dưới trước đây CHỈ có AuthGuard (không PermissionsGuard,
+// không @Permissions) ⇒ mọi user đăng nhập đọc VÀ GHI được cấu hình giá / phí setup / chi phí
+// mực — tức sửa được cơ sở tính tiền. Nay: đọc cần `pricing.view`, ghi cần `pricing.edit`.
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/pricing-config')
 export class ErpPricingConfigController {
     constructor(private readonly service: SystemSettingsService) {}
     @Get()
+    @Permissions('pricing.view')
     async findAll() { return { success: true, data: await this.service.findAllConfigs() }; }
     @Put(':id')
+    @Permissions('pricing.edit')
     async update(@Param('id') id: string, @Body() body: Partial<PricingConfig>) { return { success: true, data: await this.service.updateConfig(id, body), message: 'Pricing config updated' }; }
 }
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/setup-fees')
 export class ErpSetupFeesController {
     constructor(private readonly service: SystemSettingsService) {}
 
     @Get()
+    @Permissions('pricing.view')
     async findAll(
         @Query('action') action?: string,
         @Query('id') id?: string,
@@ -72,6 +78,7 @@ export class ErpSetupFeesController {
     }
 
     @Post()
+    @Permissions('pricing.edit')
     async create(@Body() body: { code: string; name: string; fee_type: string; category?: string; price_per_unit?: number | string; price_per_side?: number | string; price_fixed?: number | string; paper_size_id?: number | null; min_sheets?: number | string; description?: string; is_active?: boolean | number }) {
         try {
             return { success: true, data: await this.service.createFee(body), message: 'Đã tạo phí setup thành công' };
@@ -79,6 +86,7 @@ export class ErpSetupFeesController {
     }
 
     @Put(':id')
+    @Permissions('pricing.edit')
     async update(@Param('id') id: string, @Body() body: Partial<{ code: string; name: string; fee_type: string; category: string; price_per_unit: number | string; price_per_side: number | string; price_fixed: number | string; paper_size_id: number | null; min_sheets: number | string; description: string; is_active: boolean | number }>) {
         try {
             return { success: true, data: await this.service.updateFee(id, body), message: 'Đã cập nhật phí setup' };
@@ -86,6 +94,7 @@ export class ErpSetupFeesController {
     }
 
     @Delete(':id')
+    @Permissions('pricing.edit')
     async remove(@Param('id') id: string) {
         await this.service.deleteFee(id);
         return { success: true, message: 'Đã xóa phí setup' };
@@ -95,12 +104,13 @@ export class ErpSetupFeesController {
 // Chi phí mực in (ink_costs) — dữ liệu live cho deriveTierCost (master-data.service).
 // Cụm production_costs singleton (findAllCosts/saveCosts/calculateCostPerSheet/generatePricingTiers)
 // đã bị gỡ: tầng chi phí chuyển sang hồ sơ per-máy (printers) + deriveTierCost.
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/production-costs')
 export class ErpProductionCostsController {
     constructor(private readonly service: SystemSettingsService) {}
 
     @Get()
+    @Permissions('pricing.view')
     async findAll(@Query('action') action?: string) {
         if (action === 'ink_costs') {
             return { success: true, data: await this.service.findAllInkCosts() };
@@ -109,6 +119,7 @@ export class ErpProductionCostsController {
     }
 
     @Post()
+    @Permissions('pricing.edit')
     async save(
         @Query('action') action?: string,
         @Body() body: Record<string, unknown> = {},

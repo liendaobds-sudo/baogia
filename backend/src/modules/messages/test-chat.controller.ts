@@ -1,5 +1,5 @@
 import {
-    Controller, Post, Get, Body, UseGuards, Req, Logger, Param,
+    Controller, Post, Get, Body, UseGuards, Req, Logger, Param, NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
@@ -11,16 +11,20 @@ import { Message } from '../../entities/message.entity';
 import { MessageProcessorService } from './message-processor.service';
 import { ParsedMessage } from '../channels/adapters/channel-adapter.interface';
 import { v4 as uuid } from 'uuid';
+import { Roles, RolesGuard } from '../auth/roles.guard';
+import { UserRole } from '../../entities';
 
 const TEST_CHANNEL_NAME = 'Test Chat (Internal)';
 
 /**
  * Internal test chat controller
  * Simulates inbound customer messages to test the AI pipeline
- * WITHOUT needing a real Zalo OA account
+ * WITHOUT needing a real Zalo OA account.
+ * Production: disabled unless ENABLE_TEST_CHAT=true; always ADMIN+ only.
  */
 @Controller('test-chat')
-@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.SUPERVISOR)
 export class TestChatController {
     private readonly logger = new Logger(TestChatController.name);
 
@@ -58,11 +62,19 @@ export class TestChatController {
      * POST /api/v1/test-chat/send
      * Simulate an inbound customer message
      */
+    private assertTestChatEnabled(): void {
+        const isProduction = process.env.NODE_ENV === 'production';
+        if (isProduction && process.env.ENABLE_TEST_CHAT !== 'true') {
+            throw new NotFoundException();
+        }
+    }
+
     @Post('send')
     async sendTestMessage(
         @Body() body: { message: string; senderName?: string },
         @Req() req: any,
     ) {
+        this.assertTestChatEnabled();
         const { message, senderName } = body;
         if (!message?.trim()) {
             return { success: false, error: 'Message is required' };
@@ -111,6 +123,7 @@ export class TestChatController {
      */
     @Get('conversation')
     async getTestConversation(@Req() req: any) {
+        this.assertTestChatEnabled();
         const userId = req.user?.sub || req.user?.id || 'test-user';
         const channel = await this.getTestChannel();
 
@@ -155,6 +168,7 @@ export class TestChatController {
      */
     @Post('reset')
     async resetTestConversation(@Req() req: any) {
+        this.assertTestChatEnabled();
         const userId = req.user?.sub || req.user?.id || 'test-user';
         const channel = await this.getTestChannel();
 

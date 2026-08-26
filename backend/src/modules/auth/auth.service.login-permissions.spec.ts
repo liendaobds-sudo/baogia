@@ -146,4 +146,57 @@ describe('AuthService.login — permissions + fail-closed', () => {
         // Login vẫn thành công với token (chỉ quyền bị từ chối — fail-closed)
         expect(result.accessToken).toBeDefined();
     });
+
+    // ── Bộ_Phân_Giải_Quyền theo cặp (tên role, tenant) — tenant-data-isolation Req 9.3/9.4 ──
+
+    describe('loadPermissions theo tenant', () => {
+        it('query lọc theo cặp (tên role, tenant_id) — role cùng tên KHÔNG dùng chung mọi tenant (Req 9.3)', async () => {
+            dataSource.query.mockResolvedValue([{ permission: 'quote.view', tenant_id: 7 }]);
+
+            await service.loadPermissions('agent', 7);
+
+            const [sql, params] = dataSource.query.mock.calls[0];
+            expect(sql).toMatch(/LOWER\(r\.name\) = \$1/);
+            expect(sql).toMatch(/r\.tenant_id = \$2 OR r\.tenant_id IS NULL/);
+            expect(params).toEqual(['agent', 7]);
+        });
+
+        it('role riêng của tenant THẮNG role hệ thống cùng tên (không cộng dồn quyền baseline)', async () => {
+            dataSource.query.mockResolvedValue([
+                { permission: 'quote.view', tenant_id: null },   // role hệ thống
+                { permission: 'quote.create', tenant_id: 7 },    // role riêng tenant 7
+                { permission: 'order.view', tenant_id: 7 },
+            ]);
+
+            const perms = await service.loadPermissions('agent', 7);
+            expect(perms.sort()).toEqual(['order.view', 'quote.create']);
+        });
+
+        it('không có role riêng → dùng role hệ thống (tenant_id NULL) làm baseline (Req 9.2)', async () => {
+            dataSource.query.mockResolvedValue([
+                { permission: 'quote.view', tenant_id: null },
+            ]);
+
+            const perms = await service.loadPermissions('agent', 7);
+            expect(perms).toEqual(['quote.view']);
+        });
+
+        it('không tìm thấy role khớp cả tên lẫn tenant → [] fail-closed (Req 9.4)', async () => {
+            dataSource.query.mockResolvedValue([]);
+
+            const perms = await service.loadPermissions('agent', 99);
+            expect(perms).toEqual([]);
+        });
+
+        it('hai tenant có role cùng tên nhận đúng tập quyền của mình (Req 9.3)', async () => {
+            dataSource.query.mockImplementation(async (_sql: string, params: any[]) => {
+                if (params[1] === 1) return [{ permission: 'quote.view', tenant_id: 1 }];
+                if (params[1] === 2) return [{ permission: 'quote.approve', tenant_id: 2 }];
+                return [];
+            });
+
+            expect(await service.loadPermissions('agent', 1)).toEqual(['quote.view']);
+            expect(await service.loadPermissions('agent', 2)).toEqual(['quote.approve']);
+        });
+    });
 });

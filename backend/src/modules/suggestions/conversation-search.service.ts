@@ -11,11 +11,12 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Conversation, ConversationStatus } from '../../entities/conversation.entity';
 import { Message } from '../../entities/message.entity';
 import { AiSuggestion, SuggestionStatus } from '../../entities/ai-suggestion.entity';
+import { EmbeddingService } from '../knowledge-base/embedding.service';
 
 interface SimilarConversation {
     conversationId: string;
@@ -36,6 +37,8 @@ export class ConversationSearchService {
         @InjectRepository(Conversation) private convRepo: Repository<Conversation>,
         @InjectRepository(Message) private msgRepo: Repository<Message>,
         @InjectRepository(AiSuggestion) private suggestRepo: Repository<AiSuggestion>,
+        @InjectDataSource() private dataSource: DataSource,
+        private embeddings: EmbeddingService,
     ) {}
 
     /**
@@ -50,8 +53,15 @@ export class ConversationSearchService {
         currentProduct?: string,
         currentCustomerText?: string,
         currentIntent?: string,
+        tenantId?: number | null,
     ): Promise<string> {
-        const similar = await this.findSimilarWon(currentProduct, currentCustomerText, currentIntent);
+        // CÔ LẬP TENANT (fail-closed): ví dụ chốt đơn chứa giá đã báo + nội dung chat.
+        // Không rõ tenant → KHÔNG trộn ví dụ (thà thiếu few-shot còn hơn lộ chéo tenant).
+        if (tenantId == null) {
+            this.logger.debug('Bỏ qua similar-won context: thiếu tenantId (fail-closed)');
+            return '';
+        }
+        const similar = await this.findSimilarWon(currentProduct, currentCustomerText, currentIntent, tenantId);
         if (similar.length === 0) return '';
 
         let context = '\n\n## THAM KHẢO TỪ CUỘC HỘI THOẠI ĐÃ CHỐT ĐƠN\n';
@@ -86,48 +96,51 @@ export class ConversationSearchService {
      * Search for similar won conversations using keyword + product matching.
      */
     private async findSimilarWon(
-        product?: string,
-        customerText?: string,
-        intent?: string,
+        product: string | undefined,
+        customerText: string | undefined,
+        intent: string | undefined,
+        tenantId: number,
         limit = 3,
     ): Promise<SimilarConversation[]> {
-        // Build query for won conversations
-        const qb = this.convRepo.createQueryBuilder('c')
-            .where('c.status = :status', { status: ConversationStatus.WON })
-            .andWhere('c.ai_summary IS NOT NULL')
-            .orderBy('c.closed_at', 'DESC')
-            .take(30); // Load candidate pool
-
-        // Filter by product type if available
-        if (product) {
-            qb.andWhere('c.product_type = :product', { product });
+        // Postgres + pgvector → tìm nearest-neighbor ngữ nghĩa; các trường hợp khác → keyword.
+        let candidates: Conversation[] | null = null;
+        if (customerText && this.dataSource.options.type === 'postgres') {
+            candidates = await this.findCandidatesByVector(product, customerText, tenantId);
         }
 
-        const candidates = await qb.getMany();
+        // Fallback (SQLite/dev, thiếu vector, hoặc không có customerText): giữ nguyên keyword cũ.
+        if (candidates === null) {
+            const qb = this.convRepo.createQueryBuilder('c')
+                .where('c.status = :status', { status: ConversationStatus.WON })
+                .andWhere('c.ai_summary IS NOT NULL')
+                // Lưới an toàn tầng app khi RLS chưa flip: chỉ học từ hội thoại CÙNG tenant.
+                .andWhere('c.tenant_id = :tenantId', { tenantId })
+                .orderBy('c.closed_at', 'DESC')
+                .take(30);
+            if (product) {
+                qb.andWhere('c.product_type = :product', { product });
+            }
+            candidates = await qb.getMany();
+        }
+
         if (candidates.length === 0) return [];
 
-        // Score candidates by similarity
+        // Boost product/intent làm secondary signal (vector đã lo phần ngữ nghĩa).
         const scored = candidates.map(conv => {
             let score = 0;
-
-            // Product match (strongest signal)
             if (product && conv.productType === product) score += 0.5;
-
-            // Intent chain match
             const convIntents = conv.outcomeData?.intentChain || [];
             if (intent && convIntents.includes(intent)) score += 0.3;
-
-            // Keyword overlap between customer text and summary
+            // Tie-breaker keyword khi có (giữ hành vi cũ ở nhánh fallback).
             if (customerText && conv.aiSummary) {
                 score += this.keywordOverlap(customerText, conv.aiSummary) * 0.2;
             }
-
             return { conv, score };
         });
 
-        // Sort by score, take top N
+        // Nhánh vector: ứng viên đã gần về ngữ nghĩa, giữ thứ tự NN, chỉ dùng boost để sắp lại.
+        // Nhánh keyword: lọc ngưỡng như cũ.
         const topCandidates = scored
-            .filter(s => s.score > 0.1)
             .sort((a, b) => b.score - a.score)
             .slice(0, limit);
 
@@ -153,6 +166,45 @@ export class ConversationSearchService {
         }
 
         return results;
+    }
+
+    /**
+     * Tìm ứng viên WON gần nhất về ngữ nghĩa qua pgvector (toán tử cosine `<=>`).
+     * Trả null nếu không embed được → caller rơi về nhánh keyword.
+     * Lọc tenant TƯỜNG MINH trong SQL — không trông cậy RLS (đang chờ flip);
+     * sau flip vẫn đúng (điều kiện trùng với policy).
+     */
+    private async findCandidatesByVector(
+        product: string | undefined,
+        customerText: string,
+        tenantId: number,
+    ): Promise<Conversation[] | null> {
+        const qvec = await this.embeddings.generateEmbedding(customerText);
+        if (!qvec) return null;
+
+        const params: any[] = [`[${qvec.join(',')}]`, tenantId];
+        let productFilter = '';
+        if (product) {
+            params.push(product);
+            productFilter = `AND product_type = $${params.length}`;
+        }
+
+        // Chỉ lấy hàng có vector; ORDER BY khoảng cách cosine tăng dần (gần nhất trước).
+        const rows = await this.dataSource.query(
+            `SELECT id FROM conversations
+             WHERE status = 'won' AND summary_embedding IS NOT NULL
+               AND tenant_id = $2 ${productFilter}
+             ORDER BY summary_embedding <=> $1::vector
+             LIMIT 20`,
+            params,
+        );
+        if (!rows || rows.length === 0) return [];
+
+        // Nạp lại entity đầy đủ theo đúng thứ tự NN để tái dùng logic enrich phía sau.
+        const ids: string[] = rows.map((r: any) => r.id);
+        const convs = await this.convRepo.findByIds(ids);
+        const byId = new Map(convs.map(c => [c.id, c]));
+        return ids.map(id => byId.get(id)).filter(Boolean) as Conversation[];
     }
 
     /**

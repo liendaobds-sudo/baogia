@@ -69,7 +69,7 @@ describe('EngineOffset — engine duy nhất (smoke 5 loại)', () => {
     });
 
     it('tui_giay → QuoteResult hợp lệ', () => {
-        const bai = (buildTuiOptions(d)[0] ?? TUI_NEST_OPTIONS[0]).label;
+        const bai = '42cm x 60cm (dán nối)';
         const res = svc.calculate({
             type: 'tui_giay', soLuong: 5000, cao: 30, rong: 25, hong: 10, mi: 4,
             materialCode: mat, baiIn: bai, soKem: 4, vatTuBeMat: vtbm,
@@ -78,6 +78,20 @@ describe('EngineOffset — engine duy nhất (smoke 5 loại)', () => {
         } as any);
         expect(res.success).toBe(true);
         expect(res.data!.donGia1SP).toBeGreaterThan(0);
+    });
+
+    it('tui_giay không lọt bài in → lỗi rõ, không trả giá với imposition=0', () => {
+        const bai = (buildTuiOptions(d)[0] ?? TUI_NEST_OPTIONS[0]).label;
+        const res = svc.calculate({
+            type: 'tui_giay', soLuong: 5000, cao: 500, rong: 500, hong: 100, mi: 40,
+            materialCode: mat, baiIn: bai, soKem: 4, vatTuBeMat: vtbm,
+            dayXach: { loai: 'khong', donGia: 0 }, thungCaton: { sl: 0, donGia: 0 },
+            dongGoi: true, thietKe: 0,
+        } as any);
+
+        expect(res.success).toBe(false);
+        expect(res.data).toBeUndefined();
+        expect(res.error).toContain('không thể bình');
     });
 
     it('type không hợp lệ → success=false', () => {

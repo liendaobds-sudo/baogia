@@ -42,6 +42,7 @@ const createMockGateway = () => ({
         emit: jest.fn(),
     },
     emitMessageReacted: jest.fn(),
+    emitConversationScopedEvent: jest.fn(),
 });
 
 const createMockQueue = () => ({
@@ -196,7 +197,12 @@ describe('MessagesService', () => {
 
             const result = await service.togglePinMessage('conv-1', 'msg-1');
             expect(result.isPinned).toBe(true);
-            expect(gateway.server.to).toHaveBeenCalledWith('conversation:conv-1');
+            expect(gateway.emitConversationScopedEvent).toHaveBeenCalledWith(
+                undefined,
+                'conv-1',
+                'messagePinned',
+                expect.objectContaining({ messageId: 'msg-1', isPinned: true }),
+            );
         });
 
         it('should toggle pin from true to false', async () => {
@@ -248,7 +254,12 @@ describe('MessagesService', () => {
             await service.deleteMessageLocal('conv-1', 'msg-1');
             expect(msg.isLocalDeleted).toBe(true);
             expect(msgRepo.save).toHaveBeenCalledWith(msg);
-            expect(gateway.server.to).toHaveBeenCalledWith('conversation:conv-1');
+            expect(gateway.emitConversationScopedEvent).toHaveBeenCalledWith(
+                undefined,
+                'conv-1',
+                'messageLocalDeleted',
+                expect.objectContaining({ messageId: 'msg-1' }),
+            );
         });
     });
 
@@ -290,7 +301,12 @@ describe('MessagesService', () => {
 
             const result = await service.recallMessage('conv-1', 'msg-1');
             expect(result.status).toBe(MessageStatus.RECALLED);
-            expect(gateway.server.to).toHaveBeenCalledWith('conversation:conv-1');
+            expect(gateway.emitConversationScopedEvent).toHaveBeenCalledWith(
+                undefined,
+                'conv-1',
+                'messageRecalled',
+                expect.objectContaining({ messageId: 'msg-1', status: MessageStatus.RECALLED }),
+            );
         });
     });
 

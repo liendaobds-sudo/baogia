@@ -27,13 +27,23 @@ export class PricingApiService {
             const result = await this.pricingFacade[methodName](...args);
             if (!result || result.success === false) {
                  this.logger.warn(`PricingFacade error: ${result?.error}`);
-                 if (methodName === 'calculatePrice') throw new HttpException(result?.error || 'Pricing calculation failed', HttpStatus.BAD_REQUEST);
+                 if (methodName === 'calculatePrice') {
+                     throw new HttpException(
+                         result?.error || 'Pricing calculation failed',
+                         HttpStatus.BAD_REQUEST,
+                     );
+                 }
                  return result?.data || result;
             }
             return result.data || result;
         } catch (error: any) {
+            // Preserve Nest HttpException status (BAD_REQUEST from validation, etc.)
+            if (error instanceof HttpException) throw error;
             this.logger.error(`PricingFacade ${methodName} failed: ${error.message}`);
-            throw new HttpException('Pricing service unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+            throw new HttpException(
+                error?.message || 'Pricing service unavailable',
+                HttpStatus.SERVICE_UNAVAILABLE,
+            );
         }
     }
 

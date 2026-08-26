@@ -37,6 +37,7 @@ interface QuoteItemDetail {
     processingDetails: string | null;
     itemTotal: number;
     offsetSpec?: string | null;
+    digitalSpec?: string | null;
     productType?: string | null;
     [key: string]: unknown;
 }
@@ -77,6 +78,30 @@ function buildOffsetSpec(pd: any): string {
     if (soMau) parts.push(`${soMau} màu${m.loaiKem ? ` (${m.loaiKem})` : ''}`);
     if (m.soConToLon) parts.push(`${m.soConToLon} con/tờ`);
     if (m.soToLon) parts.push(`${Number(m.soToLon).toLocaleString('vi-VN')} tờ in`);
+    return parts.join(' · ');
+}
+
+/** Quy cách digital (loose/bound/LF) từ printing_detail + cột denormalized. */
+function buildDigitalSpec(it: any, pd: any): string {
+    const c = pd?.configParams || {};
+    const parts: string[] = [];
+    const w = it.item_width ?? c.itemWidth ?? c.lfWidth;
+    const h = it.item_height ?? c.itemHeight ?? c.lfHeight;
+    if (w && h) parts.push(`${w}×${h} mm`);
+    const mat = it.material_name || c.materialName;
+    if (mat) parts.push(String(mat));
+    const paper = it.paper_size_name || c.paperSizeName;
+    if (paper) parts.push(`Khổ: ${paper}`);
+    const side = it.print_side || c.printSide || c.bCoverPrintSide;
+    if (side) parts.push(side === 'double' || side === '2' ? '2 mặt' : side === 'single' || side === '1' ? '1 mặt' : String(side));
+    const pt = it.print_type || c.printType || c.lfPrintType;
+    if (pt) parts.push(String(pt));
+    if (c.bPageCount || it.page_count) parts.push(`${c.bPageCount || it.page_count} trang`);
+    if (c.bBindingType || it.binding_type) parts.push(`Đóng: ${c.bBindingType || it.binding_type}`);
+    const procs = c.processingNames;
+    if (Array.isArray(procs) && procs.length) parts.push(`GC: ${procs.join(', ')}`);
+    const accs = c.accessoryNames;
+    if (Array.isArray(accs) && accs.length) parts.push(`PK: ${accs.join(', ')}`);
     return parts.join(' · ');
 }
 
@@ -167,20 +192,31 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                 setDetail({
                     id: d.id, code: d.code, customerName: d.customer_name, customerPhone: d.customer_phone,
                     total: parseFloat(d.total || 0), status: d.status, createdAt: d.created_at,
-                    type: d.type, validUntil: d.valid_until, createdBy: d.created_by_name,
+                    type: d.type, createdBy: d.created_by_name,
                     vat_rate: parseFloat(d.vat_rate || 0),
                     vat_amount: parseFloat(d.vat_amount || 0),
                     shipping_fee: parseFloat(d.shipping_fee || 0),
                     grand_total: parseFloat(d.grand_total || 0),
+                    validity_days: d.validity_days ?? 7,
+                    validUntil: d.valid_until || d.validUntil,
+                    customer_address: d.customer_address,
+                    customer_unit: d.customer_unit,
+                    tax_code: d.tax_code,
+                    customer_note: d.customer_note,
+                    customer_email: d.customer_email,
+                    customer_contact: d.customer_contact,
                     items: (d.items || []).map((it: any) => {
                         let pd: any = {};
                         try { pd = typeof it.printing_detail === 'string' ? JSON.parse(it.printing_detail) : (it.printing_detail || {}); } catch { /* giữ rỗng */ }
+                        const isOffset = !!pd?.offset;
                         return {
-                            productName: it.product_name, quantity: it.quantity, unit: it.unit,
-                            materialName: it.material_name, itemWidth: it.item_width, itemHeight: it.item_height,
+                            productName: it.product_name, quantity: it.quantity, unit: it.unit || 'cái',
+                            materialName: it.material_name || pd?.configParams?.materialName || null,
+                            itemWidth: it.item_width, itemHeight: it.item_height,
                             printType: it.print_type, processingDetails: it.processing_details, itemTotal: parseFloat(it.item_total || 0),
-                            productType: it.product_type,
-                            offsetSpec: pd?.offset ? buildOffsetSpec(pd) : null,
+                            productType: it.product_type || it.item_type,
+                            offsetSpec: isOffset ? buildOffsetSpec(pd) : null,
+                            digitalSpec: !isOffset ? buildDigitalSpec(it, pd) : null,
                         };
                     }),
                 } as any);
@@ -224,7 +260,26 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
             // Fetch company info for print template
             fetch(`${API}/erp/company-info`, { headers: headers() })
                 .then(r => r.json())
-                .then(res => { if (res.success && res.data) setCompanyInfo(res.data); })
+                .then(res => {
+                    if (!res.success || !res.data) return;
+                    const d = res.data;
+                    const banks = Array.isArray(d.bank_accounts) ? d.bank_accounts : [];
+                    const b0 = banks[0] || {};
+                    // Chuẩn hoá key để template preview dùng ổn định
+                    setCompanyInfo({
+                        ...d,
+                        name: d.company_name || d.name || '',
+                        phone: d.hotline || d.phone || '',
+                        address: d.address || '',
+                        website: d.website || '',
+                        tax_code: d.tax_code || '',
+                        email: d.email || '',
+                        bank_name: b0.bank_name || d.bank_name || '',
+                        bank_account: b0.account_number || d.bank_account || '',
+                        bank_holder: b0.account_name || d.bank_holder || d.company_name || '',
+                        logo: d.logo || d.company_logo || '',
+                    });
+                })
                 .catch(() => {});
         }
     }, [mounted, token, fetchQuotes]);
@@ -355,7 +410,7 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                         </div>
                                         <span className="text-[11px] text-slate-400">{formatDate(q.createdAt)} {q.validUntil ? `(HH: ${formatDate(q.validUntil)})` : ''}</span>
                                     </div>
-                                    <span className="font-bold text-slate-900 text-sm">{formatVND(q.total)}</span>
+                                    <span className="font-bold text-slate-900 text-sm">{formatVND((q as any).grand_total ?? q.total)}</span>
                                 </div>
                             </div>
                         );
@@ -411,7 +466,27 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                 <button type="button" aria-label="Sao chép báo giá" title="Sao chép" disabled={pendingAction !== null} onClick={() => runLifecycle('clone', () => fetch(`${API}/erp/orders/${detail.id}/clone`, { method: 'POST', headers: headers() }), 'Đã sao chép báo giá')} className="px-4 py-2 bg-white text-slate-600 rounded-lg font-semibold border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">📋 Sao chép</button>
                             </div>
                             <div className="flex gap-2">
-                                <button type="button" aria-label="Xuất PDF / In báo giá" title="Xuất PDF" onClick={() => window.print()} className="px-4 py-2 bg-white text-slate-700 rounded-lg font-semibold border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors">🖨️ Xuất PDF</button>
+                                <button type="button" aria-label="Xuất PDF / In báo giá" title="Xuất PDF" onClick={async () => {
+                                    if (!detail?.id || !token) return;
+                                    try {
+                                        const res = await fetch(`${API}/erp/order-pdf/${detail.id}`, { headers: headers() });
+                                        const json = await res.json();
+                                        const html = json?.data?.html || json?.html;
+                                        if (!res.ok || !html) {
+                                            toast.show('error', json?.error || json?.message || 'Không tải được bản PDF');
+                                            return;
+                                        }
+                                        const w = window.open('', '_blank');
+                                        if (!w) { toast.show('error', 'Trình duyệt chặn popup — cho phép popup để in PDF'); return; }
+                                        w.document.open();
+                                        w.document.write(html);
+                                        w.document.close();
+                                        // In sau khi render xong
+                                        setTimeout(() => { try { w.focus(); w.print(); } catch { /* ignore */ } }, 300);
+                                    } catch (e: any) {
+                                        toast.show('error', e?.message || 'Lỗi xuất PDF');
+                                    }
+                                }} className="px-4 py-2 bg-white text-slate-700 rounded-lg font-semibold border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors">🖨️ Xuất PDF</button>
                                 <Link href={detail.type === 'In Offset' ? `/pricing/quotes/offset?edit=${detail.id}` : `/pricing/quotes/new?edit=${detail.id}`} aria-label="Chỉnh sửa báo giá" title="Chỉnh sửa" className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold border-none cursor-pointer no-underline inline-block hover:bg-blue-700 transition-colors">✏️ Chỉnh sửa</Link>
                             </div>
                         </div>
@@ -449,6 +524,11 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                     <div style={{ margin: '0 0 24px', fontSize: 14, color: '#0f172a' }}>
                                         <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>Khách hàng:</strong> <span>{detail.customerName}</span></div>
                                         <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>Điện thoại:</strong> <span>{detail.customerPhone || '—'}</span></div>
+                                        {(detail as any).customer_unit && <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>Đơn vị:</strong> <span>{(detail as any).customer_unit}</span></div>}
+                                        {(detail as any).customer_address && <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>Địa chỉ:</strong> <span>{(detail as any).customer_address}</span></div>}
+                                        {(detail as any).tax_code && <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>MST:</strong> <span>{(detail as any).tax_code}</span></div>}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>Loại BG:</strong> <span>{detail.type || '—'}</span></div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, marginBottom: 6 }}><strong>Ngày lập:</strong> <span>{formatDate(detail.createdAt)}</span></div>
                                     </div>
 
                                     {/* Overview Table */}
@@ -478,11 +558,13 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                                         <td style={{ border: '1px solid #000', padding: 8, verticalAlign: 'top' }}>
                                                             <div style={{ fontWeight: 700, color: '#2563eb' }}>{item.productName}</div>
                                                             <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>
-                                                                {(item as QuoteItemDetail).offsetSpec ? (item as QuoteItemDetail).offsetSpec as string : (<>
-                                                                    {item.itemWidth && item.itemHeight ? `Khổ in: ${item.itemWidth}x${item.itemHeight} mm` : ''}
-                                                                    {item.materialName ? ` - ${item.materialName}` : ''}
-                                                                    {item.processingDetails ? ` - GC: ${(() => { try { const p = JSON.parse(item.processingDetails as string); return Array.isArray(p) ? p.join(', ') : item.processingDetails; } catch { return item.processingDetails; } })()}` : ''}
-                                                                </>)}
+                                                                {(item as QuoteItemDetail).offsetSpec
+                                                                    || (item as QuoteItemDetail).digitalSpec
+                                                                    || [
+                                                                        item.itemWidth && item.itemHeight ? `${item.itemWidth}×${item.itemHeight} mm` : '',
+                                                                        item.materialName || '',
+                                                                    ].filter(Boolean).join(' · ')
+                                                                    || '—'}
                                                             </div>
                                                         </td>
                                                         <td style={{ border: '1px solid #000', padding: 8, textAlign: 'center', verticalAlign: 'top' }}>{qty}</td>
@@ -493,13 +575,13 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                                 );
                                             })}
                                             <tr style={{ background: '#f8fafc' }}>
-                                                <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600 }}>{detail.type === 'In Offset' ? 'Thành tiền (đã gồm VAT):' : 'Tạm tính:'}</td>
+                                                <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600 }}>Cộng tiền hàng (chưa VAT):</td>
                                                 <td style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600 }}>{formatVND(detail.items?.reduce((s: number, i: QuoteItemDetail) => s + (i.itemTotal || 0), 0) || detail.total)}</td>
                                             </tr>
                                             {(detail as any).vat_rate > 0 && (
                                                 <tr style={{ background: '#f0fdf4' }}>
-                                                    <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{detail.type === 'In Offset' ? `Trong đó thuế GTGT (${(detail as any).vat_rate}%):` : `VAT (${(detail as any).vat_rate}%):`}</td>
-                                                    <td style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{detail.type === 'In Offset' ? formatVND((detail as any).vat_amount || 0) : `+${formatVND((detail as any).vat_amount || 0)}`}</td>
+                                                    <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{`Thuế GTGT (${(detail as any).vat_rate}%):`}</td>
+                                                    <td style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>+{formatVND((detail as any).vat_amount || 0)}</td>
                                                 </tr>
                                             )}
                                             {(detail as any).shipping_fee > 0 && (
@@ -518,9 +600,9 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                     {/* Document Notes */}
                                     <div style={{ border: '1px solid #000', padding: '8px 12px', fontSize: 12, minHeight: 60, marginBottom: 28, color: '#0f172a' }}>
                                         <strong>*GHI CHÚ:</strong><br />
-                                        - Đơn giá trên chưa bao gồm thuế VAT (8%).<br/>
-                                        - Báo giá có giá trị trong vòng 15 ngày kể từ ngày xuất.<br/>
-                                        - File in quý khách tự thiết kế vui lòng xuất chuẩn CMYK hệ màu in ấn.
+                                        - Đơn giá dòng là thành tiền trước thuế{(detail as any).vat_rate > 0 ? `; VAT ${(detail as any).vat_rate}% tính trên tổng.` : ' (không áp VAT trên báo giá này).'}<br/>
+                                        - Báo giá có hiệu lực {(detail as any).validity_days || 7} ngày kể từ ngày lập{detail.validUntil ? ` (đến ${formatDate(detail.validUntil)})` : ''}.<br/>
+                                        - File in tự thiết kế vui lòng xuất chuẩn CMYK / theo yêu cầu xưởng.
                                     </div>
 
                                     {/* Document Footer */}
@@ -576,10 +658,11 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                                             <td style={{ padding: '10px 12px', borderRight: '1px solid #e2e8f0', textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
                                                             <td style={{ padding: '10px 12px', borderRight: '1px solid #e2e8f0' }}>
                                                                 <div style={{ fontWeight: 700, marginBottom: 2 }}>{item.productName}</div>
-                                                                {(item as QuoteItemDetail).offsetSpec
-                                                                    ? <div style={{ fontSize: 12, color: '#64748b' }}>{(item as QuoteItemDetail).offsetSpec as string}</div>
-                                                                    : <div style={{ fontSize: 12, color: '#64748b' }}>KT: {item.itemWidth}x{item.itemHeight} mm</div>}
-                                                                {!(item as QuoteItemDetail).offsetSpec && item.processingDetails && <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>↳ GC: {(() => { try { const p = JSON.parse(item.processingDetails as string); return Array.isArray(p) ? p.join(', ') : item.processingDetails; } catch { return item.processingDetails; } })()}</div>}
+                                                                <div style={{ fontSize: 12, color: '#64748b' }}>
+                                                                    {(item as QuoteItemDetail).offsetSpec
+                                                                        || (item as QuoteItemDetail).digitalSpec
+                                                                        || (item.itemWidth && item.itemHeight ? `KT: ${item.itemWidth}×${item.itemHeight} mm` : '—')}
+                                                                </div>
                                                             </td>
                                                             <td style={{ padding: '10px 12px', borderRight: '1px solid #e2e8f0' }}>{item.materialName || '—'}</td>
                                                             <td style={{ padding: '10px 12px', borderRight: '1px solid #e2e8f0', textAlign: 'center' }}>{qty} {item.unit}</td>

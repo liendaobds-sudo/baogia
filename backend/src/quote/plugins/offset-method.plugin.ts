@@ -4,7 +4,8 @@
  * Adapter MỎNG: KHÔNG đổi số học engine offset (Req 6.1, 6.2). Nhiệm vụ:
  *  - Ánh xạ `Specification` (method-agnostic) → một trong 5 input offset theo `quoteType`
  *    ({to_roi, bi_thu_folder, sp_khac, hop_giay, tui_giay}).
- *  - Lấy `tongChuaVAT` của `QuoteResult` làm `priceBeforeVat` (VAT áp một lần ở tầng báo giá).
+ *  - Bảo toàn gross/discount/net của engine: `sellingSubtotal = tongChuaVAT`,
+ *    `discountAmount = chietKhau`, `priceBeforeVat = tongChuaVAT - chietKhau`.
  *  - Ở chế độ hợp nhất, truyền `vatRate = 0` xuống engine để VAT KHÔNG bị cộng hai lần
  *    (Req 8.4). Route cũ `POST /pricing/offset/calculate` gọi thẳng engine với body gốc nên
  *    hành vi VAT cũ được giữ nguyên — plugin này chỉ phục vụ tầng `/quote/*`.
@@ -89,8 +90,8 @@ export class OffsetMethodPlugin implements MethodPlugin, OnModuleInit {
 
         const q = res.data;
         const qty = spec.quantity > 0 ? spec.quantity : 1;
-        // priceBeforeVat = tongChuaVAT (trước VAT). VAT áp một lần ở tầng báo giá (Req 8).
-        const priceBeforeVat = q.tongChuaVAT;
+        // `tongChuaVAT` là gross trước chiết khấu engine; VAT cấp báo giá phải áp trên net.
+        const priceBeforeVat = q.tongChuaVAT - q.chietKhau;
 
         return {
             ok: true,
@@ -98,9 +99,7 @@ export class OffsetMethodPlugin implements MethodPlugin, OnModuleInit {
             // Offset dựng giá trực tiếp từ bảng chi phí — không tách markup; cost = selling trước VAT.
             costSubtotal: q.tongChuaVAT,
             sellingSubtotal: q.tongChuaVAT,
-            // tongChuaVAT là tổng dòng TRƯỚC chiết khấu; chiết khấu offset áp riêng (xem breakdown)
-            // nên giữ identity priceBeforeVat = sellingSubtotal - discountAmount với discountAmount = 0.
-            discountAmount: 0,
+            discountAmount: q.chietKhau,
             priceBeforeVat,
             pricePerItem: priceBeforeVat / qty,
             // Giữ nguyên QuoteResult gốc (gồm vat/chietKhau/khachTra/meta) để truy vết & hiển thị.
@@ -113,7 +112,9 @@ export class OffsetMethodPlugin implements MethodPlugin, OnModuleInit {
      *
      * Tham số riêng theo phương pháp (soMatIn, soKemIn/soMau, vatTuBeMat, khuon, be, mi,
      * dayXach...) lấy từ `spec.attributes`; các trường dùng chung (số lượng, kích thước,
-     * giấy, khổ in) ánh xạ từ tầng Thông_Số. `vatRate = 0` (VAT ở tầng báo giá);
+     * giấy, khổ in) ánh xạ từ tầng Thông_Số. `dimensions` đã chuẩn hoá theo cm, đúng
+     * đơn vị engine Offset nên adapter truyền thẳng; conversion cm→mm chỉ xảy ra bên
+     * trong seam dieline/imposition. `vatRate = 0` (VAT ở tầng báo giá);
      * `chietKhauRate` đọc từ cấu hình khi có (Req 7.2).
      */
     private mapSpecToInput(

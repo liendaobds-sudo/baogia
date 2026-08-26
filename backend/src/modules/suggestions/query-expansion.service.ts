@@ -9,6 +9,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ContextInferenceService } from './context-inference.service';
+import { safeErrorMetadata, sensitiveTextMetadata } from '../../common/logging/safe-log-metadata';
 
 // Common Vietnamese printing synonyms not in the knowledge base
 const SYNONYM_MAP: Record<string, string[]> = {
@@ -119,7 +120,9 @@ export class QueryExpansionService {
         // Deduplicate and limit
         const unique = [...new Set(queries)].slice(0, 4);
         if (unique.length > 1) {
-            this.logger.log(`🔀 Query expanded: "${customerText.substring(0, 50)}" → ${unique.length} queries`);
+            this.logger.log(
+                `🔀 Query expanded: ${sensitiveTextMetadata('customerText', customerText)}, queryCount=${unique.length}`,
+            );
         }
         return unique;
     }
@@ -190,11 +193,11 @@ Chỉ trả về câu tìm kiếm, không giải thích.`;
             const data: any = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
             if (text && text.length > 5 && text.length < 300) {
-                this.logger.log(`🤖 LLM reformulated query: "${text.substring(0, 80)}"`);
+                this.logger.log(`🤖 LLM reformulated query (${sensitiveTextMetadata('query', text)})`);
                 return text;
             }
         } catch (e) {
-            this.logger.warn(`⚠️ LLM query reformulation failed: ${(e as Error).message}`);
+            this.logger.warn(`⚠️ LLM query reformulation failed (${safeErrorMetadata(e)})`);
         }
         return null;
     }

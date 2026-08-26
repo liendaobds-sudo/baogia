@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ZaloAccount, ZaloAccountStatus } from '../../entities/zalo-account.entity';
@@ -11,6 +11,28 @@ import { MessageProcessorService } from '../messages/message-processor.service';
 import { EventsGateway } from '../gateway/events.gateway';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { runInTenant, tenantRlsEnabled } from '../../common/tenant/tenant-background';
+import { createHash } from 'crypto';
+
+/**
+ * Dựng externalMessageId ỔN ĐỊNH từ payload tin Zalo, dùng CHUNG cho cả live lẫn backfill.
+ * Ưu tiên msgId → globalMsgId (khớp nguồn backfill). Khi CẢ HAI thiếu: hash ổn định từ
+ * (uidFrom + ts + content) thay vì Date.now() — để cùng một tin (replay/backfill) luôn ra
+ * cùng key, tránh lưu trùng và tránh lệch key giữa live/backfill.
+ */
+export function buildExternalMsgId(data: any): string {
+    const msgId = data?.msgId || data?.globalMsgId;
+    if (msgId) return String(msgId);
+    const uid = String(data?.uidFrom || data?.userId || data?.idTo || '');
+    const ts = String(data?.ts || '');
+    const rawContent = data?.content;
+    const content = typeof rawContent === 'string' ? rawContent : (rawContent?.msg || rawContent?.title || '');
+    const basis = `${uid}|${ts}|${content}`;
+    // Chỉ hash khi có đủ tín hiệu; nếu rỗng hoàn toàn thì đành fallback timestamp (hiếm).
+    if (uid || ts || content) {
+        return `h_${createHash('sha1').update(basis).digest('hex').slice(0, 20)}`;
+    }
+    return `t_${Date.now()}`;
+}
 
 /**
  * ZaloPoolService — Singleton that manages live Zalo SDK (zca-js) instances.
@@ -34,7 +56,7 @@ interface ZaloInstance {
 }
 
 @Injectable()
-export class ZaloPoolService implements OnModuleInit {
+export class ZaloPoolService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(ZaloPoolService.name);
     private instances = new Map<string, ZaloInstance>();
     private ZaloSDK: any = null; // lazy-loaded zca-js
@@ -56,8 +78,14 @@ export class ZaloPoolService implements OnModuleInit {
     private groupNameCache = new Map<string, string>(); // Cache real group names
     private userNameCache = new Map<string, string>(); // Cache real user names
     private unreadPollingIntervals = new Map<string, NodeJS.Timeout>(); // Periodic unread sync
+    private accountTenantCache = new Map<string, number>(); // accountId → tenantId (điền khi gắn listener; route broadcast theo tenant)
     private readonly sender: ZaloMessageSender;
     private readonly crm: ZaloCrmFeatures;
+
+    /** Cache profile/group theo account để không trộn dữ liệu giữa các tenant. */
+    private cacheKey(accountId: string, subjectId: string): string {
+        return `${accountId}:${subjectId}`;
+    }
 
     constructor(
         @InjectRepository(ZaloAccount)
@@ -127,6 +155,7 @@ export class ZaloPoolService implements OnModuleInit {
         if (!this.ZaloSDK) {
             throw new Error('zca-js chưa được cài đặt. Chạy: npm i zca-js');
         }
+        await this.resolveAndCacheAccountTenant(accountId);
 
         const zalo = new this.ZaloSDK({ 
             logging: false, 
@@ -216,6 +245,7 @@ export class ZaloPoolService implements OnModuleInit {
      */
     async reconnect(accountId: string, credentials: any): Promise<void> {
         if (!this.ZaloSDK) return;
+        await this.resolveAndCacheAccountTenant(accountId);
 
         const zalo = new this.ZaloSDK({ 
             logging: false, 
@@ -260,7 +290,10 @@ export class ZaloPoolService implements OnModuleInit {
             // Non-blocking: Sync missed messages in background after reconnect.
             // Hoãn 8s để phiên WS ổn định trước khi gọi loạt API (tránh bị Zalo ngắt ngay).
             setTimeout(() => {
-                this.syncMissedMessages(accountId, api, ownId).catch(err => {
+                // Sau reconnect dùng ngưỡng debounce NGẮN (30s) thay vì 2' — mạng chập chờn
+                // rớt→reconnect trong 2' vẫn sync để không sót tin đến lúc offline, nhưng 30s
+                // vẫn đủ chặn vòng lặp reconnect dồn dập.
+                this.syncMissedMessages(accountId, api, ownId, false, 30_000).catch(err => {
                     this.logger.warn(`[zalo:${accountId}] syncMissedMessages failed: ${err.message}`);
                 });
             }, 8000);
@@ -307,14 +340,25 @@ export class ZaloPoolService implements OnModuleInit {
      *
      * _Requirements: 4.2_
      */
-    private async runScopedForChannel<T>(channelId: string, fn: () => Promise<T>): Promise<T> {
+    private async runScopedForChannel<T>(channelId: string, fn: () => Promise<T>): Promise<T | undefined> {
         if (!tenantRlsEnabled() || !this.tenantCtx) return fn();
-        let tenantId = 1;
+        // Fail-loud (Req 2.3): KHÔNG mặc định tenant 1 — callback nền chạy nhầm tenant
+        // sẽ đọc/ghi conversation/message của xưởng khác. Không phân giải được tenant
+        // → log ERROR + BỎ QUA event (một số handler zca-js như 'typing'/'undo' không có
+        // try/catch, nếu throw sẽ thành unhandled rejection làm sập process).
+        let tenantId = 0;
         try {
             const rows = await this.repo.manager.query(
                 'SELECT tenant_id FROM channels WHERE id = $1 LIMIT 1', [channelId]);
             if (rows?.[0]?.tenant_id) tenantId = Number(rows[0].tenant_id);
-        } catch { /* fallback tenant 1 */ }
+        } catch (e: any) {
+            this.logger.error(`Lỗi phân giải tenant cho channel ${channelId}: ${e.message} — BỎ QUA event nền (không mặc định tenant 1)`);
+            return undefined;
+        }
+        if (!tenantId) {
+            this.logger.error(`Không phân giải được tenant cho channel ${channelId} — BỎ QUA event nền (không mặc định tenant 1)`);
+            return undefined;
+        }
         return runInTenant(this.tenantCtx, this.repo.manager, tenantId, fn);
     }
 
@@ -440,18 +484,18 @@ export class ZaloPoolService implements OnModuleInit {
                         // otherwise the contact's displayName gets overwritten with the owner's name.
                         let finalContactName = isSelf ? null : finalSenderName;
                         let finalText = content;
-                        let finalSenderAvatar = this.avatarCache.get(senderUid) || '';
+                        let finalSenderAvatar = this.avatarCache.get(this.cacheKey(accountId, senderUid)) || '';
 
                         // Tên nhóm: CHỈ dùng cache (KHÔNG gọi mạng trên đường tới hạn → tránh trễ nhận tin).
                         if (isGroupChat) {
                             const groupIdRaw = finalExternalUserId.replace('g_', '');
-                            const cachedGroupName = this.groupNameCache.get(groupIdRaw);
+                            const cachedGroupName = this.groupNameCache.get(this.cacheKey(accountId, groupIdRaw));
                             finalContactName = cachedGroupName || message.data?.groupName || message.groupName || 'Nhóm Zalo';
                             finalSenderName = senderName || 'Thành viên';
                         }
 
                         // Tên người gửi: dùng cache nếu có
-                        const cachedUserName = this.userNameCache.get(senderUid);
+                        const cachedUserName = this.userNameCache.get(this.cacheKey(accountId, senderUid));
                         if (cachedUserName && finalSenderName === 'Khách Zalo') {
                             finalSenderName = cachedUserName;
                             if (!isSelf) finalContactName = cachedUserName;
@@ -461,13 +505,13 @@ export class ZaloPoolService implements OnModuleInit {
                         const targetUidForProfile = isGroupChat ? senderUid : (isSelf ? finalExternalUserId : senderUid);
                         let needProfileFetch = false;
                         if (isGroupChat) {
-                            if (!this.groupNameCache.get(finalExternalUserId.replace('g_', ''))) needProfileFetch = true;
+                            if (!this.groupNameCache.get(this.cacheKey(accountId, finalExternalUserId.replace('g_', '')))) needProfileFetch = true;
                         } else if (!finalContactName || finalContactName === 'Khách Zalo' || !finalSenderAvatar || finalSenderName === 'Khách Zalo') {
                             needProfileFetch = true;
                         }
 
                         const parsedMessage: any = {
-                            externalMessageId: String(message.data?.msgId || Date.now()),
+                            externalMessageId: buildExternalMsgId(message.data),
                             externalUserId: finalExternalUserId,
                             senderName: finalSenderName,
                             contactName: finalContactName,
@@ -542,35 +586,6 @@ export class ZaloPoolService implements OnModuleInit {
             }
         });
 
-        listener.on('seen_messages', async (messages: any[]) => {
-            if (!messages || messages.length === 0) return;
-            const account = await this.repo.findOne({ where: { id: accountId } });
-            if (!account || !account.channelId) return;
-            const channelId = account.channelId;
-
-            const instance = this.instances.get(accountId);
-            const ownZaloUid = instance?.zaloUid || '';
-
-            const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
-            await this.runScopedForChannel(channelId, async () => {
-                for (const msg of messages) {
-                    const senderUid = String(msg.data?.uidFrom || '');
-                    const isSelf = senderUid === ownZaloUid || senderUid === '0';
-
-                    let extUserId = msg.data?.groupId ? `g_${String(msg.data.groupId).replace('g_', '')}` : String(msg.data?.idTo || '');
-                    if (!isSelf && !msg.data?.groupId) {
-                        extUserId = senderUid;
-                    }
-
-                    if (extUserId && msg.data?.msgId) {
-                        await processor.processSeenEvent(channelId, extUserId, String(msg.data.msgId), isSelf);
-                    }
-                }
-            });
-        });
-
-
-
         listener.on('typing', async (typing: any) => {
             const account = await this.repo.findOne({ where: { id: accountId } });
             if (!account || !account.channelId) return;
@@ -635,6 +650,9 @@ export class ZaloPoolService implements OnModuleInit {
         });
 
         // ── Seen Messages Event (Read Receipts) ──
+        // GỘP handler: trước đây đăng ký 'seen_messages' HAI lần → mỗi event chạy 2 lần
+        // (double-processing unread). Nay 1 handler: parse threadId/type (chuẩn hơn idTo)
+        // + tính isSelf (tin do chính mình đọc trên app Zalo) rồi truyền vào processSeenEvent.
         listener.on('seen_messages', async (messages: any[]) => {
             try {
                 if (!messages || messages.length === 0) return;
@@ -642,6 +660,7 @@ export class ZaloPoolService implements OnModuleInit {
                 if (!account?.channelId) return;
                 const channelId = account.channelId;
 
+                const ownZaloUid = this.instances.get(accountId)?.zaloUid || '';
                 const processor = this.moduleRef.get(MessageProcessorService, { strict: false });
                 await this.runScopedForChannel(channelId, async () => {
                     for (const msg of messages) {
@@ -651,10 +670,13 @@ export class ZaloPoolService implements OnModuleInit {
                             ? (msg.type === 1 ? `g_${String(msg.threadId).replace('g_', '')}` : String(msg.threadId))
                             : String(msg.data?.idTo || msg.data?.groupId || '');
                         const msgId = String(msg.data?.msgId || '');
+                        // isSelf = chính tài khoản đọc tin trên app Zalo (uidFrom trùng own uid, hoặc '0').
+                        const senderUid = String(msg.data?.uidFrom || '');
+                        const isSelf = senderUid === ownZaloUid || senderUid === '0';
 
                         if (extUserId) {
-                            this.logger.log(`👁️ [zalo:${accountId}] Seen event: user=${extUserId} msgId=${msgId}`);
-                            await processor.processSeenEvent(channelId, extUserId, msgId);
+                            this.logger.log(`👁️ [zalo:${accountId}] Seen event: user=${extUserId} msgId=${msgId} self=${isSelf}`);
+                            await processor.processSeenEvent(channelId, extUserId, msgId, isSelf);
                         }
                     }
                 });
@@ -684,8 +706,8 @@ export class ZaloPoolService implements OnModuleInit {
                                 const userInfo = await instance.api.getUserInfo(friendUid);
                                 const profile = userInfo?.changed_profiles?.[friendUid] || userInfo?.changed_profiles?.[`${friendUid}_0`];
                                 if (profile) {
-                                    this.userNameCache.set(friendUid, profile.zaloName || profile.displayName || '');
-                                    if (profile.avatar) this.avatarCache.set(friendUid, profile.avatar);
+                                    this.userNameCache.set(this.cacheKey(accountId, friendUid), profile.zaloName || profile.displayName || '');
+                                    if (profile.avatar) this.avatarCache.set(this.cacheKey(accountId, friendUid), profile.avatar);
                                 }
                             }
                         } catch(e) {}
@@ -693,7 +715,7 @@ export class ZaloPoolService implements OnModuleInit {
                         this.emitBroadcast('zalo:friend-added', {
                             accountId,
                             friendUid,
-                            friendName: this.userNameCache.get(friendUid) || 'Khách mới',
+                            friendName: this.userNameCache.get(this.cacheKey(accountId, friendUid)) || 'Khách mới',
                         });
                     }
                 }
@@ -714,7 +736,7 @@ export class ZaloPoolService implements OnModuleInit {
                     this.emitBroadcast('zalo:friend-removed', {
                         accountId,
                         friendUid: removedUid,
-                        friendName: this.userNameCache.get(removedUid) || 'Không rõ',
+                        friendName: this.userNameCache.get(this.cacheKey(accountId, removedUid)) || 'Không rõ',
                     });
                 }
             } catch (err: any) {
@@ -732,7 +754,7 @@ export class ZaloPoolService implements OnModuleInit {
 
                 // Update group name cache on group updates
                 if (data.groupName && groupId) {
-                    this.groupNameCache.set(String(groupId).replace('g_', ''), data.groupName);
+                    this.groupNameCache.set(this.cacheKey(accountId, String(groupId).replace('g_', '')), data.groupName);
                 }
 
                 // JOIN / JOIN_REQUEST → notify
@@ -742,7 +764,7 @@ export class ZaloPoolService implements OnModuleInit {
                         accountId,
                         type,
                         groupId,
-                        groupName: data.groupName || this.groupNameCache.get(String(groupId).replace('g_', '')) || 'Nhóm Zalo',
+                        groupName: data.groupName || this.groupNameCache.get(this.cacheKey(accountId, String(groupId).replace('g_', ''))) || 'Nhóm Zalo',
                         members: members.map((m: any) => ({ uid: m.id, name: m.dName, avatar: m.avatar })),
                     });
                 }
@@ -777,6 +799,10 @@ export class ZaloPoolService implements OnModuleInit {
 
         listener.on('error', (err: any) => {
             this.logger.error(`[zalo:${accountId}] Listener error:`, err);
+            // Trước đây chỉ log → listener rơi vào lỗi kéo dài (không phát 'closed') thành
+            // zombie: không connected, không reconnect, chỉ chờ cron 5' phát hiện. Nay coi
+            // lỗi như mất kết nối → kích hoạt circuit breaker + auto-reconnect như 'closed'.
+            this.handleDisconnect(accountId);
         });
 
         listener.start({ retryOnClose: true });
@@ -860,16 +886,19 @@ export class ZaloPoolService implements OnModuleInit {
      * 2. For each, fetch recent message history from Zalo
      * 3. Feed each message through processInbound (auto-deduplication via idempotencyKey)
      */
-    async syncMissedMessages(accountId: string, api?: any, ownZaloUid?: string, force = false): Promise<{ synced: number; skipped: number }> {
+    async syncMissedMessages(accountId: string, api?: any, ownZaloUid?: string, force = false, minIntervalMs?: number): Promise<{ synced: number; skipped: number }> {
         this.logger.log(`🔄 [zalo:${accountId}] Starting missed message sync...`);
 
         // Debounce: bỏ qua nếu vừa sync gần đây (trừ khi force = sync thủ công).
         // Ngăn vòng lặp reconnect→sync→ngắt phiên→reconnect dội API liên tục lên Zalo.
+        // minIntervalMs cho phép reconnect dùng ngưỡng NGẮN hơn (mặc định 2') để không bỏ sót
+        // tin đến trong lúc offline ngắn — nhưng vẫn chặn flapping quá nhanh (tránh vòng lặp).
         if (!force) {
+            const threshold = minIntervalMs ?? ZaloPoolService.SYNC_MIN_INTERVAL_MS;
             const last = this.lastSyncAt.get(accountId) || 0;
             const since = Date.now() - last;
-            if (since < ZaloPoolService.SYNC_MIN_INTERVAL_MS) {
-                this.logger.log(`[zalo:${accountId}] ⏭️ Bỏ qua sync (vừa chạy ${Math.round(since / 1000)}s trước, tối thiểu ${ZaloPoolService.SYNC_MIN_INTERVAL_MS / 1000}s).`);
+            if (since < threshold) {
+                this.logger.log(`[zalo:${accountId}] ⏭️ Bỏ qua sync (vừa chạy ${Math.round(since / 1000)}s trước, tối thiểu ${threshold / 1000}s).`);
                 return { synced: 0, skipped: 0 };
             }
         }
@@ -913,14 +942,14 @@ export class ZaloPoolService implements OnModuleInit {
                     const msgs = history?.groupMsgs || [];
                     if (msgs.length === 0) continue;
 
-                    let groupName = this.groupNameCache.get(String(groupId));
+                    let groupName = this.groupNameCache.get(this.cacheKey(accountId, String(groupId)));
                     if (!groupName) {
                         try {
                             const groupInfo = await api.getGroupInfo(String(groupId));
                             const info = groupInfo?.gridInfoMap?.[String(groupId)];
                             if (info?.name) {
                                 groupName = info.name;
-                                this.groupNameCache.set(String(groupId), info.name);
+                                this.groupNameCache.set(this.cacheKey(accountId, String(groupId)), info.name);
                             }
                         } catch (e) {}
                     }
@@ -928,21 +957,18 @@ export class ZaloPoolService implements OnModuleInit {
                     for (const msg of msgs) {
                         try {
                             const data = msg.data || msg;
-                            const msgId = String(data.msgId || data.globalMsgId || '');
-                            if (!msgId) continue;
-
                             const senderUid = String(data.uidFrom || data.userId || '');
                             const isSelf = senderUid === ownZaloUid;
-                            const senderName = data.dName || this.userNameCache.get(senderUid) || (isSelf ? 'Bạn' : 'Thành viên');
+                            const senderName = data.dName || this.userNameCache.get(this.cacheKey(accountId, senderUid)) || (isSelf ? 'Bạn' : 'Thành viên');
                             const content = typeof data.content === 'string' ? data.content : (data.content?.msg || data.content?.title || '');
                             const ts = data.ts ? new Date(parseInt(String(data.ts))) : new Date();
 
                             const parsedMessage: any = {
-                                externalMessageId: msgId,
+                                externalMessageId: buildExternalMsgId(data),
                                 externalUserId: `g_${groupId}`,
                                 senderName: senderName,
                                 contactName: groupName || 'Nhóm Zalo',
-                                senderAvatar: this.avatarCache.get(senderUid) || '',
+                                senderAvatar: this.avatarCache.get(this.cacheKey(accountId, senderUid)) || '',
                                 timestamp: ts,
                                 text: content,
                                 rawPayload: data,
@@ -1014,14 +1040,12 @@ export class ZaloPoolService implements OnModuleInit {
                 for (const { msg } of collectedMsgs) {
                     try {
                         const msgData = msg.data || msg;
-                        const msgId = String(msgData.msgId || msgData.globalMsgId || '');
-                        if (!msgId) continue;
-
                         const senderUid = String(msgData.uidFrom || msgData.userId || '');
                         const isSelf = senderUid === ownZaloUid;
                         const threadId = String(msgData.idTo || msgData.toUid || msgData.uidFrom || '');
+                        const msgId = buildExternalMsgId(msgData);
                         const friendUid = isSelf ? threadId : senderUid;
-                        const friendName = this.userNameCache.get(friendUid) || msgData.dName || 'Khách Zalo';
+                        const friendName = this.userNameCache.get(this.cacheKey(accountId, friendUid)) || msgData.dName || 'Khách Zalo';
                         const senderName = isSelf ? 'Bạn' : (msgData.dName || friendName);
 
                         const rawContent = msgData.content;
@@ -1033,7 +1057,7 @@ export class ZaloPoolService implements OnModuleInit {
                             externalUserId: friendUid,
                             senderName: senderName,
                             contactName: isSelf ? null : friendName,
-                            senderAvatar: this.avatarCache.get(senderUid) || '',
+                            senderAvatar: this.avatarCache.get(this.cacheKey(accountId, senderUid)) || '',
                             timestamp: ts,
                             text: content,
                             rawPayload: msgData,
@@ -1067,8 +1091,8 @@ export class ZaloPoolService implements OnModuleInit {
             for (const friend of friends) {
                 const uid = String(friend.userId || friend.uid || '');
                 const name = friend.displayName || friend.zaloName || friend.zalo_name || '';
-                if (uid && name) this.userNameCache.set(uid, name);
-                if (uid && friend.avatar) this.avatarCache.set(uid, friend.avatar);
+                if (uid && name) this.userNameCache.set(this.cacheKey(accountId, uid), name);
+                if (uid && friend.avatar) this.avatarCache.set(this.cacheKey(accountId, uid), friend.avatar);
             }
             syncLog(`[zalo:${accountId}] Cached ${friends.length} friend names/avatars`);
         } catch (e: any) {
@@ -1106,7 +1130,12 @@ export class ZaloPoolService implements OnModuleInit {
                     if (!allUnreadExtIds.has(extId)) {
                         conv.unreadCount = 0;
                         await convRepo.save(conv);
-                        try { this.eventsGateway.emitConversationUpdated({ id: conv.id, unreadCount: 0 }); } catch(e) {}
+                        try {
+                            this.eventsGateway.emitConversationUpdated(
+                                { id: conv.id, unreadCount: 0 },
+                                conv.tenantId ?? this.accountTenantCache.get(accountId),
+                            );
+                        } catch(e) {}
                         cleared++;
                     }
                 }
@@ -1148,7 +1177,9 @@ export class ZaloPoolService implements OnModuleInit {
                 await this.runScopedForChannel(channelId, () =>
                     processor.syncUnreadMarks(channelId, Array.from(allUnreadExtIds)));
             } catch (e: any) {
-                this.logger.warn(`[zalo:${accountId}] Unread poll error: ${e.message}`);
+                // §11: đây là vòng lặp 15s — dùng debug để không flood log mức warn khi
+                // session Zalo tạm mất. Lỗi kết nối thật vẫn được zalo-health-check báo.
+                this.logger.debug(`[zalo:${accountId}] Unread poll error: ${e?.message ?? e}`);
             }
         };
 
@@ -1175,6 +1206,16 @@ export class ZaloPoolService implements OnModuleInit {
 
     // ═══════════════════════ HELPERS ═══════════════════════
 
+    /** Dừng poll unread của một account (idempotent). */
+    private stopUnreadPolling(accountId: string): void {
+        const interval = this.unreadPollingIntervals.get(accountId);
+        if (interval) {
+            clearInterval(interval);
+            this.unreadPollingIntervals.delete(accountId);
+            this.logger.log(`🛑 [zalo:${accountId}] Stopped unread polling`);
+        }
+    }
+
     disconnect(accountId: string): void {
         const instance = this.instances.get(accountId);
         if (instance?.api?.listener) {
@@ -1184,7 +1225,29 @@ export class ZaloPoolService implements OnModuleInit {
                 this.logger.warn(`Error stopping listener for ${accountId}:`, err);
             }
         }
+        // RÒ RỈ ĐÃ VÁ (audit 2026-07-25): trước đây chỉ stop listener + xoá instance, KHÔNG
+        // clearInterval ⇒ pollFn 15s vẫn chạy mãi trên session đã chết (findOne + getUnreadMark
+        // lỗi + syncUnreadMarks full-scan + logger.warn), và tích luỹ thêm mỗi lần reconnect.
+        this.stopUnreadPolling(accountId);
         this.instances.delete(accountId);
+    }
+
+    /**
+     * Dọn tài nguyên khi process shutdown (cần `app.enableShutdownHooks()` ở main.ts):
+     * clear toàn bộ interval poll + stop mọi listener để không giữ event loop / socket Zalo.
+     */
+    onModuleDestroy(): void {
+        for (const accountId of Array.from(this.unreadPollingIntervals.keys())) {
+            this.stopUnreadPolling(accountId);
+        }
+        for (const [accountId, instance] of Array.from(this.instances.entries())) {
+            try {
+                instance?.api?.listener?.stop();
+            } catch (err) {
+                this.logger.warn(`Error stopping listener for ${accountId} on shutdown:`, err);
+            }
+        }
+        this.instances.clear();
     }
 
     getStatus(accountId: string): string {
@@ -1271,12 +1334,13 @@ export class ZaloPoolService implements OnModuleInit {
         try {
             if (p.isGroupChat) {
                 const groupIdRaw = p.externalUserId.replace('g_', '');
-                if (!this.groupNameCache.get(groupIdRaw)) {
+                if (!this.groupNameCache.get(this.cacheKey(accountId, groupIdRaw))) {
                     const groupInfo = await api.getGroupInfo(groupIdRaw);
                     const info = groupInfo?.gridInfoMap?.[groupIdRaw];
                     if (info?.name) {
-                        this.groupNameCache.set(groupIdRaw, info.name);
-                        await processor.updateContactProfile(channelId, p.externalUserId, { displayName: info.name });
+                        this.groupNameCache.set(this.cacheKey(accountId, groupIdRaw), info.name);
+                        await this.runScopedForChannel(channelId, () =>
+                            processor.updateContactProfile(channelId, p.externalUserId, { displayName: info.name }));
                     }
                 }
                 return; // nhóm: chỉ cập nhật tên nhóm
@@ -1288,12 +1352,13 @@ export class ZaloPoolService implements OnModuleInit {
             const profile = profiles[0];
             const fetchedName = profile?.displayName || profile?.zaloName || profile?.zalo_name;
             const avatar = (p.targetUidForProfile === p.senderUid) ? profile?.avatar : undefined;
-            if (fetchedName) this.userNameCache.set(p.targetUidForProfile, fetchedName);
-            if (avatar) this.avatarCache.set(p.senderUid, avatar);
-            await processor.updateContactProfile(channelId, p.externalUserId, {
-                displayName: fetchedName || undefined,
-                avatarUrl: avatar || undefined,
-            });
+            if (fetchedName) this.userNameCache.set(this.cacheKey(accountId, p.targetUidForProfile), fetchedName);
+            if (avatar) this.avatarCache.set(this.cacheKey(accountId, p.senderUid), avatar);
+            await this.runScopedForChannel(channelId, () =>
+                processor.updateContactProfile(channelId, p.externalUserId, {
+                    displayName: fetchedName || undefined,
+                    avatarUrl: avatar || undefined,
+                }));
         } catch (e: any) {
             this.logger.warn(`[zalo:${accountId}] background profile resolve failed: ${e.message}`);
         }
@@ -1301,7 +1366,13 @@ export class ZaloPoolService implements OnModuleInit {
 
     private emit(room: string, event: string, data: any): void {
         try {
-            this.eventsGateway.server?.to(room)?.emit(event, data);
+            const accountId = String(data?.accountId || '');
+            const tenantId = this.accountTenantCache.get(accountId);
+            if (!accountId || tenantId == null) {
+                this.logger.warn(`Drop ${event}: không phân giải được tenant cho account ${accountId || '(trống)'}`);
+                return;
+            }
+            this.eventsGateway.emitAccountScopedEvent(tenantId, accountId, event, data);
         } catch (e) {
             this.logger.warn(`Failed to emit ${event} to ${room}: ${e.message}`);
         }
@@ -1309,10 +1380,33 @@ export class ZaloPoolService implements OnModuleInit {
 
     private emitBroadcast(event: string, data: any): void {
         try {
-            this.eventsGateway.server?.emit(event, data);
+            const accountId = String(data?.accountId || '');
+            const tenantId = this.accountTenantCache.get(accountId);
+            if (tenantId == null) {
+                this.logger.warn(`Drop broadcast ${event}: không phân giải được tenant cho account ${accountId || '(trống)'}`);
+                return;
+            }
+            this.eventsGateway.emitTenantScopedEvent(tenantId, event, data);
         } catch (e) {
             this.logger.warn(`Failed to broadcast ${event}: ${e.message}`);
         }
+    }
+
+    private async resolveAndCacheAccountTenant(accountId: string): Promise<number> {
+        const rows = await this.repo.manager.query(
+            `SELECT ch.tenant_id
+             FROM zalo_accounts za
+             INNER JOIN channels ch ON ch.id = za.channel_id
+             WHERE za.id = $1
+             LIMIT 1`,
+            [accountId],
+        );
+        const tenantId = Number(rows?.[0]?.tenant_id);
+        if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
+            throw new Error(`Tài khoản Zalo ${accountId} thiếu tenant hợp lệ.`);
+        }
+        this.accountTenantCache.set(accountId, tenantId);
+        return tenantId;
     }
 
     // ═══════════════════════ CRM FEATURES — delegated ═══════════════════════

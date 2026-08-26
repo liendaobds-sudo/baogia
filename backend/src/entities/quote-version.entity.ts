@@ -29,8 +29,8 @@ export class QuoteVersion {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @Column({ name: 'created_by', type: 'int', nullable: true })
-  createdBy: number;
+  @Column({ name: 'created_by', type: 'varchar', length: 36, nullable: true })
+  createdBy: string | null;
 
   @Column({ type: 'text', nullable: true })
   note: string;

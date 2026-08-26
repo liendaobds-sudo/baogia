@@ -1,15 +1,18 @@
 import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Message, MessageStatus } from '../../entities/message.entity';
+import { Message, SenderType } from '../../entities/message.entity';
 import { SystemSetting } from '../../entities/system-setting.entity';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { forEachTenant, tenantRlsEnabled } from '../../common/tenant/tenant-background';
+
+/** HTTP status that will never succeed later (CDN expired / revoked). */
+const PERMANENT_HTTP = new Set([400, 401, 403, 404, 410, 451]);
 
 @Injectable()
 export class ZaloMediaArchiverService implements OnApplicationBootstrap {
@@ -26,20 +29,18 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
 
     onApplicationBootstrap() {
         this.logger.log('Zalo Media Archiver initialized. Will check for missing files shortly.');
-        // Run immediately after 10s
-        setTimeout(() => this.processPendingMedia(), 10000);
+        setTimeout(() => this.processPendingMedia(), 15000);
     }
 
-    // Run every 2 minutes
+    // Every 2 minutes (was every 2 min — keep; permanent-fail marks stop the 404 spam)
     @Cron('0 */2 * * * *')
     async handleCron() {
         await this.processPendingMedia();
     }
 
     /**
-     * Khi RLS bật (TENANT_RLS_ENABLED): lặp từng tenant, mỗi vòng quét media trong scope
-     * tenant (RLS lọc đúng message từng xưởng). Khi tắt (mặc định): chạy thẳng như cũ.
-     * Guard `isRunning` giữ ở ngoài → vẫn chỉ 1 lượt chạy tại một thời điểm.
+     * Khi RLS bật: lặp từng tenant. Khi tắt: chạy thẳng.
+     * Guard `isRunning` → 1 lượt tại một thời điểm.
      */
     async processPendingMedia() {
         if (this.isRunning) return;
@@ -53,88 +54,158 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
 
     private async processPendingMediaCore() {
         try {
-            // Find 5 messages that haven't been backed up, but have attachments
             const messages = await this.messageRepo
                 .createQueryBuilder('msg')
                 .where('msg.is_media_backed_up = :backedUp', { backedUp: false })
                 .andWhere("msg.attachments IS NOT NULL AND msg.attachments != '[]'")
-                // Only download received messages (from Zalo) as sent ones are already local
-                .andWhere("msg.status = :msgStatus", { msgStatus: MessageStatus.RECEIVED })
+                .andWhere('msg.sender_type = :senderType', { senderType: SenderType.CUSTOMER })
                 .orderBy('msg.created_at', 'ASC')
                 .take(5)
                 .getMany();
 
-            if (messages.length === 0) {
-                return;
-            }
+            if (messages.length === 0) return;
 
-            // Get storage root
             const setting = await this.settingRepo.findOne({ where: { key: 'zalo_media_storage_path' } });
-            const storageRoot = setting?.value ? setting.value : path.join(process.cwd(), 'uploads', 'zalo_backups');
-            
-            this.logger.log(`Found ${messages.length} messages to archive. Storage Root: ${storageRoot}`);
+            const storageRoot = setting?.value
+                ? setting.value
+                : path.join(process.cwd(), 'uploads', 'zalo_backups');
+
+            this.logger.debug(`Archiver: ${messages.length} message(s) pending. Root: ${storageRoot}`);
 
             for (const msg of messages) {
                 try {
-                    let updated = false;
-                    let hasFailed = false;
-                    const datePath = new Date(msg.createdAt).toISOString().slice(0, 10).replace(/-/g, '/'); // 2026/04/14
-                    // Phân vùng media theo tenant cho FILE MỚI: khi RLS bật + có tenant context
-                    // (forEachTenant đã vào withTenant từng tenant) → thư mục con `t<id>/...`.
-                    // Khi flag TẮT (mặc định) hoặc không có tenant → relDir === datePath ⇒
-                    // uploadDir + localUrl byte-for-byte như cũ. File CŨ giữ localUrl cũ nên
-                    // controller đọc (path.join(storageRoot, localUrl)) vẫn resolve đúng.
-                    const tenantId = tenantRlsEnabled() ? (this.tenantCtx?.currentTenantId() ?? null) : null;
-                    const relDir = tenantId != null ? `t${tenantId}/${datePath}` : datePath;
-                    const uploadDir = path.join(storageRoot, relDir);
-
-                    if (!fs.existsSync(uploadDir)) {
-                        fs.mkdirSync(uploadDir, { recursive: true });
-                    }
-
-                    const parsedAttachments = Array.isArray(msg.attachments) ? msg.attachments : typeof msg.attachments === 'string' ? JSON.parse(msg.attachments) : [];
-
-                    for (const attachment of parsedAttachments) {
-                        if (attachment.localUrl) continue; // already downloaded
-                        if (!attachment.url || !attachment.url.startsWith('http')) continue;
-
-                        try {
-                            const originalFileName = attachment.name || `file_${Date.now()}.bin`;
-                            // Generate safe filename preventing collision
-                            const safeFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}_${originalFileName}`;
-                            const destPath = path.join(uploadDir, safeFileName);
-
-                            this.logger.log(`Downloading ${attachment.url} to ${destPath}`);
-
-                            const response = await axios.get(attachment.url, { responseType: 'stream', timeout: 30000 });
-                            
-                            // Save to disk using streams for low memory usage
-                            await pipeline(response.data, fs.createWriteStream(destPath));
-
-                            // Save relative path for controller resolution
-                            attachment.localUrl = `/${relDir}/${safeFileName}`;
-                            updated = true;
-                        } catch (err: any) {
-                            this.logger.error(`Failed to download ${attachment.url}: ${err.message}`);
-                            hasFailed = true;
-                        }
-                    }
-
-                    if (updated || parsedAttachments.length === 0) {
-                        msg.attachments = parsedAttachments;
-                        // If one attachment failed, don't mark as fully backed up, it will retry
-                        if (!hasFailed) {
-                            msg.isMediaBackedUp = true;
-                        }
-                        await this.messageRepo.save(msg);
-                        this.logger.log(`Archived message ${msg.id}`);
-                    }
-                } catch(e) {
+                    await this.archiveOneMessage(msg, storageRoot);
+                } catch (e) {
                     this.logger.error(`Error processing msg ${msg.id}: ${e}`);
                 }
             }
         } catch (error) {
             this.logger.error('Error in Zalo Media Archiver sequence', error);
         }
+    }
+
+    private async archiveOneMessage(msg: Message, storageRoot: string): Promise<void> {
+        const datePath = new Date(msg.createdAt).toISOString().slice(0, 10).replace(/-/g, '/');
+        const tenantId = tenantRlsEnabled() ? (this.tenantCtx?.currentTenantId() ?? null) : null;
+        const relDir = tenantId != null ? `t${tenantId}/${datePath}` : datePath;
+        const uploadDir = path.join(storageRoot, relDir);
+
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        const parsedAttachments = Array.isArray(msg.attachments)
+            ? msg.attachments
+            : typeof msg.attachments === 'string'
+              ? JSON.parse(msg.attachments)
+              : [];
+
+        if (parsedAttachments.length === 0) {
+            msg.isMediaBackedUp = true;
+            await this.messageRepo.save(msg);
+            return;
+        }
+
+        let changed = false;
+        let hasTransientFail = false;
+
+        for (const attachment of parsedAttachments) {
+            if (attachment.localUrl) continue;
+            // Permanent failure already recorded — never re-download
+            if (attachment.archiveFailed) continue;
+            if (!attachment.url || !String(attachment.url).startsWith('http')) {
+                attachment.archiveFailed = true;
+                attachment.archiveFailReason = 'missing_or_invalid_url';
+                changed = true;
+                continue;
+            }
+
+            try {
+                const originalFileName = this.safeBaseName(attachment.name || `file_${Date.now()}.bin`);
+                const safeFileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}_${originalFileName}`;
+                const destPath = path.join(uploadDir, safeFileName);
+
+                const response = await axios.get(attachment.url, {
+                    responseType: 'stream',
+                    timeout: 30000,
+                    // Don't throw on 4xx/5xx so we can classify status
+                    validateStatus: () => true,
+                    maxRedirects: 5,
+                    headers: {
+                        // Some Zalo CDN hosts reject bare clients
+                        'User-Agent': 'ZeplaoPrint-MediaArchiver/1.0',
+                        Accept: '*/*',
+                    },
+                });
+
+                if (response.status >= 200 && response.status < 300) {
+                    await pipeline(response.data, fs.createWriteStream(destPath));
+                    attachment.localUrl = `/${relDir}/${safeFileName}`.replace(/\\/g, '/');
+                    delete attachment.archiveFailed;
+                    delete attachment.archiveFailReason;
+                    changed = true;
+                    this.logger.log(`Archived media for msg ${msg.id}: ${safeFileName}`);
+                } else {
+                    // Drain stream if any to free socket
+                    try {
+                        response.data?.destroy?.();
+                    } catch { /* ignore */ }
+
+                    if (PERMANENT_HTTP.has(response.status)) {
+                        attachment.archiveFailed = true;
+                        attachment.archiveFailReason = `http_${response.status}`;
+                        attachment.archiveFailedAt = new Date().toISOString();
+                        changed = true;
+                        this.logger.warn(
+                            `Permanent archive skip msg=${msg.id} status=${response.status} (CDN expired/missing) — will not retry`,
+                        );
+                    } else {
+                        hasTransientFail = true;
+                        this.logger.warn(
+                            `Transient archive fail msg=${msg.id} status=${response.status} — will retry later`,
+                        );
+                    }
+                }
+            } catch (err: any) {
+                const status = err?.response?.status;
+                if (status && PERMANENT_HTTP.has(status)) {
+                    attachment.archiveFailed = true;
+                    attachment.archiveFailReason = `http_${status}`;
+                    attachment.archiveFailedAt = new Date().toISOString();
+                    changed = true;
+                    this.logger.warn(
+                        `Permanent archive skip msg=${msg.id} status=${status} — will not retry`,
+                    );
+                } else {
+                    hasTransientFail = true;
+                    this.logger.warn(
+                        `Transient archive fail msg=${msg.id}: ${err?.message || err}`,
+                    );
+                }
+            }
+        }
+
+        // Done when every attachment is either local or permanently failed
+        const allResolved = parsedAttachments.every(
+            (a: any) => a.localUrl || a.archiveFailed || !a.url || !String(a.url).startsWith('http'),
+        );
+
+        if (changed || allResolved) {
+            msg.attachments = parsedAttachments;
+            // Only clear the pending flag when nothing left to retry
+            if (allResolved && !hasTransientFail) {
+                msg.isMediaBackedUp = true;
+            }
+            await this.messageRepo.save(msg);
+            if (msg.isMediaBackedUp) {
+                this.logger.debug(`Message ${msg.id} archive queue complete (success and/or permanent skips)`);
+            }
+        }
+    }
+
+    private safeBaseName(name: string): string {
+        return String(name)
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+            .slice(0, 120) || 'file.bin';
     }
 }

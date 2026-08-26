@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventsGateway } from '../gateway/events.gateway';
 import { AiProviderService } from './ai-provider.service';
 import { BaseTool } from './tools/base.tool';
+import { safeErrorMetadata } from '../../common/logging/safe-log-metadata';
 import { SearchKnowledgeBaseTool } from './tools/search-kb.tool';
 import { GetProductInfoTool } from './tools/product-info.tool';
 import { CheckMissingInfoTool } from './tools/missing-info.tool';
@@ -72,6 +73,19 @@ export class AgentPipelineService {
         this.toolsMap.set(tool.name, tool);
     }
 
+    private emitAgentThought(
+        tenantId: number | null | undefined,
+        data: { conversationId: string; status: 'thinking' | 'tool_result_ready'; tool: string; message: string },
+    ): void {
+        if (tenantId == null) {
+            this.logger.warn(
+                `Bỏ agent_thought cho conv ${data.conversationId}: thiếu tenantId`,
+            );
+            return;
+        }
+        this.eventsGateway.emitAgentThought(tenantId, data);
+    }
+
     /**
      * Run the agent pipeline: let Gemini decide which tools to call
      * before generating the final response.
@@ -88,6 +102,8 @@ export class AgentPipelineService {
         conversationContext: {
             productMatch?: any;
             printingKnowledge?: any;
+            /** Tenant của hội thoại — tool đọc dữ liệu org-scoped phải lọc theo giá trị này. */
+            tenantId?: number | null;
         },
     ): Promise<AgentResult> {
         const providers = this.aiProviderService.getProviders();
@@ -147,11 +163,16 @@ export class AgentPipelineService {
                 });
 
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Gemini agent API ${response.status}: ${errorText.substring(0, 200)}`);
+                    await response.text().catch(() => '');
+                    throw new Error(`Gemini agent API ${response.status}`);
                 }
 
-                const data: any = await response.json();
+                let data: any;
+                try {
+                    data = await response.json();
+                } catch {
+                    throw new Error('Gemini agent: invalid response envelope');
+                }
                 const candidate = data.candidates?.[0];
                 if (!candidate) throw new Error('No candidate in agent response');
 
@@ -162,10 +183,14 @@ export class AgentPipelineService {
 
                 if (functionCall) {
                     const { name, args } = functionCall.functionCall;
-                    this.logger.log(`🔧 Agent step ${stepCount}: calling tool "${name}" with args: ${JSON.stringify(args).substring(0, 200)}`);
+                    const registeredName = this.toolsMap.has(name) ? name : 'unknown';
+                    const argCount = args && typeof args === 'object' ? Object.keys(args).length : 0;
+                    this.logger.log(
+                        `🔧 Agent step ${stepCount}: calling tool "${registeredName}" (argCount=${argCount})`,
+                    );
 
                     // 1. Emit "Thinking" Monologue (SSE/Websocket streaming)
-                    this.eventsGateway.server.emit('agent_thought', {
+                    this.emitAgentThought(conversationContext.tenantId, {
                         conversationId,
                         status: 'thinking',
                         tool: name,
@@ -177,7 +202,7 @@ export class AgentPipelineService {
                     toolCallHistory.push({ tool: name, args, result: toolResult });
                     
                     // 2. Emit Tool Result Monologue
-                    this.eventsGateway.server.emit('agent_thought', {
+                    this.emitAgentThought(conversationContext.tenantId, {
                         conversationId,
                         status: 'tool_result_ready',
                         tool: name,
@@ -230,7 +255,7 @@ export class AgentPipelineService {
                 usedAgent: toolCallHistory.length > 0,
             };
         } catch (e) {
-            this.logger.error(`❌ Agent pipeline error: ${(e as Error).message}`);
+            this.logger.error(`❌ Agent pipeline error (${safeErrorMetadata(e)})`);
             return {
                 response: '',
                 toolCalls: toolCallHistory,
@@ -246,7 +271,7 @@ export class AgentPipelineService {
     private async executeTool(
         toolName: string,
         args: any,
-        context: { productMatch?: any; printingKnowledge?: any },
+        context: { productMatch?: any; printingKnowledge?: any; tenantId?: number | null },
     ): Promise<string> {
         try {
             const tool = this.toolsMap.get(toolName);
@@ -255,7 +280,8 @@ export class AgentPipelineService {
             }
             return await tool.execute(args, context);
         } catch (e) {
-            this.logger.warn(`⚠️ Tool "${toolName}" failed: ${(e as Error).message}`);
+            const registeredName = this.toolsMap.has(toolName) ? toolName : 'unknown';
+            this.logger.warn(`⚠️ Tool "${registeredName}" failed (${safeErrorMetadata(e)})`);
             return `Lỗi khi gọi tool: ${(e as Error).message}`;
         }
     }

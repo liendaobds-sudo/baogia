@@ -534,14 +534,16 @@ export class PricingService {
                 const pricePerPage = parseFloat(result[0].price_per_page ?? 0);
                 return (pricePerBook + (pricePerPage * pageCount)) * quantity;
             }
-            // Không có dòng khớp code → kiểu đóng cuốn chưa cấu hình. Cảnh báo để không
-            // âm thầm báo giá thiếu tiền đóng cuốn (binding_types đã tồn tại + seed từ 2026-06-19).
-            this.logger.warn(`getBindingCost: không tìm thấy binding_types.code='${bindingType}' (is_active) → chi phí đóng cuốn = 0`);
+            // Không có dòng khớp code → fail-closed (không báo giá đóng cuốn 0đ âm thầm).
+            throw new Error(
+                `Chưa cấu hình kiểu đóng cuốn "${bindingType}" (binding_types). Không thể tính giá bound.`,
+            );
         } catch (e) {
-            // Trước đây nuốt lỗi âm thầm → lỗi DB biến thành "đóng cuốn 0đ" mà không ai biết.
-            // Nay log rõ rồi mới fallback 0 (giữ luồng báo giá không gãy).
+            if (e instanceof Error && e.message.includes('đóng cuốn')) throw e;
             this.logger.error(`getBindingCost query failed (code='${bindingType}')`, e as any);
+            throw new Error(
+                `Lỗi tra cứu chi phí đóng cuốn "${bindingType}". Không thể tính giá bound.`,
+            );
         }
-        return 0;
     }
 }

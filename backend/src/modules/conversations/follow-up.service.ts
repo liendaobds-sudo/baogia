@@ -44,6 +44,23 @@ export class FollowUpService {
         @Optional() private tenantCtx?: TenantContextService,
     ) { }
 
+    /** Tenant dùng riêng cho realtime; thiếu tenant thì caller drop event, không broadcast global. */
+    private async resolveConversationTenantId(conversationId: string): Promise<number | null> {
+        try {
+            const conversation = await this.convRepo.findOne({
+                where: { id: conversationId },
+                select: ['id', 'tenantId'],
+            });
+            return conversation?.tenantId ?? null;
+        } catch (error) {
+            this.logger.warn(
+                `Không xác định được tenant để emit follow-up cho conv ${conversationId.substring(0, 8)}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            );
+            return null;
+        }
+    }
+
     /**
      * Schedule follow-up for a conversation after agent sends a message
      */
@@ -87,13 +104,16 @@ export class FollowUpService {
         const saved = await this.followUpRepo.save(followUp);
         this.logger.log(`⏰ Follow-up #${attempt} scheduled for conv ${conversationId.substring(0, 8)} at ${scheduledAt.toLocaleString('vi-VN')} (context: ${context})`);
 
-        // Emit event so frontend can show badge
-        this.gateway.server.to(`conversation:${conversationId}`).emit('follow_up_scheduled', {
-            followUpId: saved.id,
-            scheduledAt: saved.scheduledAt,
-            attempt: saved.attempt,
-            context: saved.context,
-        });
+        // Emit event so frontend can show badge. Thiếu tenant → drop, không phát toàn cục.
+        const tenantId = await this.resolveConversationTenantId(conversationId);
+        if (tenantId != null) {
+            this.gateway.emitFollowUpScheduled(tenantId, conversationId, {
+                followUpId: saved.id,
+                scheduledAt: saved.scheduledAt,
+                attempt: saved.attempt,
+                context: saved.context,
+            });
+        }
 
         return saved;
     }
@@ -115,10 +135,10 @@ export class FollowUpService {
 
         this.logger.log(`❌ Cancelled ${pending.length} pending follow-ups for conv ${conversationId.substring(0, 8)}`);
 
-        this.gateway.server.to(`conversation:${conversationId}`).emit('follow_up_cancelled', {
-            conversationId,
-            count: pending.length,
-        });
+        const tenantId = await this.resolveConversationTenantId(conversationId);
+        if (tenantId != null) {
+            this.gateway.emitFollowUpCancelled(tenantId, conversationId, pending.length);
+        }
 
         return pending.length;
     }
@@ -151,14 +171,18 @@ export class FollowUpService {
 
         for (const fu of dueFollowUps) {
             try {
-                // Emit follow-up via WebSocket (agent will see it as a notification)
-                this.gateway.server.emit('follow_up_due', {
-                    followUpId: fu.id,
-                    conversationId: fu.conversationId,
-                    message: fu.message,
-                    attempt: fu.attempt,
-                    context: fu.context,
-                });
+                // Emit follow-up via WebSocket (agent will see it as a notification).
+                // Relation conversation là nguồn tenant của chính row; hàng legacy NULL bị drop.
+                const tenantId = fu.conversation?.tenantId;
+                if (tenantId != null) {
+                    this.gateway.emitFollowUpDue(tenantId, {
+                        followUpId: fu.id,
+                        conversationId: fu.conversationId,
+                        message: fu.message,
+                        attempt: fu.attempt,
+                        context: fu.context,
+                    });
+                }
 
                 fu.status = FollowUpStatus.SENT;
                 fu.sentAt = now;

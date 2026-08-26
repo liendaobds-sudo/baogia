@@ -40,6 +40,7 @@ const FILE_ICONS: Record<string, string> = {
 export default function KBPage() {
     const { token } = useAuth();
     const [documents, setDocuments] = useState<KbDocument[]>([]);
+    const [docsLoading, setDocsLoading] = useState(true);
     const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
     const [chunks, setChunks] = useState<KbChunk[]>([]);
     const [uploading, setUploading] = useState(false);
@@ -65,6 +66,7 @@ export default function KBPage() {
             const res = await fetch(`${API}/kb/documents`, { headers: headers() });
             if (res.ok) { const data = await res.json(); setDocuments(data || []); }
         } catch (err) { console.error(err); }
+        finally { setDocsLoading(false); }
     }, [headers]);
 
     const fetchChunks = useCallback(async (docId: string) => {
@@ -90,6 +92,11 @@ export default function KBPage() {
 
     const handleSaveContent = async () => {
         if (!selectedDoc) return;
+        // Validate trước khi gửi — tránh lưu tài liệu rỗng tiêu đề/nội dung.
+        if (!editTitle.trim() || !editContent.trim()) {
+            setSaveMsg('❌ Tiêu đề và nội dung không được để trống');
+            return;
+        }
         setSaving(true);
         setSaveMsg('');
         try {
@@ -245,7 +252,17 @@ export default function KBPage() {
                         </svg>
                         Tài liệu
                     </div>
-                    {documents.length === 0 && (
+                    {docsLoading && (
+                        <div style={{
+                            padding: 32, color: '#94a3b8', textAlign: 'center',
+                            background: '#fff', borderRadius: 14, border: '1px solid #f1f5f9',
+                        }}>
+                            <div style={{ width: 28, height: 28, border: '3px solid #e2e8f0', borderTopColor: '#4f46e5', borderRadius: '50%', margin: '0 auto 8px', animation: 'spin 0.8s linear infinite' }} />
+                            <div style={{ fontSize: 13 }}>Đang tải tài liệu...</div>
+                            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                        </div>
+                    )}
+                    {!docsLoading && documents.length === 0 && (
                         <div style={{
                             padding: 32, color: '#94a3b8', textAlign: 'center',
                             background: '#fff', borderRadius: 14, border: '1px solid #f1f5f9',

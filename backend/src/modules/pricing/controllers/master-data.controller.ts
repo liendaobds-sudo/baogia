@@ -16,7 +16,11 @@ import { CreatePrinterDto, UpdatePrinterDto } from '../dto/printers.dto';
 export class PaperSizesController {
     constructor(private readonly service: MasterDataService) {}
 
+    // Audit 2026-07-25: các route GET master-data trước đây KHÔNG gắn @Permissions ⇒
+    // PermissionsGuard cho qua (không metadata = allow) ⇒ mọi user đăng nhập đọc được toàn bộ
+    // bảng giá/định mức. Nay yêu cầu `pricing.view` (cả 4 role hệ thống đều đã có quyền này).
     @Get()
+    @Permissions('pricing.view')
     async findAll(
         @Query('id') id?: string,
         @Query('scope') scope?: string,
@@ -58,6 +62,7 @@ export class PricingTiersController {
     constructor(private readonly service: MasterDataService) {}
 
     @Get()
+    @Permissions('pricing.view')
     async findAll(@Query('id') id?: string, @Query('material_id') materialId?: string) {
         if (id) {
             const data = await this.service.findTierById(id);
@@ -95,6 +100,7 @@ export class PrintTypesController {
     constructor(private readonly service: MasterDataService) {}
 
     @Get()
+    @Permissions('pricing.view')
     async findAll() { return { success: true, data: await this.service.findAllPrintTypes() }; }
     @Post()
     @Permissions('pricing.edit')
@@ -112,6 +118,7 @@ export class PrintTypesController {
 export class UnitsController {
     constructor(private readonly service: MasterDataService) {}
     @Get()
+    @Permissions('pricing.view')
     async findAll() { return { success: true, data: await this.service.findAllUnits() }; }
     @Post()
     @Permissions('pricing.edit')
@@ -132,6 +139,7 @@ export class ErpPrintersController {
         private readonly printers: PrintersService,
     ) {}
     @Get()
+    @Permissions('pricing.view')
     async findAll() { return { success: true, data: await this.service.findAllPrinters() }; }
     @Post()
     @Permissions('pricing.edit')
@@ -150,6 +158,7 @@ export class LargeFormatPricingController {
     constructor(private readonly service: MasterDataService) {}
 
     @Get()
+    @Permissions('pricing.view')
     async findAll(@Query('id') id?: string, @Query('material_id') materialId?: string) {
         if (id) {
             const data = await this.service.findLargeFormatTierById(id);

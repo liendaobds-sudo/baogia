@@ -109,6 +109,29 @@ export interface PricingResult {
     source?: string;
 }
 
+export type AuthoritativePricingResult = PricingResult & { total: number };
+
+/**
+ * Chỉ coi giá là authoritative khi engine đã trả một total hữu hạn, dương và
+ * không yêu cầu báo giá tay. `source=none` là kết quả fallback, không phải
+ * provenance đủ để phát ngôn giá với khách.
+ */
+export function isAuthoritativePricingResult(
+    result: PricingResult | null | undefined,
+): result is AuthoritativePricingResult {
+    return typeof result?.total === 'number'
+        && Number.isFinite(result.total)
+        && result.total > 0
+        && result.requiresManualQuote !== true
+        && (result.source === 'pricing' || result.source === 'pricing-direct')
+        && Array.isArray(result.breakdown)
+        && result.breakdown.every((item) => item
+            && typeof item.item === 'string'
+            && item.item.trim().length > 0
+            && typeof item.cost === 'number'
+            && Number.isFinite(item.cost));
+}
+
 export interface PricingBreakdownItem {
     item: string;
     detail: string;

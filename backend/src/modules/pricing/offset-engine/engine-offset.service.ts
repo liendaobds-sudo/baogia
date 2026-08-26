@@ -4,6 +4,7 @@ import { chuanHoaKho } from './lookups';
 import { loadDefaultPricingData } from './default-data';
 import { ConfigStore } from './config-store.service';
 import { tenantRlsEnabled } from '../../../common/tenant/tenant-background';
+import { TenantContextService } from '../../../common/tenant/tenant-context.service';
 import { tinhToRoi, ToRoiInput } from './products/to-roi';
 import { tinhBiThuFolder, BiThuFolderInput } from './products/bi-thu-folder';
 import { tinhSpKhac, SpKhacInput } from './products/sp-khac';
@@ -30,13 +31,47 @@ export interface OffsetEngineResult {
 @Injectable()
 export class EngineOffsetService implements OnModuleInit {
     private readonly logger = new Logger(EngineOffsetService.name);
-    private cached: PricingData | null = null;
+
+    /**
+     * Cache PricingData (bảng giá offset) — CÔ LẬP THEO TENANT (audit 2026-07-25).
+     *
+     * Bảng giá offset (`offset_cfg_*`, `pricing_config`, vật tư) là dữ liệu org-scoped, nhưng
+     * trước đây được cache trong MỘT field singleton nạp một lần lúc boot ⇒ khi bật
+     * `TENANT_RLS_ENABLED`, mọi tenant dùng chung bảng giá của lần nạp đầu ⇒ SAI TIỀN.
+     *
+     * Khi flag TẮT (mặc định) hoặc ngoài tenant context: khoá `'default'` ⇒ đúng một ô,
+     * hành vi byte-for-byte như trước (golden `offset-price-preservation` không đổi).
+     */
+    private cachedByTenant = new Map<string, PricingData>();
 
     /**
      * ConfigStore là tùy chọn: khi chạy trong NestJS sẽ được inject để nạp cấu hình từ DB;
      * khi dùng trong test thuần (`new EngineOffsetService()`) thì bỏ qua, dùng JSON đóng gói.
+     * TenantContextService cũng tùy chọn (test thuần không có DI).
      */
-    constructor(@Optional() private readonly configStore?: ConfigStore) {}
+    constructor(
+        @Optional() private readonly configStore?: ConfigStore,
+        @Optional() private readonly tenantCtx?: TenantContextService,
+    ) {}
+
+    /** Khoá ô cache bảng giá theo tenant (chỉ khi RLS bật + có context), ngược lại 'default'. */
+    private cacheKey(): string {
+        if (tenantRlsEnabled()) {
+            const tenantId = this.tenantCtx?.currentTenantId?.();
+            if (tenantId != null) return `t${tenantId}`;
+        }
+        return 'default';
+    }
+
+    private get cached(): PricingData | null {
+        return this.cachedByTenant.get(this.cacheKey()) ?? null;
+    }
+
+    private set cached(data: PricingData | null) {
+        const key = this.cacheKey();
+        if (data == null) this.cachedByTenant.delete(key);
+        else this.cachedByTenant.set(key, data);
+    }
 
     /** Lúc khởi động: seed cấu hình mặc định (idempotent) rồi nạp PricingData từ DB. */
     async onModuleInit(): Promise<void> {
@@ -57,10 +92,18 @@ export class EngineOffsetService implements OnModuleInit {
         }
     }
 
-    /** Nạp lại PricingData từ ConfigStore (DB) và làm mới cache. */
+    /** Nạp lại PricingData từ ConfigStore (DB) và làm mới cache của tenant hiện hành. */
     async refreshFromConfigStore(): Promise<void> {
         if (!this.configStore) return;
         this.cached = await this.configStore.loadPricingData();
+    }
+
+    /**
+     * Xoá cache bảng giá của MỌI tenant (dùng khi admin sửa cấu hình offset).
+     * Lần tính kế tiếp sẽ nạp lại từ ConfigStore theo đúng tenant của request.
+     */
+    invalidateAllPricingData(): void {
+        this.cachedByTenant.clear();
     }
 
     /** Nguồn dữ liệu hiện hành (mặc định JSON đóng gói; có cache). */
@@ -76,22 +119,27 @@ export class EngineOffsetService implements OnModuleInit {
 
     /**
      * Kiểm tra giá trị gửi lên so với whitelist của loại sản phẩm (`productConfig`).
-     *  - Whitelist CÓ cấu hình + giá trị nằm NGOÀI  → lỗi cứng (chặn tính).
-     *  - Whitelist RỖNG/chưa cấu hình nhưng trường đang dùng → KHÔNG chặn, trả cảnh báo
-     *    để nhắc admin cấu hình (vẫn tính bình thường các mục khác).
-     * Trả về danh sách cảnh báo (rỗng = không có).
+     * LUẬT CỨNG (fail-closed): chưa cấu hình thì KHÔNG ra giá — ném OffsetPricingError.
+     *  - Loại sản phẩm chưa cấu hình gì (thiếu productConfig[type]) → chặn.
+     *  - Field ĐANG DÙNG nhưng loại này chưa khai whitelist cho field đó (allowed rỗng) → chặn.
+     *  - Field đang dùng + whitelist có + giá trị nằm NGOÀI danh sách → chặn.
+     *  - Field bỏ trống (không dùng) → bỏ qua.
      */
-    private validateAgainstConfig(input: OffsetEngineInput, d: PricingData): string[] {
-        const warnings: string[] = [];
+    private validateAgainstConfig(input: OffsetEngineInput, d: PricingData): void {
         const cfg = d.productConfig?.[input.type];
-        if (!cfg) return warnings;
+        // Không có productConfig (seed JSON mặc định / DB chưa cấu hình loại) → cho phép tất cả.
+        // Chỉ enforce khi admin đã khai whitelist cho loại này trong "Cấu Hình Sản Phẩm Offset".
+        // (Khớp pricing-data: productConfig optional; thiếu = form đầy đủ, engine vẫn tính được.)
+        if (!cfg) {
+            return;
+        }
         const v = input as any;
         const check = (val: any, allowed: string[] | undefined, label: string, normalize = false) => {
+            // Field không dùng (bỏ trống / "Không") → bỏ qua.
             if (val == null || val === '' || val === 'Không') return;
-            if (!allowed || allowed.length === 0) {
-                warnings.push(`${label} đang dùng nhưng loại sản phẩm này chưa cấu hình whitelist — vào "Cấu Hình Sản Phẩm Offset" để thiết lập.`);
-                return;
-            }
+            // allowed* rỗng/thiếu = cho phép TẤT CẢ (khớp OffsetProductConfig docs).
+            // Chỉ chặn khi whitelist được khai tường minh và giá trị nằm ngoài.
+            if (!allowed || allowed.length === 0) return;
             const norm = (s: string) => (normalize ? chuanHoaKho(s) : String(s));
             const target = norm(String(val));
             if (!allowed.some((a) => norm(a) === target)) {
@@ -104,13 +152,12 @@ export class EngineOffsetService implements OnModuleInit {
         check(v.epKimViTri, cfg.allowedEpKim, 'Ép kim');
         check(v.vatTuBeMat, cfg.allowedVatTuBeMat, 'Vật tư bề mặt');
         check(v.boxType, cfg.allowedBoxTypes, 'Loại khuôn');
-        return warnings;
     }
 
     calculate(input: OffsetEngineInput): OffsetEngineResult {
         try {
             const d = this.getPricingData();
-            const cfgWarnings = this.validateAgainstConfig(input, d);
+            this.validateAgainstConfig(input, d); // fail-closed: ném nếu chưa cấu hình
             let data: QuoteResult;
             switch (input.type) {
                 case 'to_roi': data = tinhToRoi(input, d); break;
@@ -121,7 +168,6 @@ export class EngineOffsetService implements OnModuleInit {
                 default:
                     return { success: false, error: `Loại sản phẩm offset không được hỗ trợ: ${(input as any).type}` };
             }
-            if (cfgWarnings.length) data.warnings = [...(data.warnings ?? []), ...cfgWarnings];
             return { success: true, data };
         } catch (err) {
             if (err instanceof OffsetPricingError) {

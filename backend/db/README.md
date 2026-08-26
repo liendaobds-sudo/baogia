@@ -12,25 +12,70 @@
 
 | File | Vai trò |
 |---|---|
-| `db/schema.postgres.sql` | Snapshot DDL đầy đủ (tables, sequences, PK/UNIQUE/FK/CHECK, indexes) sinh từ DB Postgres thật bằng chính các hàm DDL của Postgres (`format_type`, `pg_get_constraintdef`, `pg_indexes`). Dùng để dựng lại schema cho môi trường mới. |
+| `db/schema.postgres.sql` | Snapshot DDL đầy đủ (tables, sequences, PK/UNIQUE/FK/CHECK, indexes) sinh từ DB Postgres thật bằng chính các hàm DDL của Postgres (`format_type`, `pg_get_constraintdef`, `pg_indexes`). Dùng để dựng lại schema cho môi trường mới. **Snapshot hiện tại sinh 2026-06-25 ⇒ CHƯA gồm các patch sau ngày đó.** |
 | `db/bootstrap-schema.js` | Áp `schema.postgres.sql` vào **DB rỗng** (có guard từ chối nếu đã có bảng nghiệp vụ). |
+| `db/apply-patches.js` | **(mới 2026-07-25)** Áp các patch `db/*.sql` theo thứ tự tên file, ghi nhận vào bảng sổ `schema_patches`. Bắt buộc chạy sau `bootstrap-schema.js` khi dựng môi trường mới. |
 | `db/2026-06-19_binding_ink_tables.sql` | Patch bảng `binding_types` / `ink_costs` (idempotent). |
 | `src/migrations/_legacy/` | Migration cũ **chỉ dùng cú pháp SQLite**, KHÔNG hợp lệ cho Postgres và chưa từng chạy. Đã đưa ra khỏi glob migration để `migration:run` không gãy. Giữ lại làm tham chiếu lịch sử. |
 
 ## Dựng lại schema cho môi trường mới (Postgres)
 
+> ⚠️ **BƯỚC 3 LÀ BẮT BUỘC.** Snapshot sinh 2026-06-25; sau đó có ~20 patch thêm cột/bảng mà
+> code đang dùng. Bỏ bước 3 ⇒ `POST /erp/orders` (đường tạo báo giá DUY NHẤT còn sống) sẽ vỡ
+> vì thiếu `quotes.customer_email` / `customer_contact` / `tenant_id`, và `GET /me/app-scope`
+> vỡ vì thiếu bảng `tenant_app_scopes`.
+
 ```bash
 # 1. Tạo DB rỗng
 createdb zeplao_erp        # hoặc CREATE DATABASE zeplao_erp;
+psql -d zeplao_erp -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 
 # 2. Áp schema snapshot (chỉ chạy trên DB rỗng)
 cd backend
 node db/bootstrap-schema.js
 
-# 3. (tuỳ) patch bảng phụ + seed master data
-#    psql ... -f db/2026-06-19_binding_ink_tables.sql
+# 3. BẮT BUỘC — áp toàn bộ patch sau snapshot (ghi sổ vào bảng schema_patches)
+node db/apply-patches.js --dry-run     # xem trước danh sách
+node db/apply-patches.js
+
+# 4. (tuỳ) seed master data
 #    node src/database/seeds/...   (theo nhu cầu)
+
+# 5. (chỉ khi bật multi-tenant) theo TENANT-RLS-RUNBOOK.md:
+#    Pha A → tạo role NOSUPERUSER → Pha B → TENANT_RLS_ENABLED=true
+#    (2 file Pha A/B bị loại khỏi apply-patches.js có chủ đích)
 ```
+
+### Thiết lập đường cơ sở cho DB ĐANG CHẠY (làm MỘT LẦN)
+
+DB hiện hành đã được áp patch bằng tay nên chưa có sổ. Ghi sổ mà không chạy lại SQL:
+
+```bash
+cd backend
+node db/apply-patches.js --dry-run      # xem danh sách trước
+node db/apply-patches.js --mark-only    # đánh dấu mọi patch hiện có là "đã áp"
+```
+
+> Đã xác minh 2026-07-25 trên DB thật: Pha A (`tenant_id` + `idx_*_tenant`) và toàn bộ patch
+> cột (`quotes.customer_email/customer_contact/valid_until/delivery_time`, `tenant_app_scopes`…)
+> **đã áp** ⇒ `--mark-only` là đúng cho DB này.
+
+### Index hiệu năng — đường riêng, KHÔNG qua apply-patches
+
+`2026-07-12_perf_indexes_quotes.sql` và `2026-07-25_perf_indexes_audit.sql` bị loại khỏi
+`apply-patches.js` có chủ đích (xem `EXCLUDED`): `CREATE INDEX CONCURRENTLY` không chạy được
+trong transaction, và đã xác minh **file 2026-07-12 CHƯA được áp** trên DB hiện hành.
+
+Áp trong maintenance window (giờ thấp điểm), ngoài transaction:
+
+```bash
+psql -d zeplao_erp -f db/2026-07-12_perf_indexes_quotes.sql
+psql -d zeplao_erp -f db/2026-07-25_perf_indexes_audit.sql
+# kiểm tra: \di idx_quote*   và EXPLAIN ANALYZE theo hướng dẫn trong file
+```
+
+Từ sau đó, mỗi patch mới chỉ cần thêm file `db/YYYY-MM-DD_ten_patch.sql` (viết idempotent)
+rồi chạy `node db/apply-patches.js`.
 
 ## Cập nhật snapshot sau khi đổi entity
 

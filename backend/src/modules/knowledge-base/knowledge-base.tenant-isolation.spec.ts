@@ -7,6 +7,7 @@ import { KnowledgeBaseService } from './knowledge-base.service';
 import { KbDocument } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { EmbeddingService } from './embedding.service';
 
 /**
  * Khoá hành vi cô lập tenant của KB (audit finding 🔴 → fix): khi CHẠY TRONG HTTP context
@@ -39,6 +40,7 @@ describe('KnowledgeBaseService — cô lập tenant (application-layer)', () => 
                 { provide: getRepositoryToken(KbDocument), useValue: docRepo },
                 { provide: getRepositoryToken(KbChunk), useValue: chunkRepo },
                 { provide: HttpService, useValue: { axiosRef: { post: jest.fn() } } },
+                EmbeddingService,
                 { provide: ConfigService, useValue: { get: jest.fn() } },
                 // Giả lập ĐANG Ở TRONG request của tenant #7 (non-bypass).
                 { provide: TenantContextService, useValue: { get: () => ({ tenantId: TENANT, userId: 'u', role: 'agent', bypass: false }) } },
@@ -90,6 +92,7 @@ describe('KnowledgeBaseService — cô lập tenant (application-layer)', () => 
                 { provide: getRepositoryToken(KbDocument), useValue: docRepo },
                 { provide: getRepositoryToken(KbChunk), useValue: chunkRepo },
                 { provide: HttpService, useValue: { axiosRef: { post: jest.fn() } } },
+                EmbeddingService,
                 { provide: ConfigService, useValue: { get: jest.fn() } },
                 { provide: TenantContextService, useValue: { get: () => ({ tenantId: 0, userId: 'system', role: 'system', bypass: true }) } },
             ],

@@ -1,16 +1,38 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CannedResponse } from '../../entities/canned-response.entity';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
 
 @Injectable()
 export class CannedResponseService {
     constructor(
         @InjectRepository(CannedResponse) private repo: Repository<CannedResponse>,
+        private readonly tenant: TenantContextService,
     ) { }
 
+    /**
+     * tenantId concrete để GHI: chỉ khi đang trong một tenant thật (non-bypass).
+     * Ngoài scope hoặc bypass (system/cron) → null = mẫu dùng chung.
+     */
+    private writeTenantId(): number | null {
+        const ctx = this.tenant.get();
+        return ctx && !ctx.bypass ? ctx.tenantId : null;
+    }
+
+    /**
+     * Lưới an toàn tầng ứng dụng khi RLS chưa flip (miror KnowledgeBaseService):
+     * trong tenant thật → chỉ mẫu của tenant đó HOẶC mẫu dùng chung (tenant_id NULL);
+     * ngoài context / bypass → không lọc (job nền, seed hoạt động như cũ).
+     */
+    private applyTenantScope(qb: import('typeorm').SelectQueryBuilder<CannedResponse>, alias = 'cr') {
+        const ctx = this.tenant.get();
+        if (!ctx || ctx.bypass) return qb;
+        return qb.andWhere(`(${alias}.tenant_id = :tid OR ${alias}.tenant_id IS NULL)`, { tid: ctx.tenantId });
+    }
+
     async findAll(userId?: string) {
-        const qb = this.repo.createQueryBuilder('cr')
+        let qb = this.repo.createQueryBuilder('cr')
             .leftJoinAndSelect('cr.createdBy', 'u')
             .orderBy('cr.useCount', 'DESC');
 
@@ -18,6 +40,7 @@ export class CannedResponseService {
         if (userId) {
             qb.where('cr.isGlobal = :g OR cr.createdById = :uid', { g: true, uid: userId });
         }
+        qb = this.applyTenantScope(qb);
 
         const items = await qb.getMany();
         return items.map(cr => ({
@@ -41,7 +64,9 @@ export class CannedResponseService {
      */
     async findByKeywords(customerMessage: string): Promise<CannedResponse[]> {
         const msgLower = customerMessage.toLowerCase();
-        const all = await this.repo.find();
+        // Lọc tenant ngay ở query (trước đây repo.find() quét toàn bộ mẫu mọi tenant).
+        const qb = this.applyTenantScope(this.repo.createQueryBuilder('cr'));
+        const all = await qb.getMany();
 
         const scored = all
             .filter(cr => cr.triggerKeywords && cr.triggerKeywords.trim() !== '')
@@ -57,11 +82,14 @@ export class CannedResponseService {
     }
 
     async create(data: Partial<CannedResponse>) {
-        const cr = this.repo.create(data);
+        // Gán tenant hiện hành khi tạo (null = mẫu dùng chung nếu ngoài context/bypass).
+        const cr = this.repo.create({ ...data, tenantId: this.writeTenantId() });
         return this.repo.save(cr);
     }
 
     async update(id: string, data: Partial<CannedResponse>) {
+        // Chống IDOR: chỉ sửa được mẫu thuộc tenant hiện hành (hoặc dùng chung).
+        await this.requireOwned(id);
         await this.repo.update(id, data);
         return this.repo.findOne({ where: { id } });
     }
@@ -71,17 +99,31 @@ export class CannedResponseService {
     }
 
     async delete(id: string) {
-        await this.repo.delete(id);
+        await this.requireOwned(id);
+        const res = await this.repo.delete(id);
+        if (!res.affected) throw new NotFoundException('Mẫu trả lời không tồn tại');
         return { deleted: true };
     }
 
+    /**
+     * Đảm bảo bản ghi thuộc tenant hiện hành (hoặc dùng chung / bypass) trước khi ghi.
+     * Ném NotFoundException nếu không tồn tại hoặc thuộc tenant khác (không lộ tồn tại chéo tenant).
+     */
+    private async requireOwned(id: string): Promise<void> {
+        const qb = this.applyTenantScope(
+            this.repo.createQueryBuilder('cr').where('cr.id = :id', { id }),
+        );
+        const found = await qb.getOne();
+        if (!found) throw new NotFoundException('Mẫu trả lời không tồn tại');
+    }
+
     async search(query: string) {
-        return this.repo.createQueryBuilder('cr')
-            .where('LOWER(cr.title) LIKE :q OR LOWER(cr.content) LIKE :q OR cr.shortcut LIKE :q', {
+        const qb = this.repo.createQueryBuilder('cr')
+            .where('(LOWER(cr.title) LIKE :q OR LOWER(cr.content) LIKE :q OR cr.shortcut LIKE :q)', {
                 q: `%${query.toLowerCase()}%`,
             })
             .orderBy('cr.useCount', 'DESC')
-            .limit(10)
-            .getMany();
+            .limit(10);
+        return this.applyTenantScope(qb).getMany();
     }
 }

@@ -34,8 +34,8 @@ const INSIGHTS_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 @Injectable()
 export class OutcomeLearningService {
     private readonly logger = new Logger(OutcomeLearningService.name);
-    private cachedInsights: OutcomeInsight | null = null;
-    private cachedAt = 0;
+    // Cache theo TENANT — trước đây 1 cache toàn cục trộn số liệu won/lost mọi tenant.
+    private insightsCache = new Map<number, { insights: OutcomeInsight | null; cachedAt: number }>();
 
     constructor(
         @InjectRepository(Conversation) private convRepo: Repository<Conversation>,
@@ -46,8 +46,14 @@ export class OutcomeLearningService {
      * Build outcome-based learning context for the AI prompt.
      * Returns a string to inject into the system/user prompt.
      */
-    async buildOutcomeContext(currentIntent?: string, currentProduct?: string): Promise<string> {
-        const insights = await this.getInsights();
+    async buildOutcomeContext(currentIntent?: string, currentProduct?: string, tenantId?: number | null): Promise<string> {
+        // CÔ LẬP TENANT (fail-closed): win-rate/pattern tính trên hội thoại thật —
+        // thiếu tenant thì bỏ qua, không tổng hợp chéo tenant.
+        if (tenantId == null) {
+            this.logger.debug('Bỏ qua outcome context: thiếu tenantId (fail-closed)');
+            return '';
+        }
+        const insights = await this.getInsights(tenantId);
         if (!insights || insights.totalWon + insights.totalLost < 3) {
             return ''; // Not enough data to learn from
         }
@@ -92,17 +98,17 @@ export class OutcomeLearningService {
     }
 
     /**
-     * Get aggregated outcome insights (cached)
+     * Get aggregated outcome insights (cached theo tenant)
      */
-    async getInsights(): Promise<OutcomeInsight | null> {
-        if (this.cachedInsights && Date.now() - this.cachedAt < INSIGHTS_CACHE_TTL_MS) {
-            return this.cachedInsights;
+    async getInsights(tenantId: number): Promise<OutcomeInsight | null> {
+        const cached = this.insightsCache.get(tenantId);
+        if (cached && Date.now() - cached.cachedAt < INSIGHTS_CACHE_TTL_MS) {
+            return cached.insights;
         }
 
         try {
-            const insights = await this.computeInsights();
-            this.cachedInsights = insights;
-            this.cachedAt = Date.now();
+            const insights = await this.computeInsights(tenantId);
+            this.insightsCache.set(tenantId, { insights, cachedAt: Date.now() });
             return insights;
         } catch (err) {
             this.logger.warn(`⚠️ Outcome insights computation failed: ${(err as Error).message}`);
@@ -110,17 +116,17 @@ export class OutcomeLearningService {
         }
     }
 
-    private async computeInsights(): Promise<OutcomeInsight> {
-        // Load won and lost conversations with outcome data
+    private async computeInsights(tenantId: number): Promise<OutcomeInsight> {
+        // Load won and lost conversations with outcome data (chỉ trong tenant hiện hành)
         const wonConvs = await this.convRepo.find({
-            where: { status: ConversationStatus.WON },
+            where: { status: ConversationStatus.WON, tenantId },
             select: ['id', 'outcomeData', 'productType', 'createdAt', 'closedAt'],
             order: { closedAt: 'DESC' },
             take: 50,
         });
 
         const lostConvs = await this.convRepo.find({
-            where: { status: ConversationStatus.LOST },
+            where: { status: ConversationStatus.LOST, tenantId },
             select: ['id', 'outcomeData', 'productType', 'createdAt', 'closedAt'],
             order: { closedAt: 'DESC' },
             take: 50,

@@ -1,6 +1,5 @@
 import { EngineOffsetService } from '../engine-offset.service';
 import { loadDefaultPricingData } from '../default-data';
-import { buildTuiOptions, TUI_NEST_OPTIONS } from '../products/tui-giay';
 import { PricingData } from '../pricing-data';
 import type { OffsetEngineInput } from '../engine-offset.service';
 
@@ -60,7 +59,9 @@ describe('Business Validation Gate ±2% (unified vs giá thật) — Req 8.1–8
     // Dữ liệu mẫu để dựng input hợp lệ (khổ in / kích thước / vật tư có thật trong bộ mặc định).
     const d = loadDefaultPricingData();
     const mat = d.materials[0].code; // giấy in đại diện
-    const baiTui = (buildTuiOptions(d)[0] ?? TUI_NEST_OPTIONS[0]).label;
+    // 30×25×10 không lọt bài 28×60 đầu danh sách; dùng phương án dán nối hợp lệ
+    // (soConToLon=2) thay vì khóa một quote có imposition=0.
+    const baiTui = '42cm x 60cm (dán nối)';
     const QUOTE_VAT = d.tyLe.params.TyLe_VAT;
 
     /** Một ca kiểm chứng: mô tả nghiệp vụ + input engine + (tuỳ chọn) giá thật override. */

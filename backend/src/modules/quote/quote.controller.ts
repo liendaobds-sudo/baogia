@@ -1,9 +1,15 @@
-import { Controller, Post, Body, UseGuards, Get, Query, Param, Put, Delete, Res } from '@nestjs/common';
+import {
+    Controller, Post, Body, UseGuards, Get, Query, Param, Put, Delete, Res, GoneException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { QuoteService } from './quote.service';
 import { QuoteCrudService } from './quote-crud.service';
 import { Response } from 'express';
 
+/**
+ * Quote calc + legacy read helpers.
+ * Writes (create/update/delete/clone) are retired — use POST /erp/orders (OrdersService recompute).
+ */
 @Controller('quote')
 @UseGuards(AuthGuard('jwt'))
 export class QuoteController {
@@ -27,23 +33,31 @@ export class QuoteController {
     }
 
     @Post()
-    create(@Body() data: any) {
-        return this.quoteCrudService.createQuote(data, 1);
+    create(@Body() _data: any) {
+        throw new GoneException(
+            'POST /quote đã ngừng hỗ trợ. Dùng POST /api/v1/erp/orders (OrdersService) để tạo báo giá có recompute giá server-side.',
+        );
     }
 
     @Put(':id')
-    update(@Param('id') id: number, @Body() data: any) {
-        return this.quoteCrudService.updateQuote(id, data, 1);
+    update(@Param('id') _id: number, @Body() _data: any) {
+        throw new GoneException(
+            'PUT /quote/:id đã ngừng hỗ trợ. Dùng PUT /api/v1/erp/orders/:id.',
+        );
     }
 
     @Delete(':id')
-    remove(@Param('id') id: number) {
-        return this.quoteCrudService.deleteQuote(id);
+    remove(@Param('id') _id: number) {
+        throw new GoneException(
+            'DELETE /quote/:id đã ngừng hỗ trợ. Dùng DELETE /api/v1/erp/orders/:id.',
+        );
     }
 
     @Post(':id/clone')
-    clone(@Param('id') id: number) {
-        return this.quoteCrudService.cloneQuote(id, 1);
+    clone(@Param('id') _id: number) {
+        throw new GoneException(
+            'POST /quote/:id/clone đã ngừng hỗ trợ. Dùng POST /api/v1/erp/orders/:id/clone.',
+        );
     }
 
     @Post(':id/send')

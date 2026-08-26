@@ -2,17 +2,20 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation, ConversationPriority } from '../../entities/conversation.entity';
+import { AutomationConfig, loadAutomationConfig } from './automation-config';
 
-const AUTO_REPLY_INTENTS = ['chào_hỏi', 'cảm_ơn', 'tạm_biệt', 'xác_nhận', 'q&a_template'];
-const AUTO_REPLY_MIN_CONFIDENCE = 0.8;
 const AUTO_REPLY_MAX_PER_HOUR = 3;
 const AUTO_REPLY_TRACKER_MAX_SIZE = 500;
+const AUTOMATION_CONFIG_CACHE_MS = 10_000;
 
 @Injectable()
 export class AutoReplyService {
     private readonly logger = new Logger(AutoReplyService.name);
     private autoReplyTracker = new Map<string, number[]>();
-    
+
+    // Cache config automation (đọc file mỗi 10s — cùng pattern ai-provider)
+    private automationConfigCache: { config: AutomationConfig; loadedAt: number } | null = null;
+
     // Pattern: UsageSummary token budgeting (claw-code pattern)
     private tokenBudgetTracker = new Map<string, { date: string; count: number }>();
     private readonly MAX_DAILY_TOKENS_PER_CONV = 100000; // 100k tokens per chat/day
@@ -41,6 +44,24 @@ export class AutoReplyService {
         }
     }
 
+    /**
+     * Cấu hình automation do admin lưu từ UI Settings (automation-config.json).
+     * Cache 10s để không đọc file mỗi tin nhắn. testOnly_clearConfigCache() cho test.
+     */
+    getAutomationConfig(): AutomationConfig {
+        const now = Date.now();
+        if (this.automationConfigCache && now - this.automationConfigCache.loadedAt < AUTOMATION_CONFIG_CACHE_MS) {
+            return this.automationConfigCache.config;
+        }
+        const config = loadAutomationConfig(parseInt(process.env.SLA_MINUTES || '10', 10));
+        this.automationConfigCache = { config, loadedAt: now };
+        return config;
+    }
+
+    testOnly_clearConfigCache(): void {
+        this.automationConfigCache = null;
+    }
+
     checkAutoReplyEligibility(
         conversationId: string,
         intent: string,
@@ -49,6 +70,14 @@ export class AutoReplyService {
         usedModel: string,
         directCannedReply: any,
     ): boolean {
+        // CÔNG TẮC TỔNG từ UI Settings — tắt là chặn MỌI auto-gửi,
+        // kể cả canned response gắn cờ autoReply.
+        const cfg = this.getAutomationConfig();
+        if (!cfg.autoReplyEnabled) {
+            this.logger.debug(`Auto-reply OFF theo automation-config — bỏ qua ${conversationId.substring(0, 8)}`);
+            return false;
+        }
+
         // AI Spam Protection via Token Budgeting
         const today = new Date().toISOString().slice(0, 10);
         const budget = this.tokenBudgetTracker.get(conversationId);
@@ -63,8 +92,8 @@ export class AutoReplyService {
 
         const eligible = rateLimitOk && (
             (directCannedReply?.autoReply) ||
-            (AUTO_REPLY_INTENTS.includes(intent)
-                && confidence >= AUTO_REPLY_MIN_CONFIDENCE
+            (cfg.autoReplyIntents.includes(intent)
+                && confidence >= cfg.autoReplyMinConfidence
                 && !hasPrice
                 && usedModel !== 'template')
         ) || false;

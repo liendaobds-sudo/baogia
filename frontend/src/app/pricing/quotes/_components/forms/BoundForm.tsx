@@ -393,7 +393,13 @@ export function BoundForm({ state }: { state: QuoteState }) {
                                                 total: (pricingResult as any).selling_subtotal ?? (pricingResult as any).total,
                                                 unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
                                                 details: pricingResult,
-                                                configParams: { bQuantity, bPageCount, bBindingType },
+                                                configParams: {
+                                                    bQuantity, bPageCount, bBindingType,
+                                                    bCoverMaterialId, bCoverMaterialName, bCoverPaperSizeId,
+                                                    bInnerMaterialId, bInnerMaterialName, bInnerPaperSizeId,
+                                                    bCoverPrintType, bCoverPrintSide, bInnerPrintType, bInnerPrintSide,
+                                                    materialName: [bCoverMaterialName, bInnerMaterialName].filter(Boolean).join(' / ') || '',
+                                                },
                                                 pricingPayload: lastPricingPayload ?? undefined,
                                             });
                                             setFileName('');

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, Query, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RbacService, ALL_PERMISSIONS } from './rbac.service';
 import { RolesGuard, Roles } from '../auth/roles.guard';
@@ -23,10 +23,15 @@ export class RbacController {
         return { success: true, data };
     }
 
-    /** Get role with its permissions */
+    /**
+     * Get role with its permissions.
+     * Audit 2026-07-25: trước đây route này KHÔNG có `@Roles` (mọi user đăng nhập đọc được
+     * bản đồ quyền của mọi role, kể cả role tenant khác) và không truyền tenant xuống service.
+     */
     @Get('roles/:id')
-    async getRole(@Param('id') id: string) {
-        const data = await this.rbacService.findRoleWithPermissions(+id);
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    async getRole(@Param('id') id: string, @TenantId() tenantId: number) {
+        const data = await this.rbacService.findRoleWithPermissions(+id, tenantId ?? null);
         return { success: true, data };
     }
 
@@ -41,16 +46,25 @@ export class RbacController {
     /** Update role permissions (admin only) */
     @Put('roles/:id/permissions')
     @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    async updatePermissions(@Param('id') id: string, @Body() body: { permissions: string[] }) {
-        const data = await this.rbacService.updateRolePermissions(+id, body.permissions);
+    async updatePermissions(
+        @Param('id') id: string,
+        @Body() body: { permissions: string[] },
+        @TenantId() tenantId: number,
+        @Req() req: any,
+    ) {
+        // Truyền tenant xuống service để chặn ghi chéo tenant; role hệ thống chỉ super_admin sửa.
+        const isSuperAdmin = String(req?.user?.role || '').toLowerCase() === 'super_admin';
+        const data = await this.rbacService.updateRolePermissions(
+            +id, body.permissions, tenantId ?? null, { allowSystem: isSuperAdmin },
+        );
         return { success: true, data };
     }
 
     /** Delete custom role (admin only) */
     @Delete('roles/:id')
     @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    async deleteRole(@Param('id') id: string) {
-        const data = await this.rbacService.deleteRole(+id);
+    async deleteRole(@Param('id') id: string, @TenantId() tenantId: number) {
+        const data = await this.rbacService.deleteRole(+id, tenantId ?? null);
         return { success: true, data };
     }
 }

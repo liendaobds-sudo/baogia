@@ -24,7 +24,7 @@ jobs:
       - run: npx jest --runInBand
 
   frontend:
-    name: Frontend (build)
+    name: Frontend (tsc + jest + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,6 +35,11 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      # Audit 2026-07-25: job này trước CHỈ chạy `npm run build` ⇒ suite jest frontend đỏ
+      # (useQuoteConfigurator.spec) không chặn merge trong khi §12.4 yêu cầu suite xanh.
+      # Bổ sung typecheck + jest để hồi quy UI/giá bị bắt tại CI.
+      - run: npx tsc --noEmit
+      - run: npx jest --ci
       - run: npm run build
 
   rls-e2e:

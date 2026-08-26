@@ -19,6 +19,7 @@ import { useQuoteCart } from '../_store/useQuoteCart';
 import { OffsetPreviewSVG } from './OffsetPreviewSVG';
 import DielinePreview from './DielinePreview';
 import { formatVND, StatCard, LBL, INP } from './quote-ui';
+import { quoteAlignedOffsetTotals } from '@/lib/quote/offset-quote-total';
 import { ResizableColumns } from './ResizableColumns';
 
 /** Loại khuôn bế cho xếp bài chính xác (engine dieline). BẮT BUỘC chọn — không còn chế độ ước lượng. */
@@ -525,7 +526,11 @@ function buildPayload(type: ProductType, st: Record<string, any>): Record<string
     return base;
 }
 
-function ResultPanel({ result, error }: { result: OffsetQuoteResult | null; error: string | null }) {
+function ResultPanel({ result, error, quantity }: { result: OffsetQuoteResult | null; error: string | null; quantity: number }) {
+    // Quy đổi về ĐÚNG quy ước tiền của tầng báo giá (VAT trên giá SAU chiết khấu) để số hiển
+    // thị ở đây khớp `grand_total` mà OrdersService lưu và QuotePdfService in ra.
+    // KHÔNG dùng `result.khachTra` (engine áp VAT trên base TRƯỚC chiết khấu ⇒ lệch chietKhau × VAT).
+    const aligned = quoteAlignedOffsetTotals(result, quantity);
     // Cùng "khung thẻ" với luồng kỹ thuật số (TỔNG CHI PHÍ): luôn hiển thị thẻ,
     // kể cả khi chưa có kết quả (hiện "-"), để hai trang nhìn đồng bộ.
     const DOT = ['bg-blue-400', 'bg-emerald-400', 'bg-orange-400', 'bg-purple-400', 'bg-pink-400'];
@@ -569,21 +574,22 @@ function ResultPanel({ result, error }: { result: OffsetQuoteResult | null; erro
                     <div className="flex flex-col gap-1 text-[12px] text-slate-500 border-t border-slate-100 pt-3">
                         <Row k="Tổng chưa VAT" v={result?.tongChuaVAT} />
                         <Row k="Hao hụt" v={result?.haoHut} />
-                        <Row k="VAT" v={result?.vat} />
                         <Row k="Chiết khấu" v={result ? -result.chietKhau : undefined} />
+                        <Row k="Còn lại trước VAT" v={result ? aligned.netPreVat : undefined} />
+                        <Row k="VAT" v={result ? aligned.vatAmount : undefined} />
                     </div>
 
                     {/* Tổng cuối */}
                     <div className="border-t-2 border-dashed border-slate-200 pt-4 mt-2">
                         <div className="flex justify-between items-end mb-1">
                             <span className="text-slate-800 font-extrabold text-sm uppercase">Khách trả:</span>
-                            <span className="font-black text-2xl text-indigo-600 leading-none tracking-tight">{result ? formatVND(result.khachTra) : '0 ₫'}</span>
+                            <span className="font-black text-2xl text-indigo-600 leading-none tracking-tight">{result ? formatVND(aligned.grandTotal) : '0 ₫'}</span>
                         </div>
                         <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide">
-                            Đơn giá: <span className="text-slate-700 font-bold">{result ? formatVND(result.donGia1SP) : '-'}</span> / sp
+                            Đơn giá: <span className="text-slate-700 font-bold">{result ? formatVND(aligned.unitPrice) : '-'}</span> / sp
                         </div>
                         <div className="mt-2 text-[10px] text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-200 font-medium flex items-center gap-1.5">
-                            <span>💡</span> Giá đã gồm VAT &amp; chiết khấu theo cấu hình bên trái.
+                            <span>💡</span> Giá đã gồm VAT &amp; chiết khấu nội bộ theo cấu hình hệ thống.
                         </div>
                     </div>
                 </div>
@@ -635,7 +641,12 @@ function PreviewPanel({ result }: { result: OffsetQuoteResult | null }) {
 export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductType } = {}) => {
     const { token } = useAuth();
     const { pricebook, loading, error: pbError, calculate } = useOffsetPricebook(token);
-    const { addItem, vatRate, chietKhauRate, seedChietKhauRate } = useQuoteCart();
+    const {
+        addItem,
+        vatRate,
+        offsetEngineDiscountRate,
+        seedOffsetEngineDiscountRate,
+    } = useQuoteCart();
     const [internalType] = useState<ProductType>('to_roi');
     const type = activeType ?? internalType;
     const [fileName, setFileName] = useState('');
@@ -649,6 +660,8 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
     const [result, setResult] = useState<OffsetQuoteResult | null>(null);
     const [calcError, setCalcError] = useState<string | null>(null);
     const [calculating, setCalculating] = useState(false);
+    /** Số thứ tự lần tính giá gần nhất (chống đua response — xem onCalc). */
+    const calcSeqRef = useRef(0);
 
     const st = states[type];
     const set = (k: string, v: any) => setStates((prev) => ({ ...prev, [type]: { ...prev[type], [k]: v } }));
@@ -737,15 +750,22 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
 
         setCalculating(true);
         setCalcError(null);
-        // VAT + chiết khấu LẤY TỪ UI (store), gửi dạng phân số cho engine (không gán cứng).
+        // VAT chung và chiết khấu NỘI BỘ engine là hai input riêng. Chiết khấu đầu báo giá
+        // không được đi vào payload này; nó chỉ được áp khi lưu báo giá.
         const payload = buildPayload(type, states[type]);
         payload.vatRate = (Number(vatRate) || 0) / 100;
-        payload.chietKhauRate = (Number(chietKhauRate) || 0) / 100;
+        payload.chietKhauRate = (Number(offsetEngineDiscountRate) || 0) / 100;
+
+        // CHỐNG ĐUA REQUEST (audit 2026-07-25) — vùng tiền: nếu 2 lần tính chồng nhau, chỉ
+        // response của lần MỚI NHẤT được ghi vào state (tránh hiện giá của cấu hình cũ).
+        const seq = ++calcSeqRef.current;
         const res = await calculate(payload);
+        if (seq !== calcSeqRef.current) return;
+
         if (res.ok) { setResult(res.data!); setCalcError(null); }
         else { setResult(null); setCalcError(res.error || 'Tính giá thất bại'); }
         setCalculating(false);
-    }, [pb, type, states, calculate, vatRate, chietKhauRate]);
+    }, [pb, type, states, calculate, vatRate, offsetEngineDiscountRate]);
 
     useEffect(() => {
         const timeout = setTimeout(() => { onCalc(); }, 500);
@@ -763,8 +783,8 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
         if (!pb || seededRef.current) return;
         seededRef.current = true;
         // Seed chiết khấu mặc định từ cấu hình (TyLe_ChietKhau, phân số → %) — chỉ khi user chưa chỉnh.
-        const ckDefault = Number(pb.params?.TyLe_ChietKhau ?? 0) * 100;
-        if (ckDefault > 0) seedChietKhauRate(ckDefault);
+        const ckDefaultRaw = Number(pb.params?.TyLe_ChietKhau ?? 0);
+        seedOffsetEngineDiscountRate(Number.isFinite(ckDefaultRaw) ? ckDefaultRaw * 100 : 0);
         const giaThietKe = (pb.phiCoDinh?.find((p: any) => p.code === 'Gia_ThietKe')?.giaTri) ?? 0;
         const pc = pb.productConfig ?? {};
         setStates((prev) => {
@@ -780,7 +800,7 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
             });
             return next;
         });
-    }, [pb]);
+    }, [pb, seedOffsetEngineDiscountRate]);
 
     const handleAddToCart = () => {
         if (!result) return;
@@ -794,7 +814,11 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
             total: netPreVat,
             unitPrice: (st.soLuong || 0) > 0 ? netPreVat / st.soLuong : result.donGia1SP,
             details: result,
-            configParams: { ...buildPayload(type, st), vatRate: (Number(vatRate) || 0) / 100, chietKhauRate: (Number(chietKhauRate) || 0) / 100 },
+            configParams: {
+                ...buildPayload(type, st),
+                vatRate: (Number(vatRate) || 0) / 100,
+                chietKhauRate: (Number(offsetEngineDiscountRate) || 0) / 100,
+            },
         });
         setFileName('');
     };
@@ -875,7 +899,7 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                         {/* RIGHT: Chi phí + Thêm vào báo giá */}
                         <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto custom-scrollbar pl-1 pr-1">
                             {calculating && <div className="text-[12px] text-indigo-500 font-semibold flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Đang tính giá...</div>}
-                            <ResultPanel result={result} error={calcError} />
+                            <ResultPanel result={result} error={calcError} quantity={st.soLuong || 0} />
                             {result && !calcError && (
                                 <button onClick={handleAddToCart}
                                     className="w-full bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white font-bold py-3 px-5 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2">

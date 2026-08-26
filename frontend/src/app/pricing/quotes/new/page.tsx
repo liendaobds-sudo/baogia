@@ -11,6 +11,8 @@ import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components
 import { useResizableSidebar } from '../_components/useResizableSidebar';
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
+import { resolveUnitLabel } from '@/lib/quote/quote-units';
+import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
 
 type QuoteTab = 'loose' | 'bound' | 'large_format';
 
@@ -35,15 +37,25 @@ const numOrUndef = (v: unknown): number | undefined => {
  * KHÔNG spread thẳng configParams (camelCase) (sẽ bị HTTP 400 "property ... should not exist").
  * Vì vậy: map sang đúng cột snake_case theo từng loại, đồng thời gói FULL configParams + details
  * vào `printing_detail` (JSON whitelisted) để mở Sửa khôi phục lại cấu hình.
+ *
+ * unit: nguồn `resolveUnitLabel` (catalog SP / type) — backend resolve lại khi save.
  */
 const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
     const cfg = (it.configParams ?? {}) as Record<string, unknown>;
+    const unit = resolveUnitLabel({
+        unit: (cfg.unit as string) || undefined,
+        productUnit: (cfg.productUnit as string) || undefined,
+        quoteType: it.type,
+    });
     const base: Record<string, unknown> = {
         product_name: it.name,
         item_type: it.type,
         product_type: it.type,
         quantity: it.quantity,
         item_total: it.total,
+        unit,
+        // Denormalize tên để PDF/list không phụ thuộc join master-data
+        material_name: (cfg.materialName as string) || undefined,
         // Gói cấu hình + kết quả tính + payload GỐC để Sửa khôi phục & backend replay xác thực giá.
         printing_detail: { digital: true, configParams: cfg, details: it.details, pricingPayload: it.pricingPayload },
     };
@@ -52,6 +64,7 @@ const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
             ...base,
             material_id: numOrUndef(cfg.materialId),
             paper_size_id: numOrUndef(cfg.paperSizeId),
+            paper_size_name: (cfg.paperSizeName as string) || undefined,
             item_width: numOrUndef(cfg.itemWidth),
             item_height: numOrUndef(cfg.itemHeight),
             print_type: (cfg.printType as string) || undefined,
@@ -94,7 +107,16 @@ export default function NewQuotePage() {
     const customerInfoRef = useRef<CustomerInfoHandle>(null);
 
     // Cart Context
-    const { items, getTotalAmount, clearCart, addItem, chietKhauRate } = useQuoteCart();
+    const {
+        items,
+        getTotalAmount,
+        clearCart,
+        addItem,
+        headerDiscountType,
+        headerDiscountValue,
+        setHeaderDiscount,
+    } = useQuoteCart();
+    const [editId, setEditId] = useState<string | null>(null);
 
     const handleCustomerNameChange = useCallback((name: string) => {
         setCustomerName(name);
@@ -106,13 +128,14 @@ export default function NewQuotePage() {
     useEffect(() => {
         if (!token || typeof window === 'undefined') return;
         const searchParams = new URLSearchParams(window.location.search);
-        const editId = searchParams.get('edit');
-        if (!editId) return;
+        const id = searchParams.get('edit');
+        if (!id) return;
+        setEditId(id);
 
         let isMounted = true;
         const hydrateQuote = async () => {
             try {
-                const res = await fetch(`${API_URL}/erp/orders/${editId}`, {
+                const res = await fetch(`${API_URL}/erp/orders/${id}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 const json = await res.json();
@@ -132,8 +155,13 @@ export default function NewQuotePage() {
                         customer_contact: d.customer_contact || '',
                         notes: d.customer_note || '',
                     });
+                    setCustomerName(d.customer_name || '');
 
                     clearCart();
+                    setHeaderDiscount(
+                        d.discount_type === 'fixed' ? 'fixed' : 'percent',
+                        Number(d.discount_value) || 0,
+                    );
                     if (d.items && Array.isArray(d.items)) {
                         d.items.forEach((item: any) => {
                             // Cấu hình + kết quả tính được gói trong printing_detail (xem mapItem).
@@ -141,6 +169,8 @@ export default function NewQuotePage() {
                             try { pd = typeof item.printing_detail === 'string' ? JSON.parse(item.printing_detail) : (item.printing_detail || {}); } catch {}
                             const parsedConfig = pd.configParams || {};
                             const parsedDetails = pd.details || {};
+                            const t = (item.product_type || item.item_type || 'loose') as QuoteTab;
+                            if (t === 'loose' || t === 'bound' || t === 'large_format') setQuoteTab(t);
 
                             addItem({
                                 name: item.product_name || 'Sản phẩm',
@@ -156,7 +186,7 @@ export default function NewQuotePage() {
                         });
                     }
                 } else {
-                    console.warn('Không tìm thấy báo giá ID:', editId);
+                    console.warn('Không tìm thấy báo giá ID:', id);
                 }
             } catch (error) {
                 console.error("Lỗi khi load dữ liệu Edit Quote", error);
@@ -166,7 +196,7 @@ export default function NewQuotePage() {
         hydrateQuote();
         return () => { isMounted = false; };
 
-    }, [token, clearCart, addItem]);
+    }, [token, clearCart, addItem, setHeaderDiscount]);
 
     // Prefill từ Báo giá mini (inbox): chỉ chạy khi KHÔNG ở chế độ edit.
     // Mang theo template + tab + số lượng + kích thước qua URL param rồi nạp vào
@@ -222,41 +252,47 @@ export default function NewQuotePage() {
         setIsSaving(true);
 
         const subtotal = getTotalAmount();
-        // Chiết khấu (%) nhập ở mục Thuế & Phí — trước đây bị bỏ khi lưu. Áp trên subtotal,
-        // rồi VAT trên phần SAU chiết khấu (đồng bộ backend createQuote).
-        const discountRate = Math.min(100, Math.max(0, chietKhauRate || 0));
-        const discountAmount = Math.round(subtotal * discountRate / 100);
-        const afterDiscount = subtotal - discountAmount;
-        const vatAmount = afterDiscount * payload.vat_rate / 100;
-        const grandTotal = afterDiscount + vatAmount + payload.shipping_fee;
+        // Chiết khấu đầu báo giá (percent/fixed) áp trước VAT; backend sẽ tính lại cùng contract.
+        const headerDiscount = calculateHeaderDiscount(subtotal, headerDiscountType, headerDiscountValue);
+        const { discountAmount, afterDiscount } = headerDiscount;
+        const vatRate = Number(payload.vat_rate);
+        const ship = Number(payload.shipping_fee);
+        const vatAmount = afterDiscount * (Number.isFinite(vatRate) ? vatRate : 0) / 100;
+        const shippingFee = Number.isFinite(ship) ? ship : 0;
+        const grandTotal = afterDiscount + vatAmount + shippingFee;
 
         try {
-            const res = await fetch(`${API_URL}/erp/orders`, {
-                method: 'POST',
+            // Gửi code từ FE (fallback nếu BE cũ chưa auto-sinh). BE vẫn tự sinh nếu thiếu.
+            const dateCode = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+            const clientCode = `BG-${dateCode}-${Date.now().toString(36).toUpperCase().slice(-4)}`;
+            const body = {
+                code: clientCode,
+                type: mapTabToType(quoteTab),
+                customer_name: payload.customer_name,
+                customer_phone: payload.customer_phone,
+                customer_unit: payload.customer_unit,
+                tax_code: payload.customer_tax_code,
+                customer_address: payload.customer_address,
+                customer_note: payload.notes,
+                customer_email: payload.customer_email,
+                customer_contact: payload.customer_contact,
+                total: subtotal,
+                discount_type: discountAmount > 0 ? headerDiscount.discountType : undefined,
+                discount_value: headerDiscount.discountValue,
+                discount_amount: discountAmount,
+                vat_rate: Number.isFinite(vatRate) ? vatRate : 0,
+                vat_amount: vatAmount,
+                shipping_fee: shippingFee,
+                grand_total: grandTotal,
+                items: items.map(mapItem),
+            };
+            const res = await fetch(editId ? `${API_URL}/erp/orders/${editId}` : `${API_URL}/erp/orders`, {
+                method: editId ? 'PUT' : 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({
-                    type: mapTabToType(quoteTab),
-                    customer_name: payload.customer_name,
-                    customer_phone: payload.customer_phone,
-                    customer_unit: payload.customer_unit,
-                    tax_code: payload.customer_tax_code,
-                    customer_address: payload.customer_address,
-                    customer_note: payload.notes,
-                    customer_email: payload.customer_email,
-                    customer_contact: payload.customer_contact,
-                    total: subtotal,
-                    discount_type: discountRate > 0 ? 'percent' : undefined,
-                    discount_value: discountRate,
-                    discount_amount: discountAmount,
-                    vat_rate: payload.vat_rate,
-                    vat_amount: vatAmount,
-                    shipping_fee: payload.shipping_fee,
-                    grand_total: grandTotal,
-                    items: items.map(mapItem),
-                })
+                body: JSON.stringify(body),
             });
 
             if (!res.ok) {
@@ -276,7 +312,7 @@ export default function NewQuotePage() {
                 return; // KHÔNG clear cart khi lỗi
             }
 
-            toast.show('success', 'Lưu báo giá thành công!');
+            toast.show('success', editId ? 'Cập nhật báo giá thành công!' : 'Lưu báo giá thành công!');
             clearCart();
             router.push('/pricing/quotes');
         } catch (e) {

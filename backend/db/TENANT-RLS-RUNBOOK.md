@@ -2,15 +2,29 @@
 
 Spec: `.kiro/specs/tenant-data-isolation`. Mục tiêu: bật RLS an toàn, không trắng dữ liệu, không hồi quy giá.
 
-## Trạng thái hiện tại (đã làm, an toàn)
+> **STOP — chỉ staging/bản sao (cập nhật 2026-08-23).** Runbook này hiện chỉ cho phép diễn tập
+> trên PostgreSQL staging hoặc bản sao đã cô lập. Không áp Pha A/Pha B, backfill, đổi role hay bật
+> `TENANT_RLS_ENABLED` trên production trong remediation này. Flip production cần phê duyệt thay đổi
+> riêng, backup đã kiểm, maintenance window, owner vận hành và bằng chứng diễn tập mới nhất.
+
+## Trạng thái code hiện tại
 - ✅ G0: `TenantContextService` + interceptor (context theo request).
-- ✅ Pha A: 61 bảng có `tenant_id` (nullable) + backfill → tenant 1. File: `2026-06-26_tenant_phaseA_add_tenant_id.sql`.
 - ✅ Helper `tenantTransaction()` (set_config app.current_tenant / app.bypass).
-- ✅ Backfill lần 2 (2026-07-09): vá **3489 hàng** `tenant_id` NULL sinh sau Pha A → tenant 1
+- ✅ Manifest runtime: `src/common/tenant/rls-manifest.ts` khóa 62 bảng common + 2 bảng baseline
+  và có test parity với `2026-06-26_tenant_phaseB_enable_rls.sql`.
+- ✅ Startup preflight khi flag bật kiểm từng bảng: tồn tại, policy đúng tên, `ENABLE RLS`, `FORCE RLS`,
+  `tenant_id NOT NULL` + trigger cho bảng common; baseline phải nullable và không có trigger.
+- 📝 Trạng thái role/policy/dữ liệu của production **chưa được kiểm trong đợt này** và không được suy
+  từ code hoặc tài liệu lịch sử.
+
+### Bằng chứng lịch sử, không thay cho preflight hiện tại
+- Pha A từng được áp trên môi trường được ghi nhận ngày 2026-07-09. File:
+  `2026-06-26_tenant_phaseA_add_tenant_id.sql`.
+- Backfill lần 2 (2026-07-09) từng vá **3489 hàng** `tenant_id` NULL → tenant 1
   (điều tra: chỉ tenant 1 có dữ liệu thật; 4/5/6/7 là TEST rỗng). File:
   `2026-07-09_backfill_null_tenant.sql`. Sau backfill: **0 hàng NULL** trên mọi bảng org-scoped
-  → gỡ blocker cho `ALTER COLUMN tenant_id SET NOT NULL` của Pha B.
-- 📝 Chưa chạy: role NOSUPERUSER (`2026-06-26_tenant_app_role.sql`), RLS (`2026-06-26_tenant_phaseB_enable_rls.sql`).
+  tại thời điểm đo. Phải đo lại sau khi dừng write trên bản sao/staging; không tái sử dụng số này
+  như bằng chứng production hiện tại.
 
 ## ⚠️ CHECK SẴN SÀNG (2026-07-09) — còn blocker trước khi flip
 - 🔴 App vẫn nối bằng **superuser `postgres`** (RLS sẽ bị bỏ qua) và role `zeplao_app` **chưa tạo**.
@@ -31,26 +45,45 @@ backfill residual + chạy Pha B, kiểm bằng role app (không superuser):
 - INSERT `tenant_id` sai → bị chặn bởi RLS WITH CHECK. ✓
 - `app.bypass='on'` (super-admin) → thấy tất cả. ✓
 - `method_capabilities` tenant 2 → thấy baseline (tenant_id NULL). ✓
-Bản sao + role test đã DROP sau diễn tập. Kết luận: SQL Pha B + policy + trigger chạy đúng;
-chỉ cần thực thi các bước "Thứ tự chạy" ở trên trong maintenance window (app dừng + backfill lại).
+Bản sao + role test đã DROP sau diễn tập. Bằng chứng này chỉ chứng minh revision tại thời điểm
+2026-07-09; code/schema đã tiếp tục thay đổi nên phải diễn tập lại từ đầu trước mọi đề xuất production.
 
-## Tiền đề BẮT BUỘC trước khi bật RLS
-1. **Role app NOSUPERUSER** — vì superuser `postgres` bỏ qua RLS. Chạy `2026-06-26_tenant_app_role.sql`, đổi `.env` → `DB_USERNAME=zeplao_app`.
-2. **Wire `tenantTransaction()`/đọc qua context** (Task 6) — đường GHI đã wire sẵn. Đường ĐỌC: bật `TENANT_RLS_ENABLED=true` (kích hoạt `TenantConnectionInterceptor`) + đổi service đọc sang `this.tenantCtx.manager() ?? repo.manager`. Nếu thiếu → RLS trả 0 hàng → app trắng dữ liệu.
-3. **Backup DB** + **dừng `nest watch`** (hoặc dùng DB staging/bản sao).
+## Tiền đề BẮT BUỘC cho diễn tập staging
+1. **PostgreSQL staging/bản sao tách biệt** — không dùng DB đang phục vụ và không chứa secret/PII vượt phạm vi cần test.
+2. **Role app NOSUPERUSER, NOBYPASSRLS** — superuser bỏ qua RLS. Role owner chỉ dùng để bootstrap/Pha B, không dùng chạy app.
+3. **Schema + patch ledger khớp revision code** — chạy bootstrap/patch chỉ trên staging theo `db/README.md`.
+4. **Wire `tenantTransaction()`/đọc qua context** — thiếu context phải fail-closed, không rơi về tenant mặc định.
+5. **Backup/snapshot staging + dừng mọi write/job/cron/channel** trước residual scan/backfill và Pha B.
+6. **Static gate xanh**:
+   `npx jest src/common/tenant/rls-preflight.spec.ts src/common/tenant/rls-manifest.spec.ts src/common/tenant/rls-coverage.guard.spec.ts --runInBand`
+   và `npx tsc --noEmit -p tsconfig.json` trong `backend/`.
 
-## Thứ tự chạy (KHÔNG đảo)
+## Thứ tự diễn tập staging (KHÔNG đảo)
 ```
-1) Backup DB
-2) Tạo role NOSUPERUSER  → 2026-06-26_tenant_app_role.sql  (chạy bằng postgres)
-3) Đổi .env DB_USERNAME/DB_PASSWORD = zeplao_app
-4) Wire tenantTransaction vào service org-scoped (Task 6) + chạy 720 test pass
-5) Áp RLS               → 2026-06-26_tenant_phaseB_enable_rls.sql
-6) Khởi động app bằng role mới → kiểm: đăng nhập tenant 1 thấy đủ dữ liệu
-7) Test cô lập (Task 12): tạo tenant 2, xác minh A không thấy B
+1) Tạo/refresh bản sao staging từ revision schema được phép; ghi lại commit + thời điểm snapshot.
+2) Chạy static gate manifest/preflight/coverage và CI matrix hiện hành.
+3) Dừng toàn bộ app worker/write trên staging; snapshot rollback.
+4) Đo residual tenant_id NULL theo manifest; backfill bằng script đã review và ghi before/after count.
+5) Tạo role app NOSUPERUSER/NOBYPASSRLS trên staging bằng owner role.
+6) Áp 2026-06-26_tenant_phaseB_enable_rls.sql trên staging bằng owner role.
+7) Chạy app staging bằng app role + TENANT_RLS_ENABLED=true.
+   Startup chỉ được tiếp tục khi preflight báo đủ 64 bảng khớp manifest.
+8) Chạy tenant-isolation e2e bằng app role, test A/B, baseline, bypass, background jobs,
+   pricing parity, auth/WebSocket và runtime smoke trong docs/PRODUCTION-SMOKE.md.
+9) Diễn tập rollback trên staging và chạy lại smoke sau rollback.
+10) Lưu output/owner/timestamp. Chỉ sau đó mới lập change request production riêng.
 ```
 
-## Kiểm tra nhanh sau khi bật (psql bằng zeplao_app)
+## Cổng startup theo manifest
+
+- Flag tắt: preflight chỉ ghi trạng thái; giữ tương thích trong lúc chưa flip.
+- Flag bật trên DB không phải PostgreSQL: **fatal**, app không listen.
+- Flag bật với role SUPERUSER/BYPASSRLS: **fatal**.
+- Flag bật mà thiếu bất kỳ table/policy/ENABLE/FORCE/column/trigger nào: **fatal**.
+- Chỉ khi đủ toàn bộ manifest mới log `ok`. Policy name đúng chưa tự chứng minh biểu thức policy đúng;
+  negative test A/B bằng role NOSUPERUSER vẫn là gate bắt buộc.
+
+## Kiểm tra nhanh sau khi bật trên staging (psql bằng app role)
 ```sql
 -- Thiếu context → 0 hàng (mặc-định-đóng)
 SELECT count(*) FROM quotes;                 -- kỳ vọng 0
@@ -62,7 +95,7 @@ BEGIN; SELECT set_config('app.current_tenant','1',true);
 ROLLBACK;
 ```
 
-## Rollback (nếu app trắng dữ liệu / lỗi)
+## Rollback staging (phải diễn tập trước production)
 ```sql
 -- Tắt RLS toàn bộ bảng org-scoped (đảo Pha B), giữ nguyên cột tenant_id:
 DO $$ DECLARE t text; tbls text[] := ARRAY[/* dùng cùng danh sách Pha B */]; BEGIN
@@ -70,8 +103,11 @@ DO $$ DECLARE t text; tbls text[] := ARRAY[/* dùng cùng danh sách Pha B */]; 
     EXECUTE format('ALTER TABLE %I DISABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
   END LOOP; END $$;
+-- Hai bảng baseline phải drop thêm mc_read/mc_write và app_scope_read/app_scope_write,
+-- rồi DISABLE RLS. Dùng manifest cùng revision; không copy danh sách thủ công sang production.
 ```
-Và đổi `.env` về `DB_USERNAME=postgres` để app chạy lại ngay (superuser bypass RLS).
+Dừng app staging trước rollback; khôi phục snapshot/credentials staging và chạy lại smoke. Không mở
+traffic trong trạng thái nửa rollback, và không dùng superuser làm app role để "né" lỗi RLS.
 
 ## Ghi chú đặc biệt — `method_capabilities` (tenant-method-capability)
 Bảng này KHÔNG đi theo policy chung. Lý do: hàng BASELINE (`tenant_id IS NULL`, `unit_id='default'`)
@@ -85,7 +121,8 @@ Kiểm nhanh: `BEGIN; SELECT set_config('app.current_tenant','2',true); SELECT *
 → kỳ vọng thấy hàng baseline (tenant_id NULL) + hàng của tenant 2, KHÔNG thấy hàng tenant khác.
 
 ## Ghi chú parity giá
-Engine giá / payload builder KHÔNG đổi. Sau bước 6 chạy lại bộ test giá (quote-flow, pricing-advanced, vat) xác nhận `grand_total` không đổi (Property 4).
+Engine giá / payload builder KHÔNG được đổi bởi flip. Chạy ma trận pricing/VAT/offset/order/PDF
+theo skill `zeplao-testing` và CI hiện hành; không dùng số suite/test lịch sử làm gate.
 
 ## Readiness fixes cho phiên flip (2026-07-12) — đã sửa code, gated sau `TENANT_RLS_ENABLED`
 Audit trục 1 (RLS) tìm 3 chỗ sẽ hỏng NGAY khi flip (chạy tốt hôm nay vì RLS còn tắt). Đã sửa,

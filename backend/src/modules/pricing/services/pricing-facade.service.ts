@@ -12,7 +12,8 @@ import {
 } from '../scope/resource-scope-rule';
 
 interface ProcessingInput { id: number; code?: string; side?: string; }
-interface AccessoryInput { id: number; qty?: number; }
+// `qty` là tên chuẩn (FE + loose path); `quantity` giữ làm alias cũ cho caller API ngoài.
+interface AccessoryInput { id: number; qty?: number; quantity?: number; }
 
 interface CalculatePriceInput {
     type?: string;
@@ -410,7 +411,8 @@ export class PricingFacadeService {
                     });
                     if (dbAcc.length > 0) {
                         const price = parseFloat(dbAcc[0].price);
-                        const qty = parseInt(String(acc.qty)) || 1;
+                        // Nhận cả `qty` (chuẩn) lẫn `quantity` (alias cũ) — đối xứng với large_format.
+                        const qty = parseInt(String(acc.qty ?? acc.quantity)) || 1;
                         return { id: acc.id, qty, cost: price * qty, name: dbAcc[0].name };
                     }
                     return null;
@@ -465,9 +467,8 @@ export class PricingFacadeService {
     }
 
     private async calculateLargeFormat(input: CalculatePriceInput) {
-        // LƯU Ý CHỦ ĐÍCH: nhánh khổ lớn (cuộn) KHÔNG áp bù hao tờ, processing & accessories
-        // như nhánh `loose`. Khổ lớn tính theo m² và (nếu cần) dùng LargeFormatCalculatorService
-        // cho luồng nâng cao (processing per_m2). Giữ tối giản tại đây để khớp engine PHP gốc.
+        // Khổ lớn tính theo m² (+ full-width roll). Accessories được cộng server-side
+        // (cùng pattern loose) để recompute save không mất phụ kiện / chống sửa giá client.
         const materialId = input.material_id;
         // parseFloat (không parseInt) để không cắt phần thập phân mm (vd 2400.5mm).
         const width = parseFloat(String(input.width)) || 0;
@@ -513,17 +514,81 @@ export class PricingFacadeService {
             return { success: false, error: `Chưa có đơn giá m² cho vật liệu #${materialId} (print_type=${printType})` };
         }
 
-        let materialCost = chargeAreaM2 * pricePerSqm;
-        if ((material.minChargeArea || 0) > 0 && chargeAreaM2 < material.minChargeArea) {
-            materialCost = material.minChargeArea * pricePerSqm;
+        // Diện tích TÍNH TIỀN (đã áp min-charge) — dùng chung cho tiền vật liệu
+        // và gia công per_m2 để hai khoản không lệch cơ sở tính.
+        const billedAreaM2 = ((material.minChargeArea || 0) > 0 && chargeAreaM2 < material.minChargeArea)
+            ? material.minChargeArea
+            : chargeAreaM2;
+        const materialCost = billedAreaM2 * pricePerSqm;
+
+        // Processing (khoen, hàn biên, cắt bế...) — TRƯỚC ĐÂY BỊ BỎ QUA hoàn toàn
+        // (audit 2026-08-13: mini-quote gửi `processing` nhưng nhánh này không đọc
+        // → mọi báo giá bạt/decal có gia công đều thiếu tiền). Ngữ nghĩa theo
+        // LargeFormatCalculatorService: per_m2 × diện tích tính tiền, per_item × SL, fixed 1 lần.
+        let processingCost = 0;
+        const processingDetails: ProcessingDetail[] = [];
+        if (input.processing && Array.isArray(input.processing) && input.processing.length > 0) {
+            for (const proc of input.processing) {
+                if (proc?.id == null) continue;
+                // "priceType" camelCase phải nháy kép (PG fold identifier về chữ thường);
+                // processing_options.is_active là smallint → so sánh `= 1` (STRUCTURE.md §4).
+                const rows = await this.materialRepo.manager.query(
+                    'SELECT name, price, "priceType" FROM processing_options WHERE id = $1 AND is_active = 1',
+                    [proc.id],
+                ).catch((e: unknown) => {
+                    this.logger.error(`processing lookup failed id=${proc.id}`, e as any);
+                    throw new Error(`Không tra được gia công id=${proc.id}`);
+                });
+                if (!rows?.length) {
+                    throw new Error(`Gia công id=${proc.id} không tồn tại hoặc đã tắt`);
+                }
+                const unit = parseFloat(rows[0].price) || 0;
+                const priceType = rows[0].priceType || 'fixed';
+                let cost: number;
+                if (priceType === 'per_m2') cost = unit * billedAreaM2;
+                else if (priceType === 'per_item') cost = unit * quantity;
+                else cost = unit; // fixed (và các priceType tờ/sheet không áp dụng cho khổ lớn)
+                processingCost += cost;
+                processingDetails.push({ name: rows[0].name || String(proc.id), cost: Math.round(cost), price_type: priceType });
+            }
         }
 
-        const subtotal = materialCost;
+        // Accessories (server-authoritative) — same lookup as loose path
+        let accessoriesCost = 0;
+        const accessoriesDetails: Array<{ id: number; name: string; cost: number }> = [];
+        if (input.accessories && Array.isArray(input.accessories) && input.accessories.length > 0) {
+            for (const acc of input.accessories) {
+                if (acc?.id == null) continue;
+                const rows = await this.materialRepo.manager.query(
+                    'SELECT price, name FROM accessories WHERE id = $1 AND is_active = 1',
+                    [acc.id],
+                ).catch((e: unknown) => {
+                    this.logger.error(`accessory lookup failed id=${acc.id}`, e as any);
+                    throw new Error(`Không tra được phụ kiện id=${acc.id}`);
+                });
+                if (!rows?.length) {
+                    throw new Error(`Phụ kiện id=${acc.id} không tồn tại hoặc đã tắt`);
+                }
+                const unit = parseFloat(rows[0].price) || 0;
+                // FE gửi `qty` (giống loose) — trước đây chỉ đọc `quantity` nên SL phụ kiện
+                // luôn bị ép về 1 (thiếu tiền khi khách lấy nhiều). Nhận cả hai tên field.
+                const qty = Math.max(1, parseInt(String(acc.qty ?? acc.quantity ?? 1), 10) || 1);
+                const cost = unit * qty;
+                accessoriesCost += cost;
+                accessoriesDetails.push({ id: acc.id, name: rows[0].name || String(acc.id), cost: Math.round(cost) });
+            }
+        }
+
+        const subtotal = materialCost + processingCost + accessoriesCost;
         return {
             success: true,
             data: {
                 type: 'large_format',
                 material_cost: Math.round(materialCost),
+                processing_cost: Math.round(processingCost),
+                processing_details: processingDetails,
+                accessories_cost: Math.round(accessoriesCost),
+                accessories_details: accessoriesDetails,
                 subtotal: Math.round(subtotal),
                 total: Math.round(subtotal),
                 price_per_item: quantity > 0 ? Math.round(subtotal / quantity) : 0,
@@ -531,6 +596,7 @@ export class PricingFacadeService {
                     width_mm: width, height_mm: height, quantity,
                     area_m2: Math.round(areaM2 * 100) / 100,
                     charge_area_m2: Math.round(chargeAreaM2 * 100) / 100,
+                    billed_area_m2: Math.round(billedAreaM2 * 100) / 100,
                     price_per_sqm: Math.round(pricePerSqm),
                 },
             },

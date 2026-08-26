@@ -3,27 +3,22 @@
  *
  * Feature: print-method-unification, Property 8: Bảo toàn giá khi bọc engine
  * (zero-tolerance trên golden) — *For any* bộ đầu vào đã được Golden_Test khoá,
- * giá `priceBeforeVat` tính qua Method Plugin bằng ĐÚNG giá engine tương ứng tính
- * trực tiếp trước hợp nhất (dung sai bằng KHÔNG).
+ * gross/discount/net tính qua Method Plugin bằng ĐÚNG các giá trị engine tương ứng
+ * (dung sai bằng KHÔNG).
  *
  * Validates: Requirements 6.1, 6.2, 9.5
  *
  * Chiến lược:
- *  - Offset: gọi `EngineOffsetService.calculate(input)` trực tiếp → `tongChuaVAT`;
- *    gọi qua `OffsetMethodPlugin.calculate(product, spec, cfg)` → `priceBeforeVat`.
- *    Hai giá phải BẰNG NHAU tuyệt đối (`toBe`) cho mọi golden fixture và mọi biến
- *    thể số lượng/toggle sinh ngẫu nhiên (>=100 vòng). Đồng thời plugin phải bảo toàn
- *    cả KẾT QUẢ (engine fail ⇒ plugin ok=false).
+ *  - Offset: gọi `EngineOffsetService.calculate(input)` trực tiếp rồi kiểm adapter giữ
+ *    nguyên `tongChuaVAT`/`chietKhau` và trả net bằng hiệu của hai giá trị đó cho mọi
+ *    golden fixture, mọi biến thể số lượng/toggle (>=100 vòng). Đồng thời plugin phải
+ *    bảo toàn cả KẾT QUẢ (engine fail ⇒ plugin ok=false).
  *  - Digital: stub facade trả `selling_subtotal` golden; với chiết khấu = 0, plugin
  *    phải trả `priceBeforeVat` BẰNG ĐÚNG `selling_subtotal` của facade (không đổi số học).
  */
 import fc from 'fast-check';
 import { EngineOffsetService } from '../../../modules/pricing/offset-engine/engine-offset.service';
 import { loadDefaultPricingData } from '../../../modules/pricing/offset-engine/default-data';
-import {
-    TUI_NEST_OPTIONS,
-    buildTuiOptions,
-} from '../../../modules/pricing/offset-engine/products/tui-giay';
 import { OffsetMethodPlugin } from '../offset-method.plugin';
 import { DigitalMethodPlugin } from '../digital-method.plugin';
 import { MethodRegistry } from '../../method-registry.service';
@@ -36,7 +31,8 @@ const D = loadDefaultPricingData();
 const MAT = D.materials[0].code;
 const KHO = D.khoIn[0].khoIn;
 const VTBM = 'Không';
-const TUI_BAI = (buildTuiOptions(D)[0] ?? TUI_NEST_OPTIONS[0]).label;
+// Fixture hợp lệ cho túi 30×25×10; option đầu tiên có thể có soCon=0 và bị engine từ chối.
+const TUI_BAI = '42cm x 60cm (dán nối)';
 
 /** 5 golden fixture đại diện cho 5 loại offset (giá trị thật, dữ liệu mặc định đóng gói). */
 function goldenOffsetInputs(): Record<string, any> {
@@ -141,7 +137,7 @@ function toProductSpec(input: any): { product: ProductRef; spec: Specification }
     };
 }
 
-describe('Property 8 — bảo toàn giá offset khi bọc engine (zero-tolerance)', () => {
+describe('Property 8 — bảo toàn gross/discount/net offset khi bọc engine (zero-tolerance)', () => {
     /** Plugin offset gọi trực tiếp (không onModuleInit ⇒ không cần registry thật). */
     const engine = new EngineOffsetService();
     const registry = new MethodRegistry();
@@ -150,14 +146,18 @@ describe('Property 8 — bảo toàn giá offset khi bọc engine (zero-toleranc
     // --- Golden fixtures: zero-tolerance trên từng loại ---
     const fixtures = goldenOffsetInputs();
     for (const [type, input] of Object.entries(fixtures)) {
-        it(`golden '${type}': priceBeforeVat (plugin) === tongChuaVAT (engine), dung sai = 0`, async () => {
+        it(`golden '${type}': plugin giữ đúng gross − engine discount, dung sai = 0`, async () => {
             const direct = engine.calculate(input);
             expect(direct.success).toBe(true);
             const { product, spec } = toProductSpec(input);
             const viaPlugin = await plugin.calculate(product, spec, {});
             expect(viaPlugin.ok).toBe(true);
-            // Zero tolerance: bằng nhau tuyệt đối.
-            expect(viaPlugin.priceBeforeVat).toBe(direct.data!.tongChuaVAT);
+            // Adapter không đổi số học engine: gross và discount giữ nguyên, net là hiệu đúng.
+            expect(viaPlugin.sellingSubtotal).toBe(direct.data!.tongChuaVAT);
+            expect(viaPlugin.discountAmount).toBe(direct.data!.chietKhau);
+            expect(viaPlugin.priceBeforeVat).toBe(
+                direct.data!.tongChuaVAT - direct.data!.chietKhau,
+            );
         });
     }
 
@@ -183,9 +183,13 @@ describe('Property 8 — bảo toàn giá offset khi bọc engine (zero-toleranc
                     const viaPlugin = await plugin.calculate(product, spec, {});
 
                     if (direct.success) {
-                        // Bảo toàn kết quả + giá trước VAT (dung sai bằng 0).
+                        // Bảo toàn gross/discount/net trước VAT (dung sai bằng 0).
                         expect(viaPlugin.ok).toBe(true);
-                        expect(viaPlugin.priceBeforeVat).toBe(direct.data!.tongChuaVAT);
+                        expect(viaPlugin.sellingSubtotal).toBe(direct.data!.tongChuaVAT);
+                        expect(viaPlugin.discountAmount).toBe(direct.data!.chietKhau);
+                        expect(viaPlugin.priceBeforeVat).toBe(
+                            direct.data!.tongChuaVAT - direct.data!.chietKhau,
+                        );
                     } else {
                         // Engine không tính được ⇒ plugin cũng báo không khả dụng (bảo toàn kết quả).
                         expect(viaPlugin.ok).toBe(false);

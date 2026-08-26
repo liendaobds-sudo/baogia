@@ -10,11 +10,13 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Conversation } from '../../entities/conversation.entity';
 import { Message } from '../../entities/message.entity';
 import { AiProviderService } from './ai-provider.service';
+import { EmbeddingService } from '../knowledge-base/embedding.service';
+import { safeErrorMetadata } from '../../common/logging/safe-log-metadata';
 
 const SUMMARY_THRESHOLD = 12;     // Start summarizing when > 12 messages
 const RECENT_KEEP = 8;            // Keep 8 most recent messages verbatim
@@ -28,8 +30,31 @@ export class ConversationSummaryService {
     constructor(
         @InjectRepository(Conversation) private convRepo: Repository<Conversation>,
         @InjectRepository(Message) private msgRepo: Repository<Message>,
+        @InjectDataSource() private dataSource: DataSource,
         private aiProvider: AiProviderService,
+        private embeddings: EmbeddingService,
     ) {}
+
+    /**
+     * Sinh và lưu vector ngữ nghĩa cho summary (chỉ Postgres + pgvector).
+     * SQLite/dev bỏ qua — nhánh tìm kiếm fallback về keyword vẫn chạy.
+     * Fire-and-forget: lỗi chỉ log, không chặn luồng tóm tắt chính.
+     */
+    private async persistSummaryEmbedding(conversationId: string, summary: string): Promise<void> {
+        if (this.dataSource.options.type !== 'postgres') return;
+        try {
+            const vec = await this.embeddings.generateEmbedding(summary);
+            if (!vec) return;
+            // dataSource.query đã được typeorm-transactional patch → tự kế thừa tenant context (RLS).
+            // pgvector nhận chuỗi dạng '[0.1,0.2,...]'.
+            await this.dataSource.query(
+                `UPDATE conversations SET summary_embedding = $1 WHERE id = $2`,
+                [`[${vec.join(',')}]`, conversationId],
+            );
+        } catch (e) {
+            this.logger.warn(`⚠️ persistSummaryEmbedding failed for ${conversationId}: ${(e as Error).message}`);
+        }
+    }
 
     /**
      * Build chat history with persistent summarization.
@@ -122,6 +147,8 @@ export class ConversationSummaryService {
                 aiSummaryMsgCount: newSummarizedCount,
             });
             this.logger.log(`💾 Persisted summary for ${conversationId}: ${newSummary.length} chars covering ${newSummarizedCount} messages`);
+            // Sinh vector ngữ nghĩa cho summary (fire-and-forget, chỉ Postgres+pgvector).
+            void this.persistSummaryEmbedding(conversationId, newSummary);
         }
 
         // Fallback if summarization failed entirely
@@ -174,7 +201,9 @@ ${conversation}`;
                     return truncated;
                 }
             } catch (e) {
-                this.logger.warn(`⚠️ Summary via ${provider.name} failed: ${(e as Error).message}`);
+                this.logger.warn(
+                    `⚠️ Summary via ${provider.name} failed (${safeErrorMetadata(e)})`,
+                );
             }
         }
 
@@ -223,7 +252,9 @@ Format: mỗi dòng 1 fact, bắt đầu bằng "•". Tối đa 15 dòng.`;
                     return truncated;
                 }
             } catch (e) {
-                this.logger.warn(`⚠️ Incremental summary via ${provider.name} failed: ${(e as Error).message}`);
+                this.logger.warn(
+                    `⚠️ Incremental summary via ${provider.name} failed (${safeErrorMetadata(e)})`,
+                );
             }
         }
 

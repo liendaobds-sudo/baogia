@@ -135,6 +135,8 @@ describe('PromptBuilderService', () => {
                     { item: 'In offset', cost: 1500000 },
                     { item: 'Cán mờ', cost: 1000000 },
                 ],
+                requiresManualQuote: false,
+                source: 'pricing',
             } as any);
 
             expect(result).toContain('2.500.000đ');
@@ -151,6 +153,21 @@ describe('PromptBuilderService', () => {
 
             expect(result).toContain('Thiếu thông tin');
             expect(result).toContain('quantity');
+        });
+
+        it('must not expose a stale/manual quote total as a customer price', () => {
+            const result = service.formatQuoteForPrompt({
+                productType: 'offset',
+                total: 900000,
+                currency: 'VND',
+                breakdown: [{ item: 'legacy', detail: '', cost: 900000 }],
+                requiresManualQuote: true,
+                source: 'none',
+                reason: 'Cần nhân viên báo giá',
+            } as any);
+
+            expect(result).not.toContain('900.000đ');
+            expect(result).toContain('Cần báo giá thủ công');
         });
 
         it('should return empty string for null result', () => {
@@ -176,6 +193,9 @@ describe('PromptBuilderService', () => {
             const result = service.buildTaskInstructions(defaultParams);
             expect(result).toContain('Nhiệm vụ');
             expect(result).toContain('Kết quả báo giá');
+            expect(result).toContain('CHỈ được nêu số tiền');
+            expect(result).toContain('KHÔNG phải nguồn báo giá');
+            expect(result).not.toContain('bảng giá tham khảo → đưa range giá');
         });
 
         it('should include comparison instructions when isComparison=true', () => {

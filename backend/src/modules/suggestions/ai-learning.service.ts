@@ -46,12 +46,14 @@ export class AiLearningService {
     /**
      * Get recent agent edits for learning context
      * Returns pairs of (original AI text → agent's edited text)
+     * Lọc theo tenant — bản sửa của agent tenant A không được bơm vào prompt tenant B.
      */
-    async getRecentEdits(limit = 10): Promise<{ original: string; edited: string; intent: string }[]> {
+    async getRecentEdits(limit = 10, tenantId?: number): Promise<{ original: string; edited: string; intent: string }[]> {
         const editedSuggestions = await this.suggestRepo.find({
             where: {
                 editedText: Not(IsNull()),
                 status: SuggestionStatus.EDITED,
+                ...(tenantId != null ? { tenantId } : {}),
             },
             order: { editedAt: 'DESC' },
             take: limit,
@@ -74,22 +76,29 @@ export class AiLearningService {
      * UPGRADE: Filters edits by matching intent first, then falls back to global edits.
      * This ensures the examples are relevant to the current conversation context.
      */
-    async buildLearningContext(currentIntent?: string): Promise<string> {
+    async buildLearningContext(currentIntent?: string, tenantId?: number | null): Promise<string> {
+        // CÔ LẬP TENANT (fail-closed): không rõ tenant → không bơm bản sửa của agent
+        // (có thể chứa giá/chính sách riêng) vào prompt.
+        if (tenantId == null) {
+            this.logger.debug('Bỏ qua learning context: thiếu tenantId (fail-closed)');
+            return '';
+        }
+
         let edits: { original: string; edited: string; intent: string }[];
 
         if (currentIntent) {
             // First try: edits with the same intent (most relevant)
-            edits = await this.getEditsByIntent(currentIntent, 3);
-            // Supplement with global edits if not enough
+            edits = await this.getEditsByIntent(currentIntent, 3, tenantId);
+            // Supplement with edits of other intents (same tenant) if not enough
             if (edits.length < 3) {
-                const globalEdits = await this.getRecentEdits(5 - edits.length);
+                const globalEdits = await this.getRecentEdits(5 - edits.length, tenantId);
                 const existingOriginals = new Set(edits.map(e => e.original));
                 for (const edit of globalEdits) {
                     if (!existingOriginals.has(edit.original)) edits.push(edit);
                 }
             }
         } else {
-            edits = await this.getRecentEdits(5);
+            edits = await this.getRecentEdits(5, tenantId);
         }
 
         if (edits.length === 0) return '';
@@ -112,14 +121,15 @@ export class AiLearningService {
     }
 
     /**
-     * Get edits filtered by specific intent
+     * Get edits filtered by specific intent (trong phạm vi một tenant)
      */
-    async getEditsByIntent(intent: string, limit = 5): Promise<{ original: string; edited: string; intent: string }[]> {
+    async getEditsByIntent(intent: string, limit = 5, tenantId?: number): Promise<{ original: string; edited: string; intent: string }[]> {
         const editedSuggestions = await this.suggestRepo.find({
             where: {
                 editedText: Not(IsNull()),
                 status: SuggestionStatus.EDITED,
                 intent,
+                ...(tenantId != null ? { tenantId } : {}),
             },
             order: { editedAt: 'DESC' },
             take: limit,

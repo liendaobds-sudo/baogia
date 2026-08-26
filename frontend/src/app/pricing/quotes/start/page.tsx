@@ -40,6 +40,8 @@ import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
 import { decideEntryRouting } from '@/lib/quote/entry-routing';
+import { resolveUnitLabel } from '@/lib/quote/quote-units';
+import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
 
 /* -------------------------------------------------------------------------- */
 /* Kiểu dữ liệu                                                                */
@@ -96,25 +98,38 @@ const mapDigitalType = (tab: DigitalTab): string => {
 /* -------------------------------------------------------------------------- */
 
 const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
+    const cfg = (it.configParams as Record<string, unknown>) || {};
     if (it.type === 'offset') {
         // Offset: khóa cấu hình camelCase ngoài whitelist → gói vào printing_detail.
+        const productType = (cfg.type as string) ?? 'offset';
         return {
             product_name: it.name,
             item_type: 'offset',
-            product_type: (it.configParams as Record<string, unknown>)?.type as string ?? 'offset',
+            product_type: productType,
             quantity: it.quantity,
             item_total: it.total,
+            unit: resolveUnitLabel({
+                unit: (cfg.unit as string) || undefined,
+                productUnit: (cfg.productUnit as string) || undefined,
+                quoteType: productType,
+                itemType: 'offset',
+            }),
             printing_detail: { offset: true, config: it.configParams, result: it.details, unitPrice: it.unitPrice },
         };
     }
     // Digital: trải phẳng configParams theo khóa snake_case của QuoteItemDto.
     return {
-        ...(it.configParams as Record<string, unknown>),
+        ...cfg,
         product_name: it.name,
         item_type: it.type,
         product_type: it.type,
         quantity: it.quantity,
         item_total: it.total,
+        unit: resolveUnitLabel({
+            unit: (cfg.unit as string) || undefined,
+            productUnit: (cfg.productUnit as string) || undefined,
+            quoteType: it.type,
+        }),
     };
 };
 
@@ -150,7 +165,7 @@ export default function QuoteEntryPointPage() {
     const [customerName, setCustomerName] = useState('');
     const [errors, setErrors] = useState<QuoteDraftErrors>({});
     const customerInfoRef = useRef<CustomerInfoHandle>(null);
-    const { items, getTotalAmount, clearCart } = useQuoteCart();
+    const { items, getTotalAmount, clearCart, headerDiscountType, headerDiscountValue } = useQuoteCart();
 
     /** Nạp danh sách sản phẩm khi mở cổng. */
     const loadProducts = useCallback(async () => {
@@ -235,9 +250,12 @@ export default function QuoteEntryPointPage() {
 
         setIsSaving(true);
         const subtotal = getTotalAmount();
+        const headerDiscount = calculateHeaderDiscount(subtotal, headerDiscountType, headerDiscountValue);
+        const { discountAmount, afterDiscount } = headerDiscount;
         const vatRate = Number(payload.vat_rate) || 0;
-        const vatAmount = subtotal * vatRate / 100;
-        const grandTotal = subtotal + vatAmount + payload.shipping_fee;
+        const shippingFee = Number(payload.shipping_fee) || 0;
+        const vatAmount = afterDiscount * vatRate / 100;
+        const grandTotal = afterDiscount + vatAmount + shippingFee;
 
         // Loại đơn: offset ⇒ "In Offset"; digital ⇒ theo tab.
         const orderType = selectedMethod === 'offset'
@@ -257,9 +275,12 @@ export default function QuoteEntryPointPage() {
                     customer_address: payload.customer_address,
                     customer_note: payload.notes,
                     total: subtotal,
+                    discount_type: discountAmount > 0 ? headerDiscount.discountType : undefined,
+                    discount_value: headerDiscount.discountValue,
+                    discount_amount: discountAmount,
                     vat_rate: payload.vat_rate,
                     vat_amount: vatAmount,
-                    shipping_fee: payload.shipping_fee,
+                    shipping_fee: shippingFee,
                     grand_total: grandTotal,
                     items: items.map(mapItem),
                 }),
@@ -289,7 +310,7 @@ export default function QuoteEntryPointPage() {
         } finally {
             setIsSaving(false);
         }
-    }, [token, items, getTotalAmount, clearCart, router, toast, selectedMethod, quoteType]);
+    }, [token, items, getTotalAmount, clearCart, router, toast, selectedMethod, quoteType, headerDiscountType, headerDiscountValue]);
 
     const draft = { customerName, itemsCount: items.length };
     const canSave = !isSaving && isQuoteDraftValid(draft);

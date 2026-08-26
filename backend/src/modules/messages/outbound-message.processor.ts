@@ -8,7 +8,13 @@ import { getChannelAdapter } from '../channels/adapters/adapter-factory';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { runInTenant } from '../../common/tenant/tenant-background';
 
-@Processor('outbound_messages')
+/**
+ * `concurrency` (audit 2026-07-25): trước đây không set ⇒ BullMQ mặc định 1 ⇒ mọi tin nhắn đi
+ * ra bị xếp hàng tuần tự, một tin chậm (Zalo timeout + 3 lần retry) làm nghẽn cả hàng đợi.
+ * Đặt 5: đủ song song cho nhiều hội thoại nhưng vẫn dưới ngưỡng rate-limit của Zalo
+ * (ZaloRateLimiterService vẫn là chốt cuối chống spam).
+ */
+@Processor('outbound_messages', { concurrency: 5 })
 @Injectable()
 export class OutboundMessageProcessor extends WorkerHost {
     private readonly logger = new Logger(OutboundMessageProcessor.name);
@@ -33,13 +39,18 @@ export class OutboundMessageProcessor extends WorkerHost {
         }
         let tenantId = Number(job.data?.tenantId) || 0;
         if (!tenantId && job.data?.conversationId) {
-            try {
-                const rows = await this.convRepo.manager.query(
-                    'SELECT tenant_id FROM conversations WHERE id = $1 LIMIT 1', [job.data.conversationId]);
-                if (rows?.[0]?.tenant_id) tenantId = Number(rows[0].tenant_id);
-            } catch { /* fallback tenant 1 */ }
+            // Lỗi query phân giải KHÔNG nuốt nữa — throw để BullMQ retry theo backoff.
+            const rows = await this.convRepo.manager.query(
+                'SELECT tenant_id FROM conversations WHERE id = $1 LIMIT 1', [job.data.conversationId]);
+            if (rows?.[0]?.tenant_id) tenantId = Number(rows[0].tenant_id);
         }
-        if (!tenantId) tenantId = 1;
+        if (!tenantId) {
+            // Fail-loud (Req 2.3): KHÔNG mặc định tenant 1 — job không rõ tenant mà vẫn
+            // chạy sẽ đọc/ghi nhầm dữ liệu vào tenant 1 (rò chéo tenant khó phát hiện).
+            throw new Error(
+                `Không phân giải được tenant cho outbound job ${job.id} (conversationId=${job.data?.conversationId ?? 'n/a'}) — từ chối xử lý`,
+            );
+        }
         return runInTenant(this.tenantCtx, this.convRepo.manager, tenantId, () => this.processCore(job));
     }
 

@@ -150,7 +150,8 @@ function toRoiQuoteSpec() {
 function digitalLooseSpec() {
     return {
         quantity: 1000,
-        dimensions: { width: 90, height: 54 },
+        // Specification dùng cm; DigitalMethodPlugin đổi một lần sang 90×54 mm.
+        dimensions: { width: 9, height: 5.4 },
         materialCode: '10',
         paperSizeCode: '1',
         processing: [{ code: '5', side: 'single' }],
@@ -265,7 +266,7 @@ describe('QuoteController (integration) — POST /quote-tool/compare end-to-end'
         // Giá kỳ vọng: engine offset độc lập tính trực tiếp (cùng dữ liệu đóng gói).
         const direct = new EngineOffsetService().calculate(goldenToRoiInput() as any);
         expect(direct.success).toBe(true);
-        const expectedOffsetPrice = direct.data!.tongChuaVAT;
+        const expectedOffsetPrice = direct.data!.tongChuaVAT - direct.data!.chietKhau;
         expect(expectedOffsetPrice).toBeGreaterThan(0);
 
         const RATE = 10;
@@ -289,7 +290,7 @@ describe('QuoteController (integration) — POST /quote-tool/compare end-to-end'
         expect(results).toHaveLength(1);
         expect(results[0].methodId).toBe('offset');
         expect(results[0].isCheapest).toBe(true);
-        // Bảo toàn giá: priceBeforeVat (qua plugin) === tongChuaVAT (engine trực tiếp) — Req 6.1.
+        // Bảo toàn giá net: gross engine trừ đúng chiết khấu engine — Req 6.1.
         expect(results[0].priceBeforeVat).toBe(expectedOffsetPrice);
 
         // Digital bị loại kèm lý do (không áp dụng cho quoteType to_roi) (Req 5.5).

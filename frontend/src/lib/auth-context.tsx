@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { API_URL } from '@/lib/api';
+import { refreshAuthSession } from '@/lib/auth-refresh';
 import { canAccess, normalizeCapability } from '@/lib/access-decision';
 
 interface User {
@@ -17,7 +18,7 @@ interface AuthContextType {
     user: User | null;
     token: string | null;
     login: (email: string, password: string) => Promise<void>;
-    logout: () => void;
+    logout: () => Promise<void>;
     authFetch: (url: string, options?: RequestInit) => Promise<Response>;
     isLoading: boolean;
     error: string | null;
@@ -94,7 +95,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const refreshTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-    const isRefreshing = React.useRef(false);
 
     // --- Restore session from localStorage (with validation) ---
     useEffect(() => {
@@ -171,7 +171,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     // --- Logout (clear everything) ---
-    const logout = useCallback(() => {
+    const logout = useCallback(async () => {
+        const accessToken = localStorage.getItem('zh_token');
+        const refreshToken = localStorage.getItem('zh_refresh_token');
+
+        // Xóa local trước khi chờ network: response của refresh single-flight đang bay
+        // sẽ thấy session đã đổi và không thể ghi token mới để "hồi sinh" đăng nhập.
         setUser(null);
         setToken(null);
         setError(null);
@@ -188,32 +193,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = null;
         }
+
+        if (accessToken) {
+            try {
+                const response = await fetch(`${API_URL}/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+                    keepalive: true,
+                });
+                if (!response.ok && response.status !== 401) {
+                    console.error(`[Auth] Server logout failed: HTTP ${response.status}`);
+                }
+            } catch (error) {
+                console.error('[Auth] Server logout failed:', error);
+            }
+        }
     }, []);
 
     // --- Silent token refresh (plain function using refs — no circular deps) ---
     async function doRefresh(): Promise<boolean> {
-        if (isRefreshing.current) return false;
-        isRefreshing.current = true;
-        const rt = localStorage.getItem('zh_refresh_token');
-        if (!rt) { isRefreshing.current = false; return false; }
-        try {
-            const res = await fetch(`${API_URL}/auth/refresh`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refreshToken: rt }),
-            });
-            if (!res.ok) { isRefreshing.current = false; return false; }
-            const data = await res.json();
-            setToken(data.accessToken);
-            localStorage.setItem('zh_token', data.accessToken);
-            if (data.refreshToken) localStorage.setItem('zh_refresh_token', data.refreshToken);
-            doScheduleRefresh(data.expiresIn || 604800);
-            isRefreshing.current = false;
-            return true;
-        } catch {
-            isRefreshing.current = false;
-            return false;
-        }
+        const data = await refreshAuthSession(API_URL);
+        if (!data) return false;
+        setToken(data.accessToken);
+        doScheduleRefresh(data.expiresIn || 604800);
+        return true;
     }
 
     function doScheduleRefresh(expiresInSeconds: number) {
@@ -232,7 +239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (refreshed) {
                 currentToken = localStorage.getItem('zh_token');
             } else {
-                logout();
+                await logout();
                 throw new Error('Phiên đăng nhập đã hết hạn');
             }
         }
@@ -252,7 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 headers.set('Authorization', `Bearer ${retryToken}`);
                 return fetch(url, { ...options, headers });
             }
-            logout();
+            await logout();
             throw new Error('Phiên đăng nhập đã hết hạn');
         }
 

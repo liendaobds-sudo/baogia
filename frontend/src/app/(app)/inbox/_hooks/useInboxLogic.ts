@@ -310,7 +310,9 @@ export function useInboxLogic(
             socket.off('messageLocalDeleted', handleMessageLocalDeleted);
             socket.off('message_reacted', handleMessageReacted);
         };
-    }, [socket, selectedId, queryClient]);
+    // `tagFilter` BẮT BUỘC trong deps: handleNewMsg ghi cache key ['conversations', tagFilter]
+    // — thiếu dep là stale closure, đổi filter xong event vẫn ghi vào cache key cũ.
+    }, [socket, selectedId, queryClient, tagFilter]);
 
     // -- API Actions --
     const sendMessage = async (convId: string, text: string, imageFile?: File | null, replyToId?: string, editSource?: { suggestionId: string; replyIndex: number }) => {
@@ -487,19 +489,27 @@ export function useInboxLogic(
         authFetch(`${API}/canned-responses/${id}/use`, { method: 'POST', headers: headers() }).catch(() => { });
     };
 
-    const markSuggestionSent = (suggestionId: string, replyIndex: number, totalReplies: number) => {
-        setSentReplies(prev => {
-            const current = new Set(prev[suggestionId] || []);
-            current.add(replyIndex);
-            const updated = { ...prev, [suggestionId]: current };
-            if (current.size >= totalReplies) {
-                queryClient.setQueryData<Suggestion[]>(['suggestions', selectedId], (p = []) => 
-                    p.map(s => s.id === suggestionId ? { ...s, status: 'sent' } : s)
-                );
-                authFetch(`${API}/suggestions/${suggestionId}/accept`, { method: 'PATCH', headers: headers() }).catch(() => {});
-            }
-            return updated;
-        });
+    const markSuggestionSent = async (suggestionId: string, replyIndex: number, totalReplies: number) => {
+        const current = new Set(sentReplies[suggestionId] || []);
+        current.add(replyIndex);
+        setSentReplies(prev => ({ ...prev, [suggestionId]: current }));
+
+        if (current.size < totalReplies) return;
+
+        try {
+            const res = await authFetch(`${API}/suggestions/${suggestionId}/accept`, {
+                method: 'PATCH',
+                headers: headers(),
+            });
+            if (!res.ok) throw new Error(`accept suggestion failed: ${res.status}`);
+
+            queryClient.setQueryData<Suggestion[]>(['suggestions', selectedId], (p = []) =>
+                p.map(s => s.id === suggestionId ? { ...s, status: 'sent' } : s)
+            );
+        } catch (error) {
+            console.error(error);
+            toast.show('error', 'Tin đã gửi nhưng chưa cập nhật được trạng thái gợi ý AI');
+        }
     };
 
     const addNote = async (convId: string, content: string, scope?: 'conversation' | 'customer') => {

@@ -434,7 +434,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                             Tải quá lâu? Có thể phiên đăng nhập đã hết hạn.
                         </p>
                         <button
-                            onClick={() => { logout(); router.push('/login'); }}
+                            onClick={async () => { await logout(); router.push('/login'); }}
                             style={{
                                 padding: '8px 20px', background: '#2563eb', color: '#fff',
                                 border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14,

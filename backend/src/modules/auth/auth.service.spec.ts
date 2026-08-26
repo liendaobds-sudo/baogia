@@ -11,9 +11,17 @@ import { RedisService } from '../redis/redis.service';
 const redisStore = new Map<string, string>();
 const mockRedisService = {
     set: jest.fn(async (key: string, value: string) => { redisStore.set(key, value); }),
+    setStrict: jest.fn(async (key: string, value: string) => { redisStore.set(key, value); }),
     get: jest.fn(async (key: string) => redisStore.get(key) || null),
     del: jest.fn(async (key: string) => { redisStore.delete(key); }),
     exists: jest.fn(async (key: string) => redisStore.has(key)),
+    existsStrict: jest.fn(async (key: string) => redisStore.has(key)),
+    claimOnceStrict: jest.fn(async (key: string, value: string) => {
+        if (redisStore.has(key)) return false;
+        redisStore.set(key, value);
+        return true;
+    }),
+    publishSessionRevokedStrict: jest.fn(async () => undefined),
     sadd: jest.fn(),
     srem: jest.fn(),
     smembers: jest.fn(async () => []),
@@ -25,6 +33,7 @@ describe('AuthService', () => {
     let service: AuthService;
     let usersRepo: any;
     let jwtService: any;
+    let configService: any;
 
     const mockUser = {
         id: 'user-1',
@@ -89,6 +98,7 @@ describe('AuthService', () => {
         service = module.get<AuthService>(AuthService);
         usersRepo = module.get(getRepositoryToken(User));
         jwtService = module.get(JwtService);
+        configService = module.get(ConfigService);
     });
 
     afterEach(() => {
@@ -155,6 +165,25 @@ describe('AuthService', () => {
             // Old JTI should be blacklisted after rotation (async check)
             expect(await service.isTokenBlacklisted(oldJti)).toBe(true);
         });
+
+        it('chỉ cho một request tiêu thụ cùng refresh JTI', async () => {
+            const oldJti = 'concurrent-refresh-jti';
+            jwtService.verify.mockReturnValue({
+                sub: 'user-1',
+                jti: oldJti,
+                exp: Math.floor(Date.now() / 1000) + 3600,
+            });
+            usersRepo.findOne.mockResolvedValue(mockUser);
+
+            const results = await Promise.allSettled([
+                service.refreshToken('same-refresh-token'),
+                service.refreshToken('same-refresh-token'),
+            ]);
+
+            expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+            expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+            expect(mockRedisService.claimOnceStrict).toHaveBeenCalledTimes(2);
+        });
     });
 
     describe('logout', () => {
@@ -168,12 +197,139 @@ describe('AuthService', () => {
             await service.logout('some-access-token');
 
             expect(await service.isTokenBlacklisted('logout-jti')).toBe(true);
+            expect(mockRedisService.publishSessionRevokedStrict).toHaveBeenCalledWith('logout-jti', undefined);
         });
 
         it('should not throw when token decode fails', async () => {
             jwtService.decode.mockReturnValue(null);
 
             await expect(service.logout('bad-token')).resolves.toBeUndefined();
+        });
+
+        it('không báo logout thành công nếu Redis không ghi được revoke', async () => {
+            jwtService.decode.mockReturnValue({
+                jti: 'logout-write-failed',
+                exp: Math.floor(Date.now() / 1000) + 3600,
+            });
+            mockRedisService.setStrict.mockRejectedValueOnce(new Error('redis down'));
+
+            await expect(service.logout('some-access-token')).rejects.toThrow('redis down');
+        });
+
+        it('không báo logout thành công nếu Redis không publish được fan-out socket', async () => {
+            jwtService.decode.mockReturnValue({
+                jti: 'logout-publish-failed',
+                exp: Math.floor(Date.now() / 1000) + 3600,
+            });
+            mockRedisService.publishSessionRevokedStrict.mockRejectedValueOnce(new Error('pubsub down'));
+
+            await expect(service.logout('some-access-token')).rejects.toThrow('pubsub down');
+            expect(mockRedisService.setStrict).toHaveBeenCalled();
+        });
+
+        it('revoke cả refresh JTI và session family khi logout', async () => {
+            const exp = Math.floor(Date.now() / 1000) + 3600;
+            jwtService.decode.mockReturnValue({
+                sub: 'user-1', jti: 'access-jti', sid: 'family-1', exp,
+            });
+            jwtService.verify.mockReturnValue({
+                sub: 'user-1', jti: 'refresh-jti', sid: 'family-1', exp,
+            });
+
+            await service.logout('access-token', 'refresh-token');
+
+            expect(mockRedisService.setStrict).toHaveBeenCalledWith(
+                'blacklist:access-jti', 'true', expect.any(Number),
+            );
+            expect(mockRedisService.setStrict).toHaveBeenCalledWith(
+                'blacklist:refresh-jti', 'true', expect.any(Number),
+            );
+            expect(mockRedisService.setStrict).toHaveBeenCalledWith(
+                'blacklist:session:family-1', 'logout', expect.any(Number),
+            );
+            expect(mockRedisService.publishSessionRevokedStrict).toHaveBeenCalledWith(
+                'access-jti', 'family-1',
+            );
+        });
+
+        it('ghi session family trước JTI để lỗi giữa chừng không để refresh token còn sống', async () => {
+            const exp = Math.floor(Date.now() / 1000) + 3600;
+            jwtService.decode.mockReturnValue({
+                sub: 'user-1', jti: 'access-jti', sid: 'family-safe-first', exp,
+            });
+            jwtService.verify.mockReturnValue({
+                sub: 'user-1', jti: 'refresh-jti', sid: 'family-safe-first', exp,
+            });
+            mockRedisService.setStrict
+                .mockResolvedValueOnce(undefined)
+                .mockRejectedValueOnce(new Error('redis interrupted'));
+
+            await expect(service.logout('access-token', 'refresh-token'))
+                .rejects.toThrow('redis interrupted');
+
+            expect(mockRedisService.setStrict).toHaveBeenNthCalledWith(
+                1,
+                'blacklist:session:family-safe-first',
+                'logout',
+                expect.any(Number),
+            );
+            expect(mockRedisService.setStrict).toHaveBeenNthCalledWith(
+                2,
+                'blacklist:refresh-jti',
+                'true',
+                expect.any(Number),
+            );
+            expect(mockRedisService.setStrict).not.toHaveBeenCalledWith(
+                'blacklist:access-jti',
+                'true',
+                expect.any(Number),
+            );
+            expect(mockRedisService.publishSessionRevokedStrict).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('blacklist fail-closed', () => {
+        it('production coi token là revoked khi Redis check lỗi', async () => {
+            configService.get.mockImplementation((key: string, defaultVal?: any) => {
+                if (key === 'NODE_ENV') return 'production';
+                const map: Record<string, string> = {
+                    JWT_SECRET: 'test-secret', JWT_REFRESH_SECRET: 'test-refresh-secret',
+                };
+                return map[key] || defaultVal;
+            });
+            mockRedisService.existsStrict.mockRejectedValueOnce(new Error('redis down'));
+
+            await expect(service.isTokenBlacklisted('jti-1')).resolves.toBe(true);
+        });
+    });
+
+    describe('session family', () => {
+        it('access và refresh token mới dùng cùng sid', async () => {
+            await (service as any).generateTokens(mockUser);
+            const payloads = jwtService.sign.mock.calls.map((call: any[]) => call[0]);
+            expect(payloads).toHaveLength(2);
+            expect(payloads[0].sid).toEqual(expect.any(String));
+            expect(payloads[1].sid).toBe(payloads[0].sid);
+        });
+
+        it('refresh bị từ chối khi session family đã logout', async () => {
+            jwtService.verify.mockReturnValue({
+                sub: 'user-1', jti: 'refresh-old', sid: 'family-revoked',
+                exp: Math.floor(Date.now() / 1000) + 3600,
+            });
+            redisStore.set('blacklist:session:family-revoked', 'logout');
+
+            await expect(service.refreshToken('refresh-token')).rejects.toThrow(UnauthorizedException);
+            expect(mockRedisService.claimOnceStrict).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('seedAdmin', () => {
+        it('fail-fast khi DB mới thiếu bootstrap secret và không ghi user', async () => {
+            usersRepo.findOne.mockResolvedValue(null);
+
+            await expect(service.seedAdmin()).rejects.toThrow('ADMIN_DEFAULT_PASSWORD');
+            expect(usersRepo.save).not.toHaveBeenCalled();
         });
     });
 

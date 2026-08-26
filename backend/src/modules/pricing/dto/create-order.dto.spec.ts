@@ -55,6 +55,7 @@ describe('quote-page-ux backend B1 + B2', () => {
         vat_amount: '100000',
         shipping_fee: '30000',
         grand_total: '1130000',
+        items: [{ item_type: 'loose', item_total: 1 }],
       };
 
       const dto = plainToInstance(CreateQuoteDto, payload);
@@ -69,8 +70,11 @@ describe('quote-page-ux backend B1 + B2', () => {
       expect(typeof dto.grand_total).toBe('number');
     });
 
-    it('treats the four fields as optional (omitting them is valid)', async () => {
-      const dto = plainToInstance(CreateQuoteDto, { customer_name: 'Only name' });
+    it('treats the four pricing output fields as optional when quote has an item', async () => {
+      const dto = plainToInstance(CreateQuoteDto, {
+        customer_name: 'Only name',
+        items: [{ item_type: 'loose', item_total: 1 }],
+      });
       const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
 
       expect(errors).toHaveLength(0);
@@ -79,11 +83,33 @@ describe('quote-page-ux backend B1 + B2', () => {
     });
 
     it('reports an error when a pricing field is a non-numeric string (guard intact)', async () => {
-      const dto = plainToInstance(CreateQuoteDto, { vat_amount: 'not-a-number' });
+      const dto = plainToInstance(CreateQuoteDto, {
+        vat_amount: 'not-a-number',
+        items: [{ item_type: 'loose', item_total: 1 }],
+      });
       const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
 
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.some((e) => e.property === 'vat_amount')).toBe(true);
+    });
+
+    it.each([undefined, []])('requires at least one item (items=%p)', async (items) => {
+      const dto = plainToInstance(CreateQuoteDto, { customer_name: 'Khách', items });
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      expect(errors.some((e) => e.property === 'items')).toBe(true);
+    });
+
+    it('rejects negative shipping and VAT above 100 before reaching OrdersService', async () => {
+      const dto = plainToInstance(CreateQuoteDto, {
+        shipping_fee: -1,
+        vat_rate: 101,
+        items: [{ item_type: 'loose', item_total: 1 }],
+      });
+      const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+      expect(errors.some((e) => e.property === 'shipping_fee')).toBe(true);
+      expect(errors.some((e) => e.property === 'vat_rate')).toBe(true);
     });
   });
 

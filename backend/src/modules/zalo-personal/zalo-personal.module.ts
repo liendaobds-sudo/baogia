@@ -9,13 +9,15 @@ import { ZaloPersonalController } from './zalo-personal.controller';
 import { ZaloPoolService } from './zalo-pool.service';
 import { ZaloRateLimiterService } from './zalo-rate-limiter.service';
 import { ZaloHealthCheckService } from './zalo-health-check.service';
+import { User } from '../../entities/user.entity';
+import { ZaloAccountAccessInterceptor } from './zalo-account-access.interceptor';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([ZaloAccount, Contact, Conversation, Message, Channel]),
+        TypeOrmModule.forFeature([ZaloAccount, Contact, Conversation, Message, Channel, User]),
     ],
     controllers: [ZaloPersonalController],
-    providers: [ZaloPoolService, ZaloRateLimiterService, ZaloHealthCheckService],
+    providers: [ZaloPoolService, ZaloRateLimiterService, ZaloHealthCheckService, ZaloAccountAccessInterceptor],
     exports: [ZaloPoolService, ZaloRateLimiterService],
 })
 export class ZaloPersonalModule {}

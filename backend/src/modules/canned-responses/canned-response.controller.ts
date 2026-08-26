@@ -1,9 +1,13 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
+import { RolesGuard, Roles } from '../auth/roles.guard';
+import { UserRole } from '../../entities';
 import { CannedResponseService } from './canned-response.service';
+import { CreateCannedResponseDto, UpdateCannedResponseDto } from './canned-response.dto';
 
 @Controller('canned-responses')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), CskhScopeGuard)
 export class CannedResponseController {
     constructor(private service: CannedResponseService) { }
 
@@ -18,12 +22,16 @@ export class CannedResponseController {
     }
 
     @Post()
-    create(@Body() body: any, @Request() req: any) {
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    create(@Body() body: CreateCannedResponseDto, @Request() req: any) {
         return this.service.create({ ...body, createdById: req.user?.id });
     }
 
     @Put(':id')
-    update(@Param('id') id: string, @Body() body: any) {
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    update(@Param('id') id: string, @Body() body: UpdateCannedResponseDto) {
         return this.service.update(id, body);
     }
 
@@ -33,6 +41,8 @@ export class CannedResponseController {
     }
 
     @Delete(':id')
+    @UseGuards(RolesGuard)
+    @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
     delete(@Param('id') id: string) {
         return this.service.delete(id);
     }

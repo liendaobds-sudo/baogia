@@ -274,6 +274,29 @@ export default function SettingsPage() {
         };
     }, [socket, pendingQrAccountId, fetchZaloPersonalAccounts]);
 
+    // Theo dõi RỚT KẾT NỐI ngoài luồng QR: trước đây chỉ nghe sự kiện khi đang mở modal QR
+    // → session chết lúc không thao tác thì user không hề biết. Nay luôn nghe disconnected/
+    // reconnect-failed khi đang ở tab Zalo, cập nhật liveStatus tại chỗ + poll nhẹ 30s dự phòng.
+    useEffect(() => {
+        if (!socket || activeTab !== 'zalo_personal') return;
+
+        const patchStatus = (accountId: string, liveStatus: string) => {
+            setZaloAccounts(prev => prev.map(a => a.id === accountId ? { ...a, liveStatus } : a));
+        };
+        const onDisconnected = (data: { accountId: string }) => patchStatus(data.accountId, 'disconnected');
+        const onReconnectFailed = (data: { accountId: string }) => patchStatus(data.accountId, 'qr_pending');
+
+        socket.on('zalo:disconnected', onDisconnected);
+        socket.on('zalo:reconnect-failed', onReconnectFailed);
+        const poll = setInterval(fetchZaloPersonalAccounts, 30000);
+
+        return () => {
+            socket.off('zalo:disconnected', onDisconnected);
+            socket.off('zalo:reconnect-failed', onReconnectFailed);
+            clearInterval(poll);
+        };
+    }, [socket, activeTab, fetchZaloPersonalAccounts]);
+
     const handleCreateZaloAccount = async () => {
         if (!zaloDisplayName.trim() || !user) return;
         setQrError('Đang khởi tạo kết nối Zalo...');

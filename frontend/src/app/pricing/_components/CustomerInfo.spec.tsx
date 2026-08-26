@@ -13,12 +13,14 @@
  */
 
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 
 import { CustomerInfo, type CustomerInfoHandle, type CustomerInfoPayload } from './CustomerInfo';
+import { useQuoteCart } from '../quotes/_store/useQuoteCart';
 
 // Mock fetch như no-op (token=null nên effect company-info không gọi, nhưng giữ an toàn).
 beforeEach(() => {
+  useQuoteCart.setState(useQuoteCart.getInitialState(), true);
   global.fetch = jest.fn(() =>
     Promise.resolve({
       ok: true,
@@ -90,5 +92,14 @@ describe('CustomerInfo', () => {
     expect(ref.current!.getDraftState()).toEqual({ customerName: 'X' });
     // getPayload cũng phản ánh giá trị vừa nạp.
     expect(ref.current!.getPayload().customer_name).toBe('X');
+  });
+
+  it('cho chọn chiết khấu fixed và giữ đúng số tiền trong quote store', () => {
+    renderWithRef();
+    fireEvent.change(screen.getByLabelText('Loại chiết khấu báo giá'), { target: { value: 'fixed' } });
+    fireEvent.change(screen.getByLabelText('Giá trị chiết khấu báo giá'), { target: { value: '25000' } });
+
+    expect(useQuoteCart.getState().headerDiscountType).toBe('fixed');
+    expect(useQuoteCart.getState().headerDiscountValue).toBe(25_000);
   });
 });

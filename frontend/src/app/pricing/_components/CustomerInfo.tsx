@@ -2,6 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'rea
 import { useQuoteCart } from '../quotes/_store/useQuoteCart';
 import { API_URL } from '@/lib/api';
 import { formatVND } from '@/lib/format/currency';
+import type { HeaderDiscountType } from '@/lib/quote/header-discount';
 
 /**
  * Props cho Thành_Phần_Thông_Tin_Khách dùng chung.
@@ -70,7 +71,18 @@ export const CustomerInfo = forwardRef<CustomerInfoHandle, CustomerInfoProps>(({
     const [notes, setNotes] = useState('');
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
-    const { items, removeItem, vatRate, chietKhauRate, shippingFee, setVatRate, setChietKhauRate, setShippingFee, seedVatRate } = useQuoteCart();
+    const {
+        items,
+        removeItem,
+        vatRate,
+        headerDiscountType,
+        headerDiscountValue,
+        shippingFee,
+        setVatRate,
+        setHeaderDiscount,
+        setShippingFee,
+        seedVatRate,
+    } = useQuoteCart();
 
     // Load default VAT from company settings (chỉ seed khi user chưa chỉnh)
     useEffect(() => {
@@ -190,8 +202,34 @@ export const CustomerInfo = forwardRef<CustomerInfoHandle, CustomerInfoProps>(({
                                 <option value={10}>10% — Thuế suất thông thường</option>
                             </select>
                         </div>
-                        <div className="group"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Chiết khấu (%)</label>
-                            <div className="relative"><input type="number" min={0} max={100} step={0.5} value={chietKhauRate || ''} onChange={e => setChietKhauRate(parseFloat(e.target.value) || 0)} placeholder="0" className={`${inputCls} pr-8 font-mono`} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 font-bold">%</span></div>
+                        <div className="group"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Chiết khấu báo giá</label>
+                            <div className="flex gap-2">
+                                <select
+                                    aria-label="Loại chiết khấu báo giá"
+                                    value={headerDiscountType}
+                                    onChange={e => setHeaderDiscount(e.target.value as HeaderDiscountType, headerDiscountValue)}
+                                    className={`${inputCls} w-[92px] shrink-0`}
+                                >
+                                    <option value="percent">Phần trăm</option>
+                                    <option value="fixed">Số tiền</option>
+                                </select>
+                                <div className="relative flex-1">
+                                    <input
+                                        aria-label="Giá trị chiết khấu báo giá"
+                                        type="number"
+                                        min={0}
+                                        max={headerDiscountType === 'percent' ? 100 : undefined}
+                                        step={headerDiscountType === 'percent' ? 0.5 : 1000}
+                                        value={headerDiscountValue || ''}
+                                        onChange={e => setHeaderDiscount(headerDiscountType, parseFloat(e.target.value) || 0)}
+                                        placeholder="0"
+                                        className={`${inputCls} pr-8 font-mono`}
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 font-bold">
+                                        {headerDiscountType === 'percent' ? '%' : 'đ'}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                         <div className="group"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Phí giao hàng</label>
                             <div className="relative"><input type="number" min={0} step={1000} value={shippingFee || ''} onChange={e => setShippingFee(parseFloat(e.target.value) || 0)} placeholder="0" className={`${inputCls} pr-10 font-mono`} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 font-bold">đ</span></div>

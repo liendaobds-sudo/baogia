@@ -30,6 +30,11 @@ export class AiSuggestion {
     @Column({ name: 'conversation_id' })
     conversationId: string;
 
+    // Cô lập theo tenant (org-scoped). NULL = hàng cũ trước Pha A. Cột do migration Pha A thêm;
+    // ánh xạ để ai-learning lọc few-shot theo tenant ở tầng ứng dụng (lưới an toàn khi RLS chưa flip).
+    @Column({ name: 'tenant_id', type: 'int', nullable: true })
+    tenantId: number | null;
+
     @Column({ name: 'trigger_message_id', nullable: true })
     triggerMessageId: string;
 

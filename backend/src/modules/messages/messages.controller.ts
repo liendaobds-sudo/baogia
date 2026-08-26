@@ -1,8 +1,9 @@
-import { Controller, Post, Get, Delete, Param, Query, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Param, Query, Body, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { MessagesService } from './messages.service';
 import { MessageProcessorService } from './message-processor.service';
+import { SendMessageDto } from './dto/message.dto';
 
 @Controller('conversations')
 @UseGuards(AuthGuard('jwt'), CskhScopeGuard)
@@ -24,10 +25,11 @@ export class MessagesController {
     @Post(':conversationId/send')
     async sendMessage(
         @Param('conversationId') conversationId: string,
-        @Body() body: { text: string; contentType?: string; attachments?: any[]; idempotencyKey?: string, replyToId?: string },
+        @Body() body: SendMessageDto,
         @Req() req: any,
     ) {
         const userId = req.user?.sub || req.user?.id;
+        const tenantId = this.resolveRequestTenantId(req);
         const message = await this.messageProcessor.processOutbound(
             conversationId,
             {
@@ -38,6 +40,7 @@ export class MessagesController {
             },
             userId,
             body.idempotencyKey,
+            tenantId,
         );
 
         return {
@@ -49,6 +52,23 @@ export class MessagesController {
             createdAt: message.createdAt,
             quoteId: message.quoteId,
         };
+    }
+
+    /** Đồng bộ quy tắc impersonation hiện có của TenantContextInterceptor. */
+    private resolveRequestTenantId(req: any): number {
+        let rawTenantId = req.user?.tenantId;
+
+        if (req.user?.role === 'super_admin' && rawTenantId != null) {
+            const header = req.headers?.['x-tenant-id'];
+            const rawHeader = Array.isArray(header) ? header[0] : header;
+            if (rawHeader != null && String(rawHeader).trim() !== '') rawTenantId = rawHeader;
+        }
+
+        const tenantId = Number(rawTenantId);
+        if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
+            throw new ForbiddenException('Không xác định được đơn vị gửi tin nhắn.');
+        }
+        return tenantId;
     }
 
     @Post(':conversationId/messages/:messageId/react')

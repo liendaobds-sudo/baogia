@@ -22,6 +22,12 @@ export class Quote {
   @PrimaryGeneratedColumn()
   id: number;
 
+  // Cô lập theo tenant (org-scoped). NULL = hàng cũ trước Pha A. Cột do migration Pha A thêm;
+  // ánh xạ để quote-crud lọc tenant ở tầng ứng dụng (findAll từng tham chiếu q.tenantId
+  // khi CHƯA có mapping — nhánh đó sinh SQL sai, may chỉ chạy khi có tenant context).
+  @Column({ name: 'tenant_id', type: 'int', nullable: true })
+  tenantId: number | null;
+
   @Column({ name: 'customer_id', type: 'int', nullable: true })
   customerId: number;
 
@@ -79,8 +85,9 @@ export class Quote {
   @Column({ name: 'sheets_needed', type: 'int', nullable: true, default: 0 })
   sheetsNeeded: number;
 
-  @Column({ name: 'created_by', type: 'int', nullable: true })
-  createdBy: number;
+  /** Actor id — UUID string (users.id) or legacy numeric string. */
+  @Column({ name: 'created_by', type: 'varchar', length: 36, nullable: true })
+  createdBy: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -93,6 +100,14 @@ export class Quote {
 
   @Column({ name: 'validity_days', type: 'int', nullable: true, default: 7 })
   validityDays: number;
+
+  /** Ngày hết hiệu lực (date). */
+  @Column({ name: 'valid_until', type: 'date', nullable: true })
+  validUntil: string | null;
+
+  /** Thời gian giao hàng (text tự do, vd "3-5 ngày"). */
+  @Column({ name: 'delivery_time', type: 'varchar', length: 100, nullable: true })
+  deliveryTime: string | null;
 
   @Column({ name: 'discount_type', type: 'varchar', length: 10, nullable: true })
   discountType: string;

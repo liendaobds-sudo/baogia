@@ -1,11 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { HttpService } from '@nestjs/axios';
 import { KbDocument, KbDocStatus } from '../../entities/kb-document.entity';
 import { KbChunk } from '../../entities/kb-chunk.entity';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { EmbeddingService } from './embedding.service';
+import { safeErrorMetadata, sensitiveTextMetadata } from '../../common/logging/safe-log-metadata';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -26,9 +27,9 @@ export class KnowledgeBaseService {
     constructor(
         @InjectRepository(KbDocument) private docRepo: Repository<KbDocument>,
         @InjectRepository(KbChunk) private chunkRepo: Repository<KbChunk>,
-        private readonly httpService: HttpService,
         private readonly configService: ConfigService,
         private readonly tenant: TenantContextService,
+        private readonly embeddings: EmbeddingService,
     ) {
         this.uploadDir = path.resolve(process.cwd(), 'uploads', 'kb');
         if (!fs.existsSync(this.uploadDir)) {
@@ -89,11 +90,18 @@ export class KnowledgeBaseService {
         uploadedById?: string,
         tags: string[] = [],
     ): Promise<KbDocument> {
+        // Guard file tồn tại + có nội dung (thiếu field 'file' → 400, không phải 500).
+        if (!file || !file.originalname || !file.buffer) {
+            throw new BadRequestException('Thiếu file tải lên.');
+        }
+        if (file.size === 0 || file.buffer.length === 0) {
+            throw new BadRequestException('File rỗng.');
+        }
         // Determine file type
         const ext = path.extname(file.originalname).toLowerCase();
         const allowed = ['.txt', '.md'];
         if (!allowed.includes(ext)) {
-            throw new Error(`File type ${ext} chưa được hỗ trợ. Dùng: ${allowed.join(', ')}`);
+            throw new BadRequestException(`File type ${ext} chưa được hỗ trợ. Dùng: ${allowed.join(', ')}`);
         }
 
         // Save file to local uploads dir
@@ -113,7 +121,9 @@ export class KnowledgeBaseService {
             tenantId: this.writeTenantId(),
         });
         await this.docRepo.save(doc);
-        this.logger.log(`📄 KB document created: ${doc.title} (${doc.id})`);
+        this.logger.log(
+            `📄 KB document created: id=${doc.id}, type=${doc.fileType}, sizeBytes=${doc.fileSize}`,
+        );
 
         // Process synchronously (for MVP — move to queue later)
         try {
@@ -122,14 +132,14 @@ export class KnowledgeBaseService {
             doc.status = KbDocStatus.ERROR;
             doc.errorMessage = err.message;
             await this.docRepo.save(doc);
-            this.logger.error(`❌ KB processing failed: ${err.message}`);
+            this.logger.error(`❌ KB processing failed: id=${doc.id} (${safeErrorMetadata(err)})`);
         }
 
         return this.findOne(doc.id);
     }
 
     private async processDocument(doc: KbDocument) {
-        this.logger.log(`⚙️ Processing document: ${doc.title}`);
+        this.logger.log(`⚙️ Processing KB document: id=${doc.id}`);
 
         // Extract text
         const text = fs.readFileSync(doc.fileUrl, 'utf-8');
@@ -186,7 +196,10 @@ export class KnowledgeBaseService {
         doc.status = KbDocStatus.INDEXED;
         doc.chunkCount = chunks.length;
         await this.docRepo.save(doc);
-        this.logger.log(`✅ KB document indexed: ${doc.title} (${chunks.length} chunks${chunks.length > 0 ? ', with embeddings' : ''})`);
+        this.logger.log(
+            `✅ KB document indexed: id=${doc.id}, chunks=${chunks.length}, ` +
+            `hasEmbeddings=${chunks.length > 0}`,
+        );
     }
 
     /**
@@ -431,7 +444,9 @@ export class KnowledgeBaseService {
             try {
                 queryEmbedding = await this.generateEmbedding(query);
             } catch (e) {
-                this.logger.warn(`⚠️ Query embedding failed, falling back to TF-IDF only: ${(e as Error).message}`);
+                this.logger.warn(
+                    `⚠️ Query embedding failed, falling back to TF-IDF only (${safeErrorMetadata(e)})`,
+                );
             }
         }
 
@@ -523,12 +538,17 @@ export class KnowledgeBaseService {
             try {
                 topCandidates = await this.reRankWithAI(query, topCandidates);
             } catch (e) {
-                this.logger.warn(`⚠️ AI re-ranking failed, using original order: ${(e as Error).message}`);
+                this.logger.warn(
+                    `⚠️ AI re-ranking failed, using original order (${safeErrorMetadata(e)})`,
+                );
             }
         }
 
         const results = topCandidates.slice(0, limit);
-        this.logger.log(`🔍 KB search: ${relevantChunks.length} chunks → ${candidates.length} above threshold → ${results.length} returned (query="${query.substring(0, 60)}")`);
+        this.logger.log(
+            `🔍 KB search: ${relevantChunks.length} chunks → ${candidates.length} above threshold → ` +
+            `${results.length} returned (${sensitiveTextMetadata('query', query)}, termCount=${words.length})`,
+        );
 
         // Attach score metadata to chunks for downstream use
         return results.map(s => {
@@ -618,48 +638,14 @@ ${snippets}`;
     }
 
     // ===== Embedding & Vector Utils =====
+    // Logic đã trích sang EmbeddingService dùng chung; giữ wrapper để không đổi call-site.
 
     private async generateEmbedding(text: string): Promise<number[] | null> {
-        const apiKey = this.configService.get<string>('AI_PROVIDER_2_KEY') || this.configService.get<string>('GEMINI_API_KEY');
-        if (!apiKey) {
-            this.logger.warn('⚠️ No Gemini API key found for embeddings');
-            return null;
-        }
-
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`;
-        const truncatedText = text.substring(0, 2000); // Gemini limit
-
-        try {
-            const response = await this.httpService.axiosRef.post(url, {
-                model: 'models/text-embedding-004',
-                content: { parts: [{ text: truncatedText }] },
-            }, {
-                timeout: 10000,
-                headers: { 'Content-Type': 'application/json' },
-            });
-
-            const values = response.data?.embedding?.values;
-            if (values && Array.isArray(values)) {
-                return values;
-            }
-            this.logger.warn('⚠️ Unexpected embedding response format');
-            return null;
-        } catch (e: any) {
-            this.logger.warn(`⚠️ Embedding API error: ${e.message}`);
-            return null;
-        }
+        return this.embeddings.generateEmbedding(text);
     }
 
     private cosineSimilarity(a: number[], b: number[]): number {
-        if (a.length !== b.length || a.length === 0) return 0;
-        let dot = 0, normA = 0, normB = 0;
-        for (let i = 0; i < a.length; i++) {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-        const denom = Math.sqrt(normA) * Math.sqrt(normB);
-        return denom === 0 ? 0 : dot / denom;
+        return this.embeddings.cosineSimilarity(a, b);
     }
 
     /**
@@ -684,7 +670,7 @@ ${snippets}`;
             }
 
             // Re-process this document with smart chunking
-            this.logger.log(`🔄 Re-chunking: ${doc.title} (old format detected)`);
+            this.logger.log(`🔄 Re-chunking KB document: id=${doc.id} (old format detected)`);
             try {
                 // Delete old chunks
                 await this.chunkRepo.delete({ documentId: doc.id });
@@ -693,13 +679,13 @@ ${snippets}`;
                 if (doc.fileUrl && fs.existsSync(doc.fileUrl)) {
                     await this.processDocument(doc);
                     rechunked++;
-                    this.logger.log(`✅ Re-chunked: ${doc.title} (${doc.chunkCount} chunks)`);
+                    this.logger.log(`✅ Re-chunked KB document: id=${doc.id}, chunks=${doc.chunkCount}`);
                 } else {
-                    this.logger.warn(`⚠️ File missing for ${doc.title}, skipping re-chunk`);
+                    this.logger.warn(`⚠️ KB file missing: id=${doc.id}, skipping re-chunk`);
                     skipped++;
                 }
             } catch (err: any) {
-                this.logger.error(`❌ Re-chunk failed for ${doc.title}: ${err.message}`);
+                this.logger.error(`❌ Re-chunk failed: id=${doc.id} (${safeErrorMetadata(err)})`);
                 skipped++;
             }
         }
@@ -776,12 +762,12 @@ ${snippets}`;
         // Re-chunk
         try {
             await this.processDocument(doc);
-            this.logger.log(`✅ KB document updated & re-indexed: ${doc.title} (${doc.chunkCount} chunks)`);
+            this.logger.log(`✅ KB document updated & re-indexed: id=${doc.id}, chunks=${doc.chunkCount}`);
         } catch (err: any) {
             doc.status = KbDocStatus.ERROR;
             doc.errorMessage = err.message;
             await this.docRepo.save(doc);
-            this.logger.error(`❌ KB re-processing failed: ${err.message}`);
+            this.logger.error(`❌ KB re-processing failed: id=${doc.id} (${safeErrorMetadata(err)})`);
         }
 
         return this.findOne(id);
@@ -801,6 +787,6 @@ ${snippets}`;
         }
 
         await this.docRepo.remove(doc);
-        this.logger.log(`🗑️ KB document deleted: ${doc.title}`);
+        this.logger.log(`🗑️ KB document deleted: id=${doc.id}`);
     }
 }

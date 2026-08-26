@@ -11,6 +11,8 @@ import { OffsetQuoteConfigurator, type OffsetProductType } from '../_components/
 import { useQuoteCart, type QuoteCartItem } from '../_store/useQuoteCart';
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
+import { resolveUnitLabel } from '@/lib/quote/quote-units';
+import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
 
 /**
  * Ánh xạ item offset sang QuoteItemDto. KHÁC in nhanh: cấu hình offset dùng khóa camelCase
@@ -18,20 +20,32 @@ import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/
  * spread thẳng (sẽ bị `forbidNonWhitelisted` → HTTP 400). Vì vậy chỉ gửi các field whitelisted,
  * và gói toàn bộ cấu hình + kết quả tính (lines/meta) vào `printing_detail` (JSON tự do, được lưu)
  * để báo giá offset tái dựng được sau này. KHÔNG đổi logic tính giá.
+ *
+ * unit: resolve theo offset type (to_roi→tờ, còn lại→cái) — backend resolve lại khi save.
  */
-const mapItem = (it: QuoteCartItem): Record<string, unknown> => ({
-    product_name: it.name,
-    item_type: 'offset',
-    product_type: (it.configParams as Record<string, unknown>)?.type as string ?? 'offset',
-    quantity: it.quantity,
-    item_total: it.total,
-    printing_detail: {
-        offset: true,
-        config: it.configParams,
-        result: it.details,
-        unitPrice: it.unitPrice,
-    },
-});
+const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
+    const cfg = (it.configParams as Record<string, unknown>) || {};
+    const productType = (cfg.type as string) ?? 'offset';
+    return {
+        product_name: it.name,
+        item_type: 'offset',
+        product_type: productType,
+        quantity: it.quantity,
+        item_total: it.total,
+        unit: resolveUnitLabel({
+            unit: (cfg.unit as string) || undefined,
+            productUnit: (cfg.productUnit as string) || undefined,
+            quoteType: productType,
+            itemType: 'offset',
+        }),
+        printing_detail: {
+            offset: true,
+            config: it.configParams,
+            result: it.details,
+            unitPrice: it.unitPrice,
+        },
+    };
+};
 
 const OFFSET_TABS: { id: OffsetProductType; label: string; icon: string }[] = [
     { id: 'to_roi', label: 'Tờ rơi', icon: '📄' },
@@ -56,7 +70,15 @@ export default function OffsetQuotePage() {
     const [errors, setErrors] = useState<QuoteDraftErrors>({});
 
     const sidebarRef = useRef<CustomerInfoHandle>(null);
-    const { items, getTotalAmount, clearCart, addItem } = useQuoteCart();
+    const {
+        items,
+        getTotalAmount,
+        clearCart,
+        addItem,
+        headerDiscountType,
+        headerDiscountValue,
+        setHeaderDiscount,
+    } = useQuoteCart();
     const [editId, setEditId] = useState<string | null>(null);
 
     // Hydrate khi sửa (?edit=ID): nạp khách + giỏ hàng từ printing_detail của báo giá offset đã lưu.
@@ -80,6 +102,10 @@ export default function OffsetQuotePage() {
                 });
                 setCustomerName(d.customer_name || '');
                 clearCart();
+                setHeaderDiscount(
+                    d.discount_type === 'fixed' ? 'fixed' : 'percent',
+                    Number(d.discount_value) || 0,
+                );
                 let tabSet = false;
                 for (const it of (d.items || [])) {
                     let pd: any = {};
@@ -105,7 +131,7 @@ export default function OffsetQuotePage() {
             } catch (e) { console.error('Hydrate offset edit lỗi', e); }
         })();
         return () => { alive = false; };
-    }, [token, clearCart, addItem]);
+    }, [token, clearCart, addItem, setHeaderDiscount]);
 
     const handleCustomerNameChange = useCallback((name: string) => {
         setCustomerName(name);
@@ -134,10 +160,13 @@ export default function OffsetQuotePage() {
         // ── QUY ƯỚC THỐNG NHẤT ──
         // item.total = giá TRƯỚC VAT (đã trừ chiết khấu nội bộ engine). VAT áp 1 lần ở đây theo % chung mục khách,
         // trên giá sau chiết khấu → khớp công thức server (orders.service) tính lại khi lưu.
-        const subtotal = getTotalAmount(); // Σ item.total (trước VAT)
+        const subtotal = getTotalAmount(); // Σ item.total (đã trừ chiết khấu nội bộ engine, trước VAT)
+        const headerDiscount = calculateHeaderDiscount(subtotal, headerDiscountType, headerDiscountValue);
+        const { discountAmount, afterDiscount } = headerDiscount;
         const vatRate = Number(payload.vat_rate) || 0;
-        const vatAmount = subtotal * vatRate / 100;
-        const grandTotal = subtotal + vatAmount + payload.shipping_fee;
+        const shippingFee = Number(payload.shipping_fee) || 0;
+        const vatAmount = afterDiscount * vatRate / 100;
+        const grandTotal = afterDiscount + vatAmount + shippingFee;
 
         try {
             const res = await fetch(editId ? `${API_URL}/erp/orders/${editId}` : `${API_URL}/erp/orders`, {
@@ -147,6 +176,8 @@ export default function OffsetQuotePage() {
                     Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({
+                    // Gửi code từ FE (fallback BE cũ). BE vẫn tự sinh nếu thiếu.
+                    code: editId ? undefined : `BG-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Date.now().toString(36).toUpperCase().slice(-4)}`,
                     type: 'In Offset',
                     customer_name: payload.customer_name,
                     customer_phone: payload.customer_phone,
@@ -157,9 +188,12 @@ export default function OffsetQuotePage() {
                     customer_email: payload.customer_email,
                     customer_contact: payload.customer_contact,
                     total: subtotal,
+                    discount_type: discountAmount > 0 ? headerDiscount.discountType : undefined,
+                    discount_value: headerDiscount.discountValue,
+                    discount_amount: discountAmount,
                     vat_rate: payload.vat_rate,
                     vat_amount: vatAmount,
-                    shipping_fee: payload.shipping_fee,
+                    shipping_fee: shippingFee,
                     grand_total: grandTotal,
                     items: items.map(mapItem),
                 }),

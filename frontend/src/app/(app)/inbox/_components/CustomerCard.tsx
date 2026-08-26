@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { API_URL } from '@/lib/api';
 
 interface CustomerCardProps {
     token: string;
@@ -18,8 +19,6 @@ interface CustomerData {
     isNewCustomer?: boolean;
 }
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
-
 export function CustomerCard({ token, phone }: CustomerCardProps) {
     const [data, setData] = useState<CustomerData | null>(null);
     const [loading, setLoading] = useState(false);
@@ -27,7 +26,7 @@ export function CustomerCard({ token, phone }: CustomerCardProps) {
     useEffect(() => {
         if (!phone || !token) { setData(null); return; }
         setLoading(true);
-        fetch(`${API}/erp/customers?action=lookup&phone=${encodeURIComponent(phone)}`, {
+        fetch(`${API_URL}/erp/customers?action=lookup&phone=${encodeURIComponent(phone)}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         })
             .then(r => r.json())

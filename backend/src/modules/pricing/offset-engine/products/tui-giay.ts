@@ -221,7 +221,12 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
         soConBaiVal = soConBai(opt, kt, gap);
     }
     const soCon = soConBaiVal * opt.heSo;
-    const luotIn = soConBaiVal === 0 ? 0 : sl / soConBaiVal;
+    if (!(soConBaiVal > 0) || !(opt.heSo > 0) || !(soCon > 0)) {
+        throw new OffsetPricingError(
+            'Kích thước túi không thể bình lên bài in đã chọn. Hãy chọn khổ khác hoặc giảm kích thước.',
+        );
+    }
+    const luotIn = sl / soConBaiVal;
     const loaiKem = opt.kemLon ? 'Kẽm lớn' : 'Kẽm nhỏ';
 
     const w = buildWaste(d, sl, soCon, [

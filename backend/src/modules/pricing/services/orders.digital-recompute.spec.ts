@@ -43,22 +43,27 @@ describe('OrdersService.recomputeDigitalItems', () => {
         expect(items[0].item_total).toBe(80000);
     });
 
-    it('large_format có payload → KHÔNG gọi facade, KHÔNG ghi đè (phụ kiện tính client)', async () => {
-        const facade = { calculatePrice: jest.fn() };
+    it('large_format có payload → replay facade + ghi đè selling_subtotal (accessories server-side)', async () => {
+        const facade = {
+            calculatePrice: jest.fn().mockResolvedValue({
+                success: true,
+                data: { total: 100000, selling_subtotal: 150000, grand_total: 162000 },
+            }),
+        };
         const svc = build(facade);
-        const items = [{ item_total: 123000, printing_detail: { digital: true, pricingPayload: { type: 'large_format', material_id: 9 } } }];
+        const payload = { type: 'large_format', material_id: 9, accessories: [{ id: 1, quantity: 2 }] };
+        const items = [{ item_total: 123000, printing_detail: { digital: true, pricingPayload: payload } }];
         await run(svc, items);
-        expect(facade.calculatePrice).not.toHaveBeenCalled();
-        expect(items[0].item_total).toBe(123000);
+        expect(facade.calculatePrice).toHaveBeenCalledWith(payload);
+        expect(items[0].item_total).toBe(150000);
     });
 
-    it('item KHÔNG có payload → giữ nguyên (tương thích báo giá cũ)', async () => {
+    it('item digital KHÔNG có payload → fail-closed trên write mới', async () => {
         const facade = { calculatePrice: jest.fn() };
         const svc = build(facade);
-        const items = [{ item_total: 42, printing_detail: { digital: true } }];
-        await run(svc, items);
+        const items = [{ item_type: 'loose', item_total: 42, printing_detail: { digital: true } }];
+        await expect(run(svc, items)).rejects.toThrow('Thiếu pricingPayload');
         expect(facade.calculatePrice).not.toHaveBeenCalled();
-        expect(items[0].item_total).toBe(42);
     });
 
     it('offset item → bỏ qua (đã do recomputeOffsetItems xử lý)', async () => {
@@ -76,10 +81,25 @@ describe('OrdersService.recomputeDigitalItems', () => {
         await expect(run(svc, items)).rejects.toThrow('Không xác thực được giá');
     });
 
-    it('không có facade (unit test) → no-op, giữ nguyên', async () => {
+    it('không có facade → fail-closed, không tin item_total client', async () => {
         const svc = build(undefined);
         const items = [{ item_total: 7, printing_detail: { digital: true, pricingPayload: { type: 'loose' } } }];
-        await run(svc, items);
-        expect(items[0].item_total).toBe(7);
+        await expect(run(svc, items)).rejects.toThrow('PricingFacadeService');
+    });
+
+    it('payload type không khớp item type → từ chối', async () => {
+        const facade = { calculatePrice: jest.fn() };
+        const svc = build(facade);
+        const items = [{ item_type: 'bound', item_total: 7, printing_detail: { digital: true, pricingPayload: { type: 'loose' } } }];
+        await expect(run(svc, items)).rejects.toThrow('không khớp');
+        expect(facade.calculatePrice).not.toHaveBeenCalled();
+    });
+
+    it('facade success nhưng giá không hữu hạn → từ chối, không giữ giá client', async () => {
+        const facade = { calculatePrice: jest.fn().mockResolvedValue({ success: true, data: { selling_subtotal: 'NaN' } }) };
+        const svc = build(facade);
+        const items = [{ item_type: 'loose', item_total: 999, printing_detail: { digital: true, pricingPayload: { type: 'loose' } } }];
+        await expect(run(svc, items)).rejects.toThrow('không hợp lệ');
+        expect(items[0].item_total).toBe(999);
     });
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '@/lib/api';
 import { buildPricingPayload, type NormalizedInput } from '@/lib/quote/buildPricingPayload';
 import { readPricingResult } from '@/lib/quote/readPricingResult';
@@ -105,6 +105,8 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
     const [lastPricingPayload, setLastPricingPayload] = useState<Record<string, unknown> | null>(null);
     const [calculating, setCalculating] = useState(false);
     const [optimizedSizes, setOptimizedSizes] = useState<any[]>([]);
+    /** Số thứ tự lần tính giá gần nhất — chỉ response của lần MỚI NHẤT được ghi vào state. */
+    const calcSeqRef = useRef(0);
 
     useEffect(() => {
         if (!token) return;
@@ -112,10 +114,17 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
         let pending = 2;
         const finalize = () => { pending--; if (pending === 0) setLoading(false); };
 
-        fetch(`${API_URL}/pricing/master-data`, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
-        .then(r => r.json())
+        const apiFetch = (path: string) =>
+            fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } })
+                .then(async (r) => {
+                    if (!r.ok) {
+                        const text = await r.text().catch(() => '');
+                        throw new Error(`${path} → HTTP ${r.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
+                    }
+                    return r.json();
+                });
+
+        apiFetch('/pricing/master-data')
         .then(res => {
             if (res.success) {
                 setMasterData(res.data);
@@ -123,19 +132,28 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
                 if (Array.isArray(res.data.materials) && res.data.materials.length > 0) setMaterialId((res.data.materials[0] as {id: number}).id.toString());
             }
         })
-        .catch(console.error)
+        .catch((err) => {
+            console.error('[useQuoteConfigurator] master-data failed', {
+                API_URL,
+                pageOrigin: typeof window !== 'undefined' ? window.location.origin : '',
+                err,
+            });
+        })
         .finally(finalize);
 
-        fetch(`${API_URL}/erp/quote-templates?action=list`, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
-        .then(r => r.json())
+        apiFetch('/erp/quote-templates?action=list')
         .then(res => {
             if (res.success && res.data && Array.isArray(res.data.categories)) {
                 setTemplates(res.data.categories);
             }
         })
-        .catch(console.error)
+        .catch((err) => {
+            console.error('[useQuoteConfigurator] quote-templates failed', {
+                API_URL,
+                pageOrigin: typeof window !== 'undefined' ? window.location.origin : '',
+                err,
+            });
+        })
         .finally(finalize);
     }, [token]);
 
@@ -281,6 +299,14 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
         // Gắn mã sản phẩm để backend kiểm tra whitelist (chống lách qua API). Chỉ khi đã chọn mẫu.
         if (selectedTemplateCode) (payload as any).product_code = selectedTemplateCode;
 
+        // CHỐNG ĐUA REQUEST (audit 2026-07-25) — VÙNG TIỀN.
+        // Trước đây chỉ có debounce, không có sequence guard: 2 request tính giá chồng nhau thì
+        // response VỀ SAU sẽ ghi state, mà không đảm bảo nó ứng với cấu hình MỚI NHẤT ⇒ UI có
+        // thể hiện giá của cấu hình cũ, và `lastPricingPayload` lệch với `pricingResult`
+        // (payload này được gửi lên backend để replay xác thực giá khi lưu báo giá).
+        const seq = ++calcSeqRef.current;
+        const isStale = () => seq !== calcSeqRef.current;
+
         setCalculating(true);
         try {
             const res = await fetch(`${API_URL}/pricing/calculate`, {
@@ -292,6 +318,7 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
                 body: JSON.stringify(payload)
             });
             const json = await res.json().catch(() => ({}));
+            if (isStale()) return; // đã có lần tính mới hơn → bỏ kết quả này
             const norm = readPricingResult(json);
             if (norm.ok) {
                 setPricingResult(norm.raw as any);
@@ -301,9 +328,9 @@ export function useQuoteConfigurator(token: string | null, activeTab?: 'loose' |
                 setPricingResult({ error: norm.error || norm.reason || 'Tính giá thất bại' });
             }
         } catch (e: any) {
-            setPricingResult({ error: e.message });
+            if (!isStale()) setPricingResult({ error: e.message });
         } finally {
-            setCalculating(false);
+            if (!isStale()) setCalculating(false);
         }
     }, [
         token, tab,

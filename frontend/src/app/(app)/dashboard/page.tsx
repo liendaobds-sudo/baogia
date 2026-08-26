@@ -253,9 +253,10 @@ export default function DashboardPage() {
 
         Promise.all([fetchKpi(), fetchErp()]).finally(() => setLoading(false));
 
-        // Fetch real activity + trends data
-        fetch(`${API}/dashboard/activity-hourly`).then(r => r.ok ? r.json() : []).then(setActivityData).catch(() => {});
-        fetch(`${API}/dashboard/trends`).then(r => r.ok ? r.json() : {}).then(setTrends).catch(() => {});
+        // Fetch real activity + trends data (must send JWT)
+        const authHdr = { Authorization: `Bearer ${token}` };
+        fetch(`${API}/dashboard/activity-hourly`, { headers: authHdr }).then(r => r.ok ? r.json() : []).then(setActivityData).catch(() => {});
+        fetch(`${API}/dashboard/trends`, { headers: authHdr }).then(r => r.ok ? r.json() : {}).then(setTrends).catch(() => {});
 
         // Feature 7: Real-time dashboard updates via WebSocket
         if (socket) {
@@ -409,7 +410,7 @@ export default function DashboardPage() {
                 <BentoCard title="Truy cập nhanh">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <QuickAction icon="📥" label="Inbox" onClick={() => window.location.href = '/inbox'} color="#2563eb" />
-                        <QuickAction icon="🖨️" label="Báo giá" onClick={() => window.open('http://localhost/Pricing/PricingPrint/#cost-calculator', '_blank')} color="#7c3aed" />
+                        <QuickAction icon="🖨️" label="Báo giá" onClick={() => window.location.href = '/pricing/quotes'} color="#7c3aed" />
                         <QuickAction icon="👥" label="Danh bạ liên hệ" onClick={() => window.location.href = '/contacts'} color="#0891b2" />
                     </div>
                 </BentoCard>
@@ -465,9 +466,9 @@ export default function DashboardPage() {
                                 <div style={{ textAlign: 'center' }}>
                                     <div style={{ fontSize: 28, marginBottom: 8 }}>🔌</div>
                                     <div>Pricing đang offline</div>
-                                    <a href="http://localhost/Pricing/PricingPrint/" target="_blank" rel="noopener"
+                                    <a href="/pricing/quotes"
                                         style={{ color: '#2563eb', fontSize: 12, marginTop: 4, display: 'inline-block' }}>
-                                        Mở Pricing →
+                                        Mở Báo giá →
                                     </a>
                                 </div>
                             ) : 'Đang kết nối...'}
@@ -481,7 +482,7 @@ export default function DashboardPage() {
                         {[
                             { label: 'ZeplaoPrint API', status: true, detail: 'Port 4000' },
                             { label: 'WebSocket', status: connected, detail: connected ? 'Connected' : 'Disconnected' },
-                            { label: 'Pricing Backend', status: pricingOnline, detail: pricingOnline ? 'Port 80' : 'Unreachable' },
+                            { label: 'Pricing Engine', status: pricingOnline, detail: pricingOnline ? 'NestJS OK' : 'Unreachable' },
                             { label: 'Zalo OA', status: null, detail: 'Chưa kết nối' },
                         ].map((item, i) => (
                             <div key={i} style={{
