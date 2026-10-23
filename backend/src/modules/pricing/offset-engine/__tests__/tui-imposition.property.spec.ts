@@ -26,6 +26,12 @@ function snapMm(v: number): number {
  * Oracle ĐỘC LẬP cho mô hình dàn khuôn vật lý (không gọi imposeUnified): đếm số con trên một
  * khổ đích sau khi trừ lề/gripper/gutter, thử cả 2 hướng. Trả `null` khi vùng in khả dụng ≤ 0
  * (tương ứng imposeUnified ném OffsetPricingError). Dùng để chứng minh số con của túi đúng MÔ HÌNH.
+ *
+ * Cập nhật 2026-08-29 (audit) — đồng bộ với `imposeOnTarget` đã sửa:
+ *   - tờ chuẩn hoá về landscape (nhíp luôn ở cạnh DÀI, không phụ thuộc thứ tự ghi khổ);
+ *   - nhíp KHÔNG cộng dồn lề dưới: `max(bottom, gripper)`;
+ *   - vùng in làm tròn XUỐNG, con làm tròn LÊN (không lạc quan hoá số con).
+ * Bằng chứng hướng sửa: `imposition-nesting-parity.spec.ts` (giá ≡ preview).
  */
 function gridCount(
     itemWmm: number,
@@ -34,11 +40,13 @@ function gridCount(
     sheetHmm: number,
     m: MarginConfig,
 ): number | null {
-    const usableW = snapMm(sheetWmm - m.left - m.right);
-    const usableH = snapMm(sheetHmm - m.top - m.bottom - m.gripper);
+    const long = Math.max(sheetWmm, sheetHmm);
+    const short = Math.min(sheetWmm, sheetHmm);
+    const usableW = Math.floor(long - m.left - m.right + SNAP_EPS);
+    const usableH = Math.floor(short - m.top - Math.max(m.bottom, m.gripper) + SNAP_EPS);
     if (usableW <= 0 || usableH <= 0) return null;
-    const w = snapMm(itemWmm);
-    const h = snapMm(itemHmm);
+    const w = Math.ceil(itemWmm - SNAP_EPS);
+    const h = Math.ceil(itemHmm - SNAP_EPS);
     const g = snapMm(m.gutter);
     const axis = (usable: number, item: number): number => {
         if (item <= 0 || usable < item) return 0;

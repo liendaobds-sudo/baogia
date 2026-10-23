@@ -7,6 +7,7 @@ import {
     RlsPreflightInput,
     TENANT_POLICY_NAMES,
     TENANT_RLS_MANIFEST,
+    TENANT_RLS_TABLES,
 } from './rls-preflight';
 
 describe('requirePostgresForRls', () => {
@@ -93,7 +94,10 @@ describe('evaluateRlsPreflight', () => {
         it('toàn bộ catalog khớp manifest ⇒ ok', () => {
             const v = evaluateRlsPreflight({ ...base, flagOn: true, catalogIssues: [] });
             expect(v.level).toBe('ok');
-            expect(v.reason).toContain('64');
+            // Số bảng DẪN XUẤT từ manifest, không hardcode: audit 2026-08-29 đã gỡ 2 bảng
+            // phantom (`daily_stats`, `production_cost_configs`) nên con số cũ (64) sai và
+            // sẽ còn đổi khi thêm bảng org-scoped mới.
+            expect(v.reason).toContain(String(TENANT_RLS_TABLES.length));
         });
     });
 

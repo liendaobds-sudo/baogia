@@ -123,14 +123,31 @@ describe('Offset price preservation (golden) — Property 11, Req 6.5', () => {
         // pressPerParent)), không phải tờ XẢ. Trước đây nhân đơn giá tờ nhập với số tờ xả →
         // thổi phồng ~pressPerParent lần. Giá giảm ĐÚNG-HƠN (6.74M → 3.88M). IN/CAN/lượt in giữ
         // nguyên (đúng đơn vị press). 4 SP kia KHÔNG đổi (đã đếm theo tờ nhập từ trước).
+        //
+        // ─── RE-BASELINE 2026-08-29 (audit): NGUỒN khổ tờ nhập ───
+        // 3.879.925,93 → 4.451.518,52 trước VAT (+14,73%). Nguyên nhân là một BUG SAI TIỀN,
+        // không phải thay đổi quy tắc nghiệp vụ:
+        //   • `pressPerParent` trước đây suy từ `paper_sizes.kho_giay_lon` của khổ in
+        //     ("28cm x 60cm" khai "84cm x 120cm") ⇒ ppp = 6.
+        //   • Nhưng đơn giá giấy `giaTo` là giá MỘT TỜ của vật tư đã chọn — C150 khổ 65×86.
+        //     Không có vật tư nào khổ 84×120 trong danh mục (chỉ 65×86 / 60×84 / 79×109).
+        //   • Vậy engine chia số tờ theo một khổ KHÔNG TỒN TẠI rồi nhân đơn giá tờ 65×86
+        //     ⇒ đếm THIẾU giấy đúng 2 lần (ppp 6 thay vì 3) ⇒ báo giá dưới chi phí.
+        // Sau sửa: số tờ và đơn giá tờ cùng đến từ bản ghi vật tư ⇒ ppp = 3 (65×86 cắt được 3
+        // bài 28×60), parentGross 460 → 920 tờ. Chỉ tiền GIẤY đổi; kẽm/gia công/lượt in giữ nguyên,
+        // `chietKhau` giữ nguyên (giấy không nằm trong base chiết khấu).
+        // Meta cũng nhất quán lần đầu: soConToLon = soConBaiIn × ppp = 2 × 3 = 6, và
+        // ceil(5000/6) = 834 ≤ soToLon 920 (trước đây meta ghi 15 con/tờ · 110 tờ = 1.650 con
+        // cho đơn 5.000 — chứng từ tự mâu thuẫn).
+        // 4 sản phẩm còn lại KHÔNG đổi (chúng đếm giấy theo `soCon` trên tờ lớn ngay từ đầu).
         hop_giay: {
-            tongChuaVAT: 3879925.9259259244,
-            haoHut: 53431.48148148137,
-            vat: 310394.074074074,
-            tongGomVAT: 4190319.9999999986,
+            tongChuaVAT: 4451518.518518516,
+            haoHut: 106862.96296296275,
+            vat: 356121.4814814813,
+            tongGomVAT: 4807639.999999997,
             chietKhau: 130416.66666666666,
-            khachTra: 4059903.333333332,
-            donGia1SP: 811.9806666666664,
+            khachTra: 4677223.33333333,
+            donGia1SP: 935.4446666666661,
         },
         // RE-BASELINE 2026-08-23 — fixture cũ ép túi 30×25×10 vào bài 28×60 dù
         // soCon=0, tạo giá rác thiếu toàn bộ giấy/hao hụt (12.675.000 trước VAT).

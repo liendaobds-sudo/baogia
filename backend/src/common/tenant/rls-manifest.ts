@@ -19,7 +19,10 @@ export const TENANT_RLS_MANIFEST = {
     'customer_interactions',
     'customer_price_groups',
     'customers',
-    'daily_stats',
+    // 'daily_stats' — ĐÃ GỠ (audit 2026-08-29): bảng chưa bao giờ tồn tại trên PostgreSQL
+    // (chỉ có trong migration legacy SQLite chưa từng chạy) và entity `DailyStat` là code
+    // chết đã xoá. Để lại trong manifest khiến `inspectRlsCatalog` báo "bảng không tồn tại"
+    // ⇒ preflight verdict `fatal` ⇒ app KHÔNG listen ngay lần bật TENANT_RLS_ENABLED đầu tiên.
     'follow_ups',
     'ink_costs',
     'internal_notes',
@@ -51,7 +54,9 @@ export const TENANT_RLS_MANIFEST = {
     'product_ai_fields',
     'product_categories',
     'product_quote_configs',
-    'production_cost_configs',
+    // 'production_cost_configs' — ĐÃ GỠ (audit 2026-08-29): không entity, không CREATE TABLE
+    // trong db/*.sql lẫn migrations/*.sql; chỉ xuất hiện ở migration legacy SQLite.
+    // Cùng lý do fatal-preflight như `daily_stats`. Bảng thật đang dùng là `production_costs`.
     'production_costs',
     'products',
     'quick_prices',

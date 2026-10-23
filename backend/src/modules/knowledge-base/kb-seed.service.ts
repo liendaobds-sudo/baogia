@@ -9,6 +9,7 @@ import { KnowledgeBaseService } from './knowledge-base.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KbDocument } from '../../entities/kb-document.entity';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -27,6 +28,13 @@ const SEED_DOCS = [
     { dir: 'data', filename: 'so-sanh-chat-lieu.md', tags: ['so sánh', 'chất liệu', 'couche', 'art', 'offset'] },
     { dir: 'data', filename: 'quy-cach-ky-thuat.md', tags: ['kỹ thuật', 'quy cách', 'file', 'CMYK', 'bleed'] },
     { dir: 'data', filename: 'quy-tac-rang-buoc-nganh-in.md', tags: ['quy tắc', 'ràng buộc', 'cán màng', 'giấy', 'đóng cuốn', 'ép nhũ', 'bế', 'chất liệu', 'số lượng', 'màu sắc'] },
+    // Bổ sung 2026-08-29 (audit kiến thức AI) — 3 tài liệu chuyển từ kb-docs/ (trước đây KHÔNG
+    // được nạp bởi bất kỳ đường nào) + 2 tài liệu viết mới cho hai vùng trắng của KB.
+    { dir: 'data', filename: 'chuan-bi-file-thiet-ke.md', tags: ['file thiết kế', 'CMYK', 'RGB', 'bleed', 'safe zone', 'dpi', 'font', 'pantone', 'overprint'] },
+    { dir: 'data', filename: 'ky-thuat-in-nang-cao.md', tags: ['offset', 'digital', 'in UV', 'in lụa', 'chuyển nhiệt', 'khổ lớn', 'bao bì', 'biển hiệu'] },
+    { dir: 'data', filename: 'anti-patterns-tu-van.md', tags: ['anti-pattern', 'lỗi tư vấn', 'báo giá', 'phản đối', 'deadline'] },
+    { dir: 'data', filename: 'kho-giay-va-dan-khuon.md', tags: ['khổ giấy', 'khổ tờ', 'dàn khuôn', 'imposition', 'số con', 'cắn nhíp', 'gripper', 'bleed', 'gutter', 'bù hao', 'kẽm', 'A4', 'A3'] },
+    { dir: 'data', filename: 'bao-bi-hop-giay.md', tags: ['hộp giấy', 'bao bì', 'nắp gài', 'âm dương', 'hộp cứng', 'túi giấy', 'khuôn bế', 'cấn', 'dieline', 'carton'] },
 ];
 
 @Injectable()
@@ -48,15 +56,41 @@ export class KbSeedService implements OnModuleInit {
         }
     }
 
-    async seedIfEmpty() {
-        const existing = await this.docRepo.count();
-        if (existing > 0) {
-            this.logger.log(`📚 KB already has ${existing} documents, skipping seed`);
-            return;
-        }
+    /**
+     * Đường dẫn gốc tới thư mục chứa file seed.
+     *
+     * Ưu tiên thư mục cạnh chính file này (`__dirname`) — chạy được cả khi tiến trình khởi động
+     * từ dist và bất kể cwd. `nest-cli.json` đã được bổ sung asset `**\/*.md` (2026-08-29) để các
+     * tài liệu markdown thực sự có mặt trong dist. Fallback về `src/` cho môi trường dev/test.
+     */
+    private baseDir(): string {
+        const nextToThisFile = __dirname;
+        if (fs.existsSync(path.join(nextToThisFile, 'data'))) return nextToThisFile;
+        return path.resolve(process.cwd(), 'src', 'modules', 'knowledge-base');
+    }
 
-        this.logger.log('🌱 Seeding Knowledge Base with sample documents...');
-        const baseDir = path.resolve(process.cwd(), 'src', 'modules', 'knowledge-base');
+    /**
+     * Nạp seed.
+     *
+     * Audit 2026-08-29: bản cũ chỉ `count() > 0 → return`, nên sau lần khởi động đầu tiên MỌI thay
+     * đổi nội dung file seed và MỌI tài liệu seed thêm mới đều không bao giờ vào DB. Trên môi
+     * trường đang chạy, sửa markdown KB gần như không có tác dụng gì.
+     *
+     * Nay: bỏ qua theo TỪNG TÀI LIỆU dựa trên tiêu đề + hash nội dung:
+     *  - chưa có tài liệu cùng tiêu đề       → seed mới;
+     *  - đã có nhưng nội dung nguồn đã đổi   → seed lại (xoá bản cũ rồi nạp bản mới);
+     *  - đã có và nội dung trùng             → bỏ qua.
+     * Cách này giữ nguyên tài liệu do người dùng tự upload (không nằm trong SEED_DOCS).
+     *
+     * Hash được so với BẢN ĐÃ LƯU trên đĩa (`fileUrl`) chứ không lưu thêm cột mới, để không cần
+     * migration trên DB đang phục vụ. Nếu file lưu bị thiếu → coi như đã đổi và nạp lại.
+     */
+    async seedIfEmpty() {
+        const baseDir = this.baseDir();
+        const existingDocs = await this.docRepo.find({ select: ['id', 'title', 'fileUrl'] });
+        const byTitle = new Map(existingDocs.map((d) => [d.title, d]));
+
+        let created = 0, refreshed = 0, skipped = 0;
 
         for (const doc of SEED_DOCS) {
             const filePath = path.join(baseDir, doc.dir, doc.filename);
@@ -66,6 +100,21 @@ export class KbSeedService implements OnModuleInit {
             }
 
             const buffer = fs.readFileSync(filePath);
+            const hash = this.sha256(buffer);
+            const title = doc.filename.replace(/\.md$/i, '');
+            const current = byTitle.get(title);
+
+            if (current) {
+                if (this.storedHash(current.fileUrl) === hash) { skipped++; continue; }
+                // Nội dung nguồn đã đổi → xoá bản cũ (kèm chunk) rồi nạp lại.
+                try {
+                    await this.kbService.deleteDocument(current.id);
+                } catch (err: any) {
+                    this.logger.warn(`Không xoá được bản cũ "${title}": ${err.message}`);
+                    continue;
+                }
+            }
+
             try {
                 await this.kbService.uploadAndProcess(
                     {
@@ -77,12 +126,34 @@ export class KbSeedService implements OnModuleInit {
                     undefined,
                     doc.tags,
                 );
-                this.logger.log(`✅ KB seeded: ${doc.dir}/${doc.filename}`);
+                if (current) { refreshed++; this.logger.log(`♻️ KB re-seeded (file đã đổi): ${doc.dir}/${doc.filename}`); }
+                else { created++; this.logger.log(`✅ KB seeded: ${doc.dir}/${doc.filename}`); }
             } catch (err: any) {
                 this.logger.error(`❌ Failed to seed ${doc.filename}: ${err.message}`);
             }
         }
 
-        this.logger.log('🌱 KB seeding complete!');
+        this.logger.log(
+            `🌱 KB seed xong: ${created} mới, ${refreshed} nạp lại vì file đổi, ${skipped} giữ nguyên ` +
+            `(tổng ${SEED_DOCS.length} tài liệu nguồn).`,
+        );
+        return { created, refreshed, skipped, total: SEED_DOCS.length };
+    }
+
+    private sha256(buffer: Buffer): string {
+        return crypto.createHash('sha256').update(buffer).digest('hex');
+    }
+
+    /** Hash của bản đã lưu trên đĩa; trả '' khi file không còn (⇒ buộc nạp lại). */
+    private storedHash(fileUrl?: string | null): string {
+        if (!fileUrl || !fs.existsSync(fileUrl)) return '';
+        try {
+            return this.sha256(fs.readFileSync(fileUrl));
+        } catch {
+            return '';
+        }
     }
 }
+
+/** Danh sách tài liệu seed — export để test kiểm tra file nguồn thực sự tồn tại. */
+export { SEED_DOCS };

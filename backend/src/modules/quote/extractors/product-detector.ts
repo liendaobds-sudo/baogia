@@ -5,6 +5,17 @@
  */
 
 import { ProductType } from '../quote.interfaces';
+import { removeAccents, toMatchText } from '../../../common/text/vietnamese';
+
+/**
+ * Ngưỡng tin cậy tối thiểu để COI LÀ đã phát hiện sản phẩm.
+ *
+ * Audit 2026-08-29: `confidence` được tính rồi không ai chặn ⇒ một keyword 3 ký tự trùng ngẫu
+ * nhiên (score 3/20 = 0.15) vẫn "khoá" hội thoại vào một sản phẩm sai, kéo theo sai bộ trường
+ * cần hỏi và sai nhóm quy tắc ràng buộc được inject. 0.35 ≈ tổng độ dài keyword khớp ~7 ký tự,
+ * tức phải khớp một từ có nghĩa ("namecard", "tờ rơi", "hộp giấy") mới được tính.
+ */
+export const MIN_PRODUCT_CONFIDENCE = 0.35;
 
 export interface ProductMatch {
     type: ProductType;
@@ -50,7 +61,12 @@ const staticPatterns: Record<ProductType, Array<{ pattern: RegExp; product: stri
         { pattern: /v[eé]\s*s[ựu]\s*ki[ệe]n|invitation\s*card|thi[ệe]p\s*m[ời]i/iu, product: 'invitation' },
         { pattern: /phong\s*b[ìi]|b[ìi]\s*th[ư]|envelope/iu, product: 'envelope' },
         { pattern: /folder|kẹp\s*t[àa]i\s*li[ệe]u/iu, product: 'folder' },
-        { pattern: /bao\s*b[ìi]|túi\s*giấy|paper\s*bag/iu, product: 'paper_bag' },
+        // Hộp giấy/bao bì phải đứng TRƯỚC 'paper_bag' vì "bao bì" là từ chung của cả hai nhóm.
+        // Audit 2026-08-29: trước đây detectProduct("báo giá hộp giấy 500 cái") trả null vì
+        // không có pattern tĩnh nào cho hộp ⇒ mất hẳn đường tư vấn bao bì khi Pricing template
+        // chưa nạp (cron/queue/test) hoặc tenant chưa bật sản phẩm hộp.
+        { pattern: /h[ộo]p\s*(?:gi[ấa]y|carton|c[ứu]ng|b[ắa]nh|qu[àa]|s[ảa]n\s*ph[ẩe]m|n[ắa]p\s*g[àa]i|[âa]m\s*d[ưu][ơo]ng)|paper\s*box|carton\s*box|packaging|bao\s*b[ìi]\s*(?:gi[ấa]y|h[ộo]p|carton)/iu, product: 'paper_box' },
+        { pattern: /túi\s*gi[ấa]y|t[úu]i\s*[đd]ựng|paper\s*bag|shopping\s*bag|bao\s*b[ìi]/iu, product: 'paper_bag' },
         { pattern: /tờ\s*bướm|leaflet/iu, product: 'leaflet' },
         { pattern: /voucher|phi[ếe]u/iu, product: 'voucher' },
     ],
@@ -110,17 +126,16 @@ export function findProductTemplateById(id: number): ProductTemplate | undefined
     return pricingTemplates.find(t => t.id === id);
 }
 
-function removeAccents(str: string): string {
-    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
-}
-
 /**
  * Detect product type and name from text
  * Priority: Pricing keywords > Static regex patterns
+ *
+ * Trả về `null` khi không có tín hiệu nào HOẶC tín hiệu dưới `MIN_PRODUCT_CONFIDENCE`.
  */
 export function detectProduct(text: string): ProductMatch | null {
     const normalized = text.toLowerCase();
-    const normalizedNoAccent = removeAccents(normalized);
+    // Bản so khớp: bỏ dấu + bung viết tắt ("nc" → "namecard", "ctlg" → "catalogue").
+    const normalizedNoAccent = toMatchText(text);
 
     // ── Phase 1: Try Pricing dynamic templates first ──
     if (pricingTemplates.length > 0) {
@@ -156,24 +171,94 @@ export function detectProduct(text: string): ProductMatch | null {
         }
 
         if (bestMatch) {
-            return {
-                type: bestMatch.template.product_type,
-                product: bestMatch.template.code,
-                templateId: bestMatch.template.id,
-                templateCode: bestMatch.template.code,
-                confidence: Math.min(bestMatch.score / 20, 1), // normalize
-            };
+            const confidence = Math.min(bestMatch.score / 20, 1); // normalize
+            // Dưới ngưỡng → coi như KHÔNG phát hiện, để hệ thống rơi về static regex rồi
+            // (nếu vẫn không có) hỏi khách, thay vì khoá sai sản phẩm.
+            if (confidence >= MIN_PRODUCT_CONFIDENCE) {
+                return {
+                    type: bestMatch.template.product_type,
+                    product: bestMatch.template.code,
+                    templateId: bestMatch.template.id,
+                    templateCode: bestMatch.template.code,
+                    confidence,
+                };
+            }
         }
     }
 
     // ── Phase 2: Fallback to static regex ──
+    // Thử cả bản có dấu và bản đã bỏ dấu/bung viết tắt để bắt được "to roi", "danh thiep", "nc".
     for (const type of ['bound', 'large_format', 'loose'] as ProductType[]) {
         for (const { pattern, product } of staticPatterns[type]) {
-            if (pattern.test(normalized)) {
+            if (pattern.test(normalized) || pattern.test(normalizedNoAccent)) {
                 return { type, product, confidence: 0.7 };
             }
         }
     }
 
     return null;
+}
+
+/**
+ * Phát hiện TẤT CẢ sản phẩm được nhắc trong một tin nhắn.
+ *
+ * Audit 2026-08-29: `detectProduct` chỉ trả 1 kết quả, nên câu rất thường gặp
+ * "em cần in namecard và tờ rơi" chỉ khoá vào namecard rồi bỏ hẳn tờ rơi khỏi mọi ngữ cảnh
+ * (trường cần hỏi, quy tắc ràng buộc, tài liệu KB). Hàm này dùng cho tầng ngữ cảnh/tư vấn;
+ * đường tính giá vẫn dùng `detectProduct` vì mỗi lần chỉ báo giá được một sản phẩm.
+ *
+ * Thứ tự trả về theo vị trí xuất hiện trong câu (sản phẩm khách nói trước đứng trước).
+ */
+export function detectAllProducts(text: string): ProductMatch[] {
+    const normalized = text.toLowerCase();
+    const normalizedNoAccent = toMatchText(text);
+    const found = new Map<string, { match: ProductMatch; at: number }>();
+
+    // Pricing templates — chấm điểm từng template độc lập, nhận mọi template vượt ngưỡng.
+    for (const template of pricingTemplates) {
+        let score = 0;
+        let firstAt = Number.MAX_SAFE_INTEGER;
+        const terms = [...(template.keywords || []), template.name];
+        for (const term of terms) {
+            const kw = String(term).toLowerCase();
+            const weight = term === template.name ? 2 : 1;
+            const idx = normalized.indexOf(kw);
+            if (idx >= 0) {
+                score += kw.length * weight;
+                firstAt = Math.min(firstAt, idx);
+                continue;
+            }
+            const idxNo = normalizedNoAccent.indexOf(removeAccents(kw));
+            if (idxNo >= 0) {
+                score += kw.length * weight * 0.8;
+                firstAt = Math.min(firstAt, idxNo);
+            }
+        }
+        const confidence = Math.min(score / 20, 1);
+        if (confidence >= MIN_PRODUCT_CONFIDENCE) {
+            found.set(template.code, {
+                match: {
+                    type: template.product_type,
+                    product: template.code,
+                    templateId: template.id,
+                    templateCode: template.code,
+                    confidence,
+                },
+                at: firstAt,
+            });
+        }
+    }
+
+    // Static regex — bổ sung các sản phẩm chưa có template tương ứng.
+    for (const type of ['bound', 'large_format', 'loose'] as ProductType[]) {
+        for (const { pattern, product } of staticPatterns[type]) {
+            if (found.has(product)) continue;
+            const m = pattern.exec(normalized) || pattern.exec(normalizedNoAccent);
+            if (m) {
+                found.set(product, { match: { type, product, confidence: 0.7 }, at: m.index });
+            }
+        }
+    }
+
+    return [...found.values()].sort((a, b) => a.at - b.at).map((v) => v.match);
 }

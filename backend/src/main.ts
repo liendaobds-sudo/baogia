@@ -159,6 +159,25 @@ async function bootstrap() {
     // All pricing routes are now handled natively by NestJS PricingModule.
     // No separate service needed. XAMPP/Apache fully decommissioned.
 
+    // ─── Reverse proxy ───────────────────────
+    // Audit 2026-08-29: không set `trust proxy` thì `req.ip` là IP của proxy (nginx/PM2/LB)
+    // với MỌI client ⇒ (1) ThrottlerGuard gộp tất cả vào một bucket — một client có thể
+    // làm cạn quota của cả site, và @Throttle 20/phút của public-quote thành 20/phút TOÀN
+    // HỆ THỐNG; (2) log lỗi mất IP thật nên không truy vết được. Chỉ bật khi có proxy thật
+    // (TRUST_PROXY), vì bật sai cho phép client tự bơm X-Forwarded-For để lách rate-limit.
+    const trustProxy = configService.get<string>('TRUST_PROXY');
+    if (trustProxy) {
+        const parsed = Number(trustProxy);
+        app.set('trust proxy', Number.isFinite(parsed) && String(parsed) === trustProxy ? parsed : trustProxy);
+        Logger.log(`Express "trust proxy" = ${trustProxy}`, 'Bootstrap');
+    } else if (isProduction) {
+        Logger.warn(
+            'TRUST_PROXY chưa đặt: nếu app chạy sau reverse proxy thì rate-limit và IP trong log sẽ SAI. ' +
+            'Đặt TRUST_PROXY=1 (số hop proxy tin cậy) khi có nginx/LB phía trước.',
+            'Bootstrap',
+        );
+    }
+
     app.setGlobalPrefix('api/v1');
 
     const redisIoAdapter = new RedisIoAdapter(app);

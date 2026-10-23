@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { ConfigService } from '@nestjs/config';
+import { ProductsService } from '../pricing/services/products.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -12,6 +13,9 @@ export class KbGeneratorService {
     constructor(
         private readonly kbService: KnowledgeBaseService,
         private readonly configService: ConfigService,
+        // Optional: KbGeneratorService còn được dựng trong test/CLI không cần PricingModule.
+        // `generateFromPricing` sẽ báo lỗi rõ ràng nếu thiếu, thay vì gọi HTTP 401 như trước.
+        @Optional() private readonly productsService?: ProductsService,
     ) {
         // Resolve data dir relative to project root (works for both dev and compiled)
         this.dataDir = path.resolve(process.cwd(), 'src', 'modules', 'knowledge-base', 'data');
@@ -77,14 +81,22 @@ export class KbGeneratorService {
         const result = { generated: 0, errors: [] as string[] };
 
         try {
-            // Phase 6: fetch from local NestJS instead of PHP
-            const pricingApi = 'http://localhost:4000/api/v1';
-            const res = await fetch(`${pricingApi}/erp/products`);
-            if (!res.ok) {
-                throw new Error(`Pricing API returned ${res.status}`);
+            /**
+             * Audit 2026-08-29: bản cũ `fetch('http://localhost:4000/api/v1/erp/products')` KHÔNG
+             * kèm Authorization, trong khi `ProductsController` có `AuthGuard('jwt') +
+             * PermissionsGuard` ⇒ luôn 401 ⇒ hàm này CHẮC CHẮN lỗi. `ai-suggest.service.ts` đã sửa
+             * cùng loại lỗi bằng cách gọi service trực tiếp; nay áp dụng ở đây.
+             * Lợi thêm: không tự gọi HTTP vào chính mình (tránh deadlock pool khi request nền).
+             */
+            if (!this.productsService) {
+                throw new Error(
+                    'ProductsService chưa sẵn sàng — generateFromPricing cần PricingModule được nạp.',
+                );
             }
-            const data: any = await res.json();
-            const templates = data.data || data || [];
+            const products = await this.productsService.findAllProducts();
+            const templates: any[] = Array.isArray(products)
+                ? products
+                : ((products as any)?.data ?? []);
 
             if (templates.length === 0) {
                 this.logger.warn('No product templates found in Pricing');

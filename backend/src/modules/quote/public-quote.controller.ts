@@ -1,9 +1,10 @@
 import {
-    Controller, Post, Body, Headers, UnauthorizedException, ServiceUnavailableException,
+    Controller, Post, Body, Headers, Logger, UnauthorizedException, ServiceUnavailableException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ConfigService } from '@nestjs/config';
 import { QuoteService } from './quote.service';
+import { timingSafeEqualString } from '../../common/config/secret-validation';
 
 /**
  * Public quote creation (chat widget / external).
@@ -12,6 +13,8 @@ import { QuoteService } from './quote.service';
  */
 @Controller('public/v1/quote')
 export class PublicQuoteController {
+    private readonly logger = new Logger(PublicQuoteController.name);
+
     constructor(
         private readonly quoteService: QuoteService,
         private readonly config: ConfigService,
@@ -39,8 +42,15 @@ export class PublicQuoteController {
         try {
             const result = await this.quoteService.createQuoteFromChat(body.sessionId, body.quoteData, body.customerInfo);
             return result;
-        } catch (error: any) {
-            return { success: false, error: error.message || 'Có lỗi xảy ra khi tạo báo giá' };
+        } catch (error: unknown) {
+            // Audit 2026-08-29: endpoint CÔNG KHAI không được trả `error.message` thô —
+            // thông điệp lỗi DB/nội bộ là thông tin trinh sát cho caller vô danh. Log đầy
+            // đủ ở server, trả về thông báo chung.
+            this.logger.error(
+                `createQuoteFromChat lỗi: ${error instanceof Error ? error.message : error}`,
+                error instanceof Error ? error.stack : undefined,
+            );
+            return { success: false, error: 'Có lỗi xảy ra khi tạo báo giá' };
         }
     }
 
@@ -62,7 +72,7 @@ export class PublicQuoteController {
             ? authorization.slice(7).trim()
             : undefined;
         const provided = (apiKeyHeader || bearer || '').trim();
-        if (!provided || provided !== requiredKey) {
+        if (!timingSafeEqualString(provided, requiredKey)) {
             throw new UnauthorizedException('Invalid or missing API key for public quote');
         }
     }

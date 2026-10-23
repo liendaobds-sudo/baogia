@@ -119,11 +119,20 @@ export class EngineOffsetService implements OnModuleInit {
 
     /**
      * Kiểm tra giá trị gửi lên so với whitelist của loại sản phẩm (`productConfig`).
-     * LUẬT CỨNG (fail-closed): chưa cấu hình thì KHÔNG ra giá — ném OffsetPricingError.
-     *  - Loại sản phẩm chưa cấu hình gì (thiếu productConfig[type]) → chặn.
-     *  - Field ĐANG DÙNG nhưng loại này chưa khai whitelist cho field đó (allowed rỗng) → chặn.
-     *  - Field đang dùng + whitelist có + giá trị nằm NGOÀI danh sách → chặn.
-     *  - Field bỏ trống (không dùng) → bỏ qua.
+     *
+     * HÀNH VI THỰC TẾ (audit 2026-08-29 — doc cũ ghi NGƯỢC nghĩa, nói "fail-closed / chưa
+     * cấu hình thì KHÔNG ra giá" trong khi code allow-all; doc sai kiểu này dẫn tới kết luận
+     * audit sai, nên viết lại đúng theo code):
+     *
+     *  - Loại sản phẩm CHƯA có `productConfig[type]` → CHO PHÉP tất cả. Lý do: seed JSON mặc
+     *    định không kèm whitelist; enforce ở đây sẽ làm mọi báo giá offset chết khi DB chưa
+     *    cấu hình "Cấu Hình Sản Phẩm Offset".
+     *  - Field đang dùng nhưng `allowed*` rỗng/thiếu → CHO PHÉP (khớp docs OffsetProductConfig).
+     *  - Field đang dùng + whitelist khai tường minh + giá trị NGOÀI danh sách → CHẶN.
+     *  - Field bỏ trống / 'Không' → bỏ qua.
+     *
+     * Fail-closed thật sự cho vật tư/khổ/số con nằm ở chỗ khác: `giaGiay`, `timKhoIn` và các
+     * guard `soCon > 0` trong `products/*` đều ném `OffsetPricingError` khi thiếu dữ liệu.
      */
     private validateAgainstConfig(input: OffsetEngineInput, d: PricingData): void {
         const cfg = d.productConfig?.[input.type];

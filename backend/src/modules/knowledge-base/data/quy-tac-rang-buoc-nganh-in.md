@@ -2,7 +2,7 @@
 
 ## Cán màng (Lamination)
 
-- [LAM-001] Giấy mỏng (dưới 100gsm) khi cán có thể bị cong vênh nếu kỹ thuật không tốt. Giấy 120-200gsm cán mờ/bóng bình thường (tờ rơi, poster). Giấy quá mỏng (<80gsm) nên cân nhắc phủ UV thay cán màng.
+- [LAM-001] Giấy dưới 80gsm → KHÔNG nên cán màng (cong vênh, co rút không đều), nên phủ UV thay thế. Giấy 120-200gsm cán mờ/bóng bình thường (tờ rơi, poster). Ngưỡng 80gsm là mốc thống nhất giữa tài liệu này, `printing-constraints.json` và hard check trong code.
 - [LAM-002] Decal/sticker → CHỈ cán 1 mặt (mặt in). Mặt sau là keo dán, không thể cán.
 - [LAM-003] Banner/hiflex/bạt → KHÔNG cán màng (vật liệu đã chống nước sẵn). Standee PP → THƯỜNG cán mờ/bóng để bảo vệ hình ảnh và tăng thẩm mỹ.
 - [LAM-004] Khách nói "cán 2 mặt" → hiểu là in 2 mặt + cán cả 2 mặt, KHÔNG hỏi lại số mặt in.
@@ -44,7 +44,7 @@
 - [FOIL-002] Ép nhũ → cần làm khuôn (die) riêng, tính 1 lần.
 - [FOIL-003] UV cục bộ → NÊN kết hợp trên nền cán MỜ. UV trên nền cán bóng không thấy hiệu ứng.
 - [FOIL-004] UV cục bộ → cần file riêng đánh dấu vùng UV (file vector đen trắng).
-
+- [FOIL-005] Dập nổi (emboss) / dập chìm (deboss) → giấy tối thiểu 250gsm. Giấy mỏng không đủ độ dày để tạo hiệu ứng rõ nét.
 
 ## Bế (Die-cut)
 
@@ -66,9 +66,19 @@
 ## Số lượng & Kỹ thuật in
 
 - [QTY-001] Số lượng <200 → in digital (KTS), không nên in offset.
-
+- [QTY-002] Số lượng ≥500 → nên in offset, đơn giá giảm đáng kể vì chi phí kẽm và bù máy chia đều cho nhiều thành phẩm. (Bổ sung 2026-08-29: quy tắc này có trong `printing-constraints.json` nhưng bị thiếu ở đây, tạo lỗ hổng đúng ở ngưỡng khách hay hỏi nhất.)
 - [QTY-003] Mỗi tờ khác nhau (tên riêng, mã serial) → BẮT BUỘC in digital, KHÔNG in offset.
 - [QTY-004] In gấp (<24h) → in digital, phụ thu 30-50%.
+- [QTY-005] KHÔNG tự nêu số tiền hay mức chiết khấu. Điểm hòa vốn giữa offset và digital phụ thuộc số màu, khổ, chất liệu, gia công — do hệ thống tính, không được suy ra bằng cảm tính.
+
+## Khổ thành phẩm chuẩn
+
+- [SIZE-001] Danh thiếp Việt Nam → **90 × 54mm** là khổ tiêu chuẩn dùng khi khách không nói kích thước. (85 × 55mm là chuẩn quốc tế, ít dùng hơn ở Việt Nam.)
+- [SIZE-002] Tờ rơi → A5 (148 × 210mm) hoặc A4 (210 × 297mm) là hai khổ phổ biến nhất.
+- [SIZE-003] Tờ gấp 3 (trifold) từ A4 → mỗi tay gấp 210 × 99mm.
+- [SIZE-004] Phong bì thư → 220 × 110mm (DL, đựng A5 gấp); phong bì đựng A4 nguyên tờ → 240 × 340mm.
+- [SIZE-005] Hộp giấy → BẮT BUỘC có đủ dài × rộng × cao và nói rõ là lòng trong hay ngoài hộp. Không có ba số này thì không dựng được khuôn bế, tức không có giá.
+- Chi tiết khổ tờ nhập, số con/tờ, cắn nhíp, bù hao: xem tài liệu "kho-giay-va-dan-khuon".
 
 ## Màu sắc & File thiết kế
 

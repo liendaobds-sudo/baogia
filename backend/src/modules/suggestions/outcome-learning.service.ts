@@ -15,6 +15,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation, ConversationStatus } from '../../entities/conversation.entity';
 import { Message } from '../../entities/message.entity';
+import { resolveLearningIntents } from './intents';
 
 interface OutcomeInsight {
     winRate: number;
@@ -85,14 +86,19 @@ export class OutcomeLearningService {
             }
         }
 
-        // Intent-specific advice
-        if (currentIntent && insights.topWonIntents.includes(currentIntent)) {
-            context += `\n✅ Intent "${currentIntent}" có tỷ lệ chốt cao — tự tin trả lời chi tiết.\n`;
+        // Intent-specific advice.
+        // Audit 2026-08-29: `currentIntent` từng nhận topic runtime (`'objection'`) trong khi
+        // `topWonIntents/topLostIntents` dựng từ `outcomeData.intentChain` = intent CANONICAL
+        // ⇒ hai nhánh dưới KHÔNG BAO GIỜ chạy. Nay quy topic → tập intent canonical trước khi so.
+        const learningIntents = resolveLearningIntents(currentIntent);
+        const matchedWon = learningIntents.find((i) => insights.topWonIntents.includes(i));
+        const matchedLost = learningIntents.find((i) => insights.topLostIntents.includes(i));
+        if (matchedWon) {
+            context += `\n✅ Intent "${matchedWon}" có tỷ lệ chốt cao — tự tin trả lời chi tiết.\n`;
         }
-        if (currentIntent && insights.topLostIntents.includes(currentIntent)) {
-            context += `\n⚠️ Intent "${currentIntent}" có tỷ lệ mất khách cao — cần nhấn mạnh giá trị, ưu đãi, và hỗ trợ thêm.\n`;
+        if (matchedLost) {
+            context += `\n⚠️ Intent "${matchedLost}" có tỷ lệ mất khách cao — cần nhấn mạnh giá trị, ưu đãi, và hỗ trợ thêm.\n`;
         }
-
         context += '\n→ Áp dụng các mẫu thành công ở trên vào câu trả lời.\n';
         return context;
     }

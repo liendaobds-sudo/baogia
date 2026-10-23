@@ -8,6 +8,21 @@ const AUTO_REPLY_MAX_PER_HOUR = 3;
 const AUTO_REPLY_TRACKER_MAX_SIZE = 500;
 const AUTOMATION_CONFIG_CACHE_MS = 10_000;
 
+/**
+ * ⚠️ GIỚI HẠN ĐÃ BIẾT (audit 2026-08-29) — ghi ra đây để không thành bẫy ngầm:
+ *
+ * 1. **Rate-limit + token budget là bộ đếm TRONG PROCESS** (`Map` bên dưới). Chạy nhiều instance
+ *    (PM2 cluster / nhiều replica) thì trần thực tế là `AUTO_REPLY_MAX_PER_HOUR × số instance`,
+ *    vì mỗi process có bộ đếm riêng và không có sticky routing theo hội thoại.
+ *    Chưa chuyển sang Redis vì `checkAutoReplyEligibility` là hàm ĐỒNG BỘ nằm trên đường
+ *    auto-gửi; đổi sang async + counter phân tán là thay đổi có rủi ro cao (lỗi ở đây = spam
+ *    khách hoặc im lặng không trả lời) nên tách thành việc riêng, làm cùng test đa-replica.
+ *    Trong lúc chờ: chạy MỘT instance cho worker CSKH, hoặc hạ `AUTO_REPLY_MAX_PER_HOUR`.
+ *
+ * 2. **`automation-config.json` là cấu hình TOÀN CỤC**, chưa có chiều tenant — bật/tắt auto-reply
+ *    hoặc đổi ngưỡng sẽ ảnh hưởng mọi tenant. Ghi/sửa chỉ dành cho `SUPER_ADMIN`. Việc gate theo
+ *    app-scope CSKH của từng tenant thì ĐÃ có ở tầng ingest (`MessageProcessorService`).
+ */
 @Injectable()
 export class AutoReplyService {
     private readonly logger = new Logger(AutoReplyService.name);
@@ -90,11 +105,18 @@ export class AutoReplyService {
         const recentAutoReplies = (this.autoReplyTracker.get(conversationId) || []).filter(t => now - t < 3600_000);
         const rateLimitOk = recentAutoReplies.length < AUTO_REPLY_MAX_PER_HOUR;
 
-        const eligible = rateLimitOk && (
+        // `!hasPrice` áp cho CẢ HAI nhánh (audit 2026-08-29).
+        //
+        // Trước đây nhánh canned (`directCannedReply.autoReply`) bỏ qua mọi điều kiện, kể cả
+        // `!hasPrice`. Hệ quả: câu trả lời mẫu có chứa giá vẫn được TỰ ĐỘNG gửi cho khách; và vì
+        // `validateAiResult` đã gỡ số tiền không nguồn, khách nhận đúng chuỗi có "[giá]" —
+        // vừa sai nghiệp vụ (báo giá phải do người xác nhận) vừa xấu về trải nghiệm.
+        // Các điều kiện riêng của canned (confidence/intent/model) vẫn được miễn có chủ đích:
+        // canned là câu do người soạn sẵn nên không cần LLM confidence.
+        const eligible = rateLimitOk && !hasPrice && (
             (directCannedReply?.autoReply) ||
             (cfg.autoReplyIntents.includes(intent)
                 && confidence >= cfg.autoReplyMinConfidence
-                && !hasPrice
                 && usedModel !== 'template')
         ) || false;
 

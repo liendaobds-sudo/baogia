@@ -1,4 +1,4 @@
-# SO SÁNH KỸ THUẬT IN — KPrint
+﻿# SO SÁNH KỸ THUẬT IN — ZeplaoPrint
 
 ## 1. IN OFFSET vs IN DIGITAL — KHI NÀO CHỌN CÁI NÀO
 

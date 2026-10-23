@@ -37,6 +37,23 @@ export class MessagesService {
      * @throws NotFoundException khi hội thoại không tồn tại hoặc thuộc tenant khác
      *         (dùng 404 thay 403 để không tiết lộ sự tồn tại của hội thoại tenant khác).
      */
+    /** Tenant của hội thoại (nguồn chính xác để stamp tin nhắn); null nếu không tra được. */
+    private async resolveConversationTenantId(conversationId: string): Promise<number | null> {
+        if (!conversationId) return null;
+        try {
+            const conv = await this.convRepo.findOne({
+                where: { id: conversationId },
+                select: { id: true, tenantId: true },
+            });
+            return conv?.tenantId ?? null;
+        } catch (e) {
+            this.logger.warn(
+                `Không tra được tenant của hội thoại ${conversationId}: ${e instanceof Error ? e.message : e}`,
+            );
+            return null;
+        }
+    }
+
     private async assertConversationInTenant(conversationId: string): Promise<void> {
         const ctx = this.tenantCtx?.get?.();
         if (!ctx || ctx.bypass || ctx.tenantId == null) return;
@@ -94,6 +111,13 @@ export class MessagesService {
             }
         }
 
+        // Tenant cho tin nhắn outbound (audit 2026-08-29): trước đây `create()` KHÔNG
+        // gắn tenantId ⇒ mọi tin agent gửi đều là hàng `tenant_id NULL` mới, và quy ước
+        // `OR tenant_id IS NULL` ở search/report làm NỘI DUNG tin nhắn đó hiện ra cho
+        // MỌI tenant. Ưu tiên tenant của hội thoại (nguồn chính xác), fallback context.
+        const convTenantId = await this.resolveConversationTenantId(data.conversationId);
+        const messageTenantId = convTenantId ?? this.tenantCtx?.currentTenantId() ?? null;
+
         const message = this.messagesRepo.create({
             conversationId: data.conversationId,
             content: data.content,
@@ -104,15 +128,19 @@ export class MessagesService {
             idempotencyKey: data.idempotencyKey,
             suggestionId: data.suggestionId,
             suggestionAction: data.suggestionAction as any,
+            ...(messageTenantId != null ? { tenantId: messageTenantId } : {}),
         });
 
         const saved = await this.messagesRepo.save(message);
 
-        // Enqueue to BullMQ for asynchronous processing
+        // Enqueue to BullMQ for asynchronous processing.
+        // `tenantId` BẮT BUỘC trong payload: processor không phải suy lại bằng query
+        // ngoài transaction (query đó trả 0 hàng sau khi FORCE RLS bật ⇒ job chết).
         await this.outboundQueue.add('send_message', 
             {
                 messageId: saved.id,
                 conversationId: data.conversationId,
+                ...(messageTenantId != null ? { tenantId: messageTenantId } : {}),
             }, 
             {
                 attempts: 3,

@@ -25,7 +25,7 @@
                 "zalopay"
             ],
             "answer": "Em nhận thanh toán: chuyển khoản ngân hàng, tiền mặt khi nhận, MoMo/ZaloPay. Đặt cọc 50% khi đặt hàng, 50% khi nhận ạ.",
-            "intent": "hỏi_thanh_toán"
+            "intent": "hỏi_chính_sách"
         },
         {
             "patterns": [
@@ -60,7 +60,7 @@
                 "tạo mẫu"
             ],
             "answer": "Bên em có đội thiết kế hỗ trợ, phí thiết kế từ 200k-500k tùy độ phức tạp. Nếu bạn có ý tưởng/hình mẫu thì em sẽ báo giá chính xác ạ.",
-            "intent": "hỏi_thiết_kế"
+            "intent": "tư_vấn"
         },
         {
             "patterns": [
@@ -70,7 +70,7 @@
                 "lỗi in"
             ],
             "answer": "Bên em bảo hành 100% — nếu lỗi do in (sai màu, bẩn, lệch) em in lại miễn phí. Trước khi in em sẽ gửi proof để bạn duyệt ạ.",
-            "intent": "hỏi_bảo_hành"
+            "intent": "hỏi_chính_sách"
         },
         {
             "patterns": [
@@ -81,7 +81,7 @@
                 "mẫu thử"
             ],
             "answer": "Em sẽ gửi proof (bản mẫu) qua Zalo/email để bạn duyệt trước khi in. Nếu cần in mẫu thử thực tế, phí ~50k-100k/mẫu ạ.",
-            "intent": "hỏi_proof"
+            "intent": "hỏi_kỹ_thuật"
         },
         {
             "patterns": [

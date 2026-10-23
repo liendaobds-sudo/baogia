@@ -17,6 +17,7 @@ import { Conversation, ConversationStatus } from '../../entities/conversation.en
 import { Message } from '../../entities/message.entity';
 import { AiSuggestion, SuggestionStatus } from '../../entities/ai-suggestion.entity';
 import { EmbeddingService } from '../knowledge-base/embedding.service';
+import { resolveLearningIntents } from './intents';
 
 interface SimilarConversation {
     conversationId: string;
@@ -130,7 +131,11 @@ export class ConversationSearchService {
             let score = 0;
             if (product && conv.productType === product) score += 0.5;
             const convIntents = conv.outcomeData?.intentChain || [];
-            if (intent && convIntents.includes(intent)) score += 0.3;
+            // Audit 2026-08-29: `intent` có thể là TOPIC runtime ('objection'/'comparison'),
+            // còn `intentChain` lưu intent CANONICAL ⇒ so trực tiếp không bao giờ khớp và boost
+            // 0.3 này chết. Quy topic → tập intent canonical trước khi so.
+            const learningIntents = resolveLearningIntents(intent);
+            if (learningIntents.some((i) => convIntents.includes(i))) score += 0.3;
             // Tie-breaker keyword khi có (giữ hành vi cũ ở nhánh fallback).
             if (customerText && conv.aiSummary) {
                 score += this.keywordOverlap(customerText, conv.aiSummary) * 0.2;

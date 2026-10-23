@@ -1,4 +1,4 @@
-# Danh Mục Sản Phẩm In Ấn — KPrint
+# Danh Mục Sản Phẩm In Ấn — ZeplaoPrint
 
 ## Nhóm 1: In Tờ Rời (Loose)
 

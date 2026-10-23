@@ -1,4 +1,4 @@
-# ANTI-PATTERNS — CÁC LỖI THƯỜNG GẶP KHI TƯ VẤN IN ẤN
+﻿# ANTI-PATTERNS — CÁC LỖI THƯỜNG GẶP KHI TƯ VẤN IN ẤN
 
 > Tài liệu này giúp AI tránh các sai lầm phổ biến trong tư vấn khách hàng.
 > AI PHẢI đọc file này và KHÔNG được mắc các lỗi liệt kê bên dưới.

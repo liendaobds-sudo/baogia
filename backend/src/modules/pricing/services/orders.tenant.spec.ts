@@ -43,10 +43,28 @@ describe('OrdersService — tenant scoping (quotes)', () => {
         expect(calls[0].sql).not.toContain('q.tenant_id');
     });
 
-    it('findAllQuotes bỏ lọc khi KHÔNG có context', async () => {
+    /**
+     * Audit 2026-08-29 — ĐẢO NGƯỢC hành vi cũ có chủ đích.
+     *
+     * Trước: thiếu tenant context ⇒ `tenantGuard` trả mệnh đề RỖNG ⇒ query đọc báo giá của
+     * MỌI tenant (fail-open). Đường này với tới được thật: user có `users.tenant_id = NULL`
+     * (cột nullable, login không chặn) và `super_admin` không gửi `x-tenant-id`.
+     *
+     * Sau: fail-closed bằng `AND 1 = 0`. `OrdersService` chỉ được gọi từ HTTP controller
+     * (không cron/BullMQ nào dùng — đã grep), nên không làm chết job nền. Super admin muốn
+     * xem dữ liệu tenant phải impersonate tường minh (xem `resolveRequestTenantContext`).
+     */
+    it('findAllQuotes FAIL-CLOSED khi KHÔNG có context (không đọc chéo tenant)', async () => {
         const { svc, calls } = build(undefined);
         await svc.findAllQuotes({});
-        expect(calls[0].sql).not.toContain('q.tenant_id');
+        expect(calls[0].sql).toContain('AND 1 = 0');
+        expect(calls[0].sql).not.toContain('q.tenant_id =');
+    });
+
+    it('findQuoteById FAIL-CLOSED khi KHÔNG có context', async () => {
+        const { svc, calls } = build(undefined);
+        await svc.findQuoteById('123');
+        expect(calls[0].sql).toContain('AND 1 = 0');
     });
 
     it('findQuoteById chặn đọc chéo tenant (clause + param)', async () => {

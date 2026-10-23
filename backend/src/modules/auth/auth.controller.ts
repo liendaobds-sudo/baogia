@@ -9,14 +9,25 @@ import {
     Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto, RefreshTokenDto } from './dto/auth.dto';
+
+/**
+ * Throttle riêng cho endpoint xác thực (audit 2026-08-29).
+ *
+ * Trước đây login/refresh chỉ chịu quota chung (mặc định 1200 req/60s/IP) ⇒ ~1200 lần
+ * thử mật khẩu mỗi phút mỗi IP, và mỗi lần sai vẫn chạy bcrypt cost 10 (kênh CPU-DoS).
+ * 10 lần/phút đủ cho người dùng thật (kể cả nhập sai vài lần) mà cắt hẳn brute-force.
+ */
+const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
 
 @Controller('auth')
 export class AuthController {
     constructor(private authService: AuthService) { }
 
     @Post(['', 'login'])
+    @Throttle(AUTH_THROTTLE)
     @HttpCode(HttpStatus.OK)
     async login(@Body() dto: LoginDto) {
         const result = await this.authService.login(dto);
@@ -37,6 +48,7 @@ export class AuthController {
     }
 
     @Post('refresh')
+    @Throttle(AUTH_THROTTLE)
     @HttpCode(HttpStatus.OK)
     async refresh(@Body() dto: RefreshTokenDto) {
         return this.authService.refreshToken(dto.refreshToken);

@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
-import { forEachTenant, tenantRlsEnabled } from '../../common/tenant/tenant-background';
+import { forEachTenant } from '../../common/tenant/tenant-background';
 
 /** HTTP status that will never succeed later (CDN expired / revoked). */
 const PERMANENT_HTTP = new Set([400, 401, 403, 404, 410, 451]);
@@ -86,7 +86,11 @@ export class ZaloMediaArchiverService implements OnApplicationBootstrap {
 
     private async archiveOneMessage(msg: Message, storageRoot: string): Promise<void> {
         const datePath = new Date(msg.createdAt).toISOString().slice(0, 10).replace(/-/g, '/');
-        const tenantId = tenantRlsEnabled() ? (this.tenantCtx?.currentTenantId() ?? null) : null;
+        // Phân vùng theo tenant NGAY KHI biết tenant, không chờ cờ RLS (audit 2026-08-29):
+        // `MediaController.assertTenantOwnsPath` cưỡng chế quyền đọc dựa trên tiền tố này,
+        // nên file mới phải luôn nằm trong `t<tenantId>/` để không đọc chéo tenant được.
+        // Ưu tiên tenant của chính tin nhắn; fallback tenant context của job.
+        const tenantId = msg.tenantId ?? this.tenantCtx?.currentTenantId() ?? null;
         const relDir = tenantId != null ? `t${tenantId}/${datePath}` : datePath;
         const uploadDir = path.join(storageRoot, relDir);
 

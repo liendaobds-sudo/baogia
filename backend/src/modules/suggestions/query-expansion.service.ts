@@ -10,6 +10,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ContextInferenceService } from './context-inference.service';
 import { safeErrorMetadata, sensitiveTextMetadata } from '../../common/logging/safe-log-metadata';
+import { normalizeVi, toMatchText } from '../../common/text/vietnamese';
 
 // Common Vietnamese printing synonyms not in the knowledge base
 const SYNONYM_MAP: Record<string, string[]> = {
@@ -50,6 +51,15 @@ const SYNONYM_MAP: Record<string, string[]> = {
     'bế': ['die-cut', 'bế hình', 'cắt hình', 'bế theo hình'],
     'uv': ['sơn uv', 'in uv', 'uv nổi', 'uv cục bộ'],
     'chống nước': ['waterproof', 'không thấm nước', 'chịu nước'],
+
+    // Khổ giấy & dàn khuôn — bổ sung 2026-08-29 cùng tài liệu KB mới, trước đây không có
+    // đồng nghĩa nào cho nhóm này nên truy vấn "một tờ in được mấy con" không truy hồi được gì.
+    'khổ giấy': ['kích thước giấy', 'khổ in', 'tờ in', 'khổ tờ', 'A4', 'A3'],
+    'số con': ['số con trên tờ', 'con trên tờ', 'up', 'dàn khuôn', 'imposition'],
+    'dàn khuôn': ['imposition', 'dàn bài', 'số con trên tờ', 'sắp khuôn'],
+    'bù hao': ['hao hụt', 'giấy bù', 'phế phẩm', 'bù giấy'],
+    'kẽm': ['bản kẽm', 'plate', 'chế bản', 'ra kẽm'],
+    'cấn': ['cấn gấp', 'scoring', 'tạo rãnh gấp', 'cấn răng'],
 };
 
 @Injectable()
@@ -129,27 +139,28 @@ export class QueryExpansionService {
 
     /**
      * Replace known terms with their synonyms to create an alternative search string.
+     *
+     * Audit 2026-08-29: bản cũ so khớp `SYNONYM_MAP` (khoá CÓ DẤU) trên text có dấu ⇒ khách gõ
+     * "in tem decal chong nuoc" không mở rộng được từ nào. Nay so khớp trên bản đã chuẩn hoá
+     * (bỏ dấu + bung viết tắt) và trả về text gốc + phần đồng nghĩa để tầng tìm kiếm có cả hai.
      */
     private expandWithSynonyms(text: string): string {
-        let expanded = text;
-        let hasExpansion = false;
+        const matchText = toMatchText(text);
+        const added = new Set<string>();
 
         for (const [term, synonyms] of Object.entries(SYNONYM_MAP)) {
-            // Use word boundary matching to avoid partial replacements
-            const termRegex = new RegExp(`\\b${this.escapeRegex(term)}\\b`, 'gi');
-            if (termRegex.test(text)) {
-                // Add the top 2 synonyms that aren't already in the text
-                const newSynonyms = synonyms
-                    .filter(s => !text.includes(s.toLowerCase()))
-                    .slice(0, 2);
-                if (newSynonyms.length > 0) {
-                    expanded += ' ' + newSynonyms.join(' ');
-                    hasExpansion = true;
-                }
-            }
+            const termNorm = normalizeVi(term);
+            // Word boundary trên bản không dấu — tránh khớp một phần ("bế" trong "bến").
+            const termRegex = new RegExp(`(^|[^a-z0-9])${this.escapeRegex(termNorm)}([^a-z0-9]|$)`, 'i');
+            if (!termRegex.test(matchText)) continue;
+
+            const newSynonyms = synonyms
+                .filter(s => !matchText.includes(normalizeVi(s)))
+                .slice(0, 2);
+            newSynonyms.forEach(s => added.add(s));
         }
 
-        return hasExpansion ? expanded : text;
+        return added.size > 0 ? `${text} ${[...added].join(' ')}` : text;
     }
 
     private escapeRegex(str: string): string {

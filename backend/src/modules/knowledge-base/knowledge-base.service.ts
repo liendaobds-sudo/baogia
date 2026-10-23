@@ -7,6 +7,7 @@ import { KbChunk } from '../../entities/kb-chunk.entity';
 import { TenantContextService } from '../../common/tenant/tenant-context.service';
 import { EmbeddingService } from './embedding.service';
 import { safeErrorMetadata, sensitiveTextMetadata } from '../../common/logging/safe-log-metadata';
+import { removeAccents, tokenizeForSearch } from '../../common/text/vietnamese';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -414,11 +415,28 @@ export class KnowledgeBaseService {
         'the', 'is', 'and', 'for', 'with', 'this', 'that',
     ]);
 
+    /** Stopwords ở dạng KHÔNG DẤU (dùng khi lọc token đã chuẩn hoá). */
+    private static readonly STOP_WORDS_NO_ACCENT = new Set(
+        [...KnowledgeBaseService.STOP_WORDS].map((w) => removeAccents(w)),
+    );
+
     async searchChunks(query: string, limit = 5): Promise<KbChunk[]> {
-        // ── Step 1: Tokenize & filter stopwords ──
-        const words = query.toLowerCase()
-            .split(/[\s,;.!?]+/)
-            .filter(w => w.length > 1 && !KnowledgeBaseService.STOP_WORDS.has(w));
+        /**
+         * ── Step 1: Tokenize & filter stopwords ──
+         *
+         * Audit 2026-08-29: bản cũ tách token từ `query.toLowerCase()` rồi đối chiếu
+         * `chunk.content.toLowerCase().includes(word)` — cả hai bên CÓ DẤU. Khách gõ không dấu
+         * ("bao lau xong", "namecard 300gsm khong can mang") ⇒ mọi token đều lệch với nội dung
+         * KB (markdown do nghiệp vụ viết có dấu đầy đủ) ⇒ nhánh sparse cho 0 điểm, chỉ còn
+         * nhánh dense gánh, và khi chưa có embedding thì trả rỗng hoàn toàn.
+         *
+         * Nay tính TF-IDF trên bản KHÔNG DẤU của cả truy vấn và nội dung chunk, đồng thời bung
+         * viết tắt chat trước khi tách token.
+         */
+        const { normalized } = tokenizeForSearch(query);
+        const words = normalized.filter(
+            (w) => w.length > 1 && !KnowledgeBaseService.STOP_WORDS_NO_ACCENT.has(w),
+        );
         // ── HYBRID RETRIEVAL (sửa lỗi recall) ──
         // TRƯỚC: lọc ứng viên bằng SQL LIKE %từ_khóa% → vector chỉ re-rank trên các
         //   chunk đã trùng từ khóa ⇒ mất hoàn toàn các chunk gần nghĩa nhưng khác từ
@@ -431,9 +449,17 @@ export class KnowledgeBaseService {
         if (totalDocs === 0) return [];
         // Không early-return khi words rỗng: vẫn truy hồi được bằng dense-only.
 
+        // Bản không dấu của từng chunk — tính MỘT LẦN, dùng cho cả IDF và TF (tránh O(n×m) lần
+        // gọi normalize như khi normalize bên trong vòng lặp từ khoá).
+        const normalizedContents = relevantChunks.map((c) => removeAccents(c.content.toLowerCase()));
+        const normalizedTags = relevantChunks.map((c) => removeAccents((c.tags || []).join(' ').toLowerCase()));
+        const normalizedHeadings = relevantChunks.map((c) =>
+            removeAccents(String((c.metadata as any)?.heading || '').toLowerCase()),
+        );
+
         const idf: Record<string, number> = {};
         for (const word of words) {
-            const docsWithWord = relevantChunks.filter(c => c.content.toLowerCase().includes(word)).length;
+            const docsWithWord = normalizedContents.filter((c) => c.includes(word)).length;
             idf[word] = Math.log((totalDocs + 1) / (1 + docsWithWord)) + 1;
         }
 
@@ -452,8 +478,8 @@ export class KnowledgeBaseService {
 
         // ── Step 4: Score each chunk (TF-IDF + vector, optimized) ──
         // Pre-compute raw TF-IDF scores for relevant chunks first (avoids O(n²) inside the loop)
-        const rawTfidfScores = relevantChunks.map(chunk => {
-            const lower = chunk.content.toLowerCase();
+        const rawTfidfScores = relevantChunks.map((chunk, idx) => {
+            const lower = normalizedContents[idx];
             const contentLen = Math.max(lower.length, 1);
             let score = 0;
             for (const word of words) {
@@ -466,12 +492,12 @@ export class KnowledgeBaseService {
 
             // Tag boost — chunk tags match search words → x1.5
             if (score > 0) {
-                const tagStr = (chunk.tags || []).join(' ').toLowerCase();
+                const tagStr = normalizedTags[idx];
                 for (const word of words) {
                     if (tagStr.includes(word)) { score *= 1.5; break; }
                 }
                 // Heading boost — chunk heading matches → x1.3
-                const heading = ((chunk.metadata as any)?.heading || '').toLowerCase();
+                const heading = normalizedHeadings[idx];
                 for (const word of words) {
                     if (heading.includes(word)) { score *= 1.3; break; }
                 }
@@ -516,6 +542,29 @@ export class KnowledgeBaseService {
 
         let candidates = Array.from(rrf.values()).sort((a, b) => b.score - a.score);
         if (candidates.length === 0) return [];
+
+        /**
+         * Lọc chunk điểm quá thấp.
+         *
+         * Audit 2026-08-29: `MIN_SCORE_THRESHOLD` được KHAI BÁO nhưng chưa từng dùng (1 tham chiếu
+         * duy nhất), trong khi log vẫn in "above threshold" ⇒ chunk rác vẫn đi vào prompt và
+         * chiếm chỗ của chunk tốt (ngân sách chỉ có 3–5 chunk/lượt).
+         *
+         * Ngưỡng áp trên điểm RRF đã CHUẨN HOÁ theo chunk tốt nhất (điểm RRF tuyệt đối phụ thuộc
+         * số danh sách và thứ hạng nên không so trực tiếp với hằng số được). Luôn giữ ít nhất 1
+         * chunk để không biến truy vấn có kết quả thành "không có tài liệu".
+         */
+        const bestScore = candidates[0].score;
+        if (bestScore > 0) {
+            const kept = candidates.filter((c) => c.score / bestScore >= MIN_SCORE_THRESHOLD);
+            if (kept.length > 0 && kept.length < candidates.length) {
+                this.logger.debug(
+                    `KB search: bỏ ${candidates.length - kept.length} chunk dưới ngưỡng ` +
+                    `${MIN_SCORE_THRESHOLD} (điểm tương đối so với chunk tốt nhất)`,
+                );
+                candidates = kept;
+            }
+        }
 
         // ── Step 6: Diversity penalty — reduce score for 2nd+ chunk from same doc ──
         const docSeenCount = new Map<string, number>();

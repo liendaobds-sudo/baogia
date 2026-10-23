@@ -1,5 +1,20 @@
 # Implementation Plan — tenant-app-scope
 
+> ⚠️ **SỔ SÁCH TRÔI — audit 2026-08-29.** Toàn bộ 31 checkbox dưới đây đang để trống nhưng phần
+> lớn công việc **ĐÃ CÓ TRONG CODE**. Bằng chứng đã xác minh:
+> - Task 1.1: `backend/db/2026-07-02_tenant_app_scope.sql` tồn tại và được CI job `rls-e2e` áp.
+> - Task 1.2: `backend/src/entities/tenant-app-scope.entity.ts` tồn tại.
+> - Resolver + guard: `backend/src/common/app-scope/app-scope.service.ts`,
+>   `cskh-scope.guard.ts` (fail-closed khi không phân giải được tenant), `app-scope.controller.ts`;
+>   `AppScopeModule` là `@Global`.
+> - RLS: Pha B có khối policy riêng `app_scope_read` / `app_scope_write` cho baseline `tenant_id IS NULL`.
+> - Guard đã gắn ở conversations / messages / contacts / suggestions / kb / test-chat / chat-media /
+>   canned-responses; **`MediaController` mới được bổ sung `CskhScopeGuard` trong đợt audit này**
+>   (trước đó thiếu, đúng như task 42 của spec yêu cầu).
+>
+> 👉 Cần **rà từng task và tick lại** (không tick hàng loạt). Đừng dùng số checkbox của spec này
+> làm thước đo tiến độ — nó không phản ánh trạng thái code.
+
 ## Overview
 
 Gate Trục **CSKH** theo tenant (Báo_Giá luôn bật, không tắt được), theo mẫu baseline-inheritance đã kiểm chứng của `tenant-method-capability`. Backend enforce fail-closed qua Guard + hook nền; frontend fail-open ẩn menu. KHÔNG đổi logic nghiệp vụ/số học giá. Thứ tự: bảng + entity → resolver → guard/enforce → admin → frontend → isolation → hồi quy.

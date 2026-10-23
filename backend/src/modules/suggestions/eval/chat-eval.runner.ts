@@ -16,8 +16,27 @@ import { AiProviderService } from '../ai-provider.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { SYSTEM_PROMPT } from '../prompt-builder.service';
 import { GOLDEN_DATASET } from './golden-dataset';
+import { intentAccuracy, IntentEvalCase } from './rag-metrics';
+import { normalizeIntent } from '../intents';
 
 const SAMPLE = GOLDEN_DATASET.slice(0, 8);
+
+/**
+ * Nguong regression cho tang SINH (2026-08-29).
+ *
+ * Truoc day runner nay luon `process.exit(0)` — tuc chay xong chi de NHIN, khong bao gio bao
+ * that bai. Ket qua: chat luong tone/intent tut ma CI van xanh. Nay co nguong that:
+ *  - naturalness/helpfulness: thang 1-5 do LLM judge cham;
+ *  - roboticRate: ti le cau tra loi bi judge danh dau may moc;
+ *  - intentAccuracy: doi chieu `result.intent` voi nhan canonical cua golden dataset. Day la
+ *    lan dau field `intent` cua dataset duoc DUNG THAT (truoc audit no la dead field).
+ */
+const THRESHOLD = {
+    naturalness: 3.5,
+    helpfulness: 3.5,
+    maxRoboticRate: 0.25,
+    intentAccuracy: 0.6,
+};
 
 async function judge(apiKey: string, question: string, reply: string) {
     const prompt = `Bạn là giám khảo CSKH ngành in. Chấm câu trả lời của nhân viên cho khách.
@@ -64,6 +83,7 @@ async function main() {
         console.log(`Providers khả dụng: ${ai.getProviders().map(p => p.name).join(', ') || 'KHÔNG CÓ'}`);
 
         let sumNat = 0, sumHelp = 0, roboticCount = 0, n = 0;
+        const intentCases: IntentEvalCase[] = [];
         for (const g of SAMPLE) {
             const chunks = await kb.searchChunks(g.question, 3);
             const kbCtx = chunks.map(c => `- ${c.content.slice(0, 220).replace(/\n/g, ' ')}`).join('\n') || '(không có)';
@@ -74,20 +94,44 @@ async function main() {
             const j = await judge(apiKey, g.question, reply);
             n++; sumNat += j.naturalness || 0; sumHelp += j.helpfulness || 0; if (j.robotic) roboticCount++;
 
+            const actualIntent = out?.result?.intent;
+            intentCases.push({ id: g.id, expected: g.intent, actual: String(actualIntent ?? '') });
+
             console.log(`\n[${g.id}] ${g.question}`);
             console.log(`  → ${reply.slice(0, 240).replace(/\n/g, ' ⏎ ')}`);
             console.log(`  ⮑ tự nhiên=${j.naturalness} hữu ích=${j.helpfulness} máy móc=${j.robotic} | ${j.note || ''}`);
+            console.log(`  ⮑ intent: kỳ vọng=${normalizeIntent(g.intent)} nhận=${normalizeIntent(actualIntent)}`);
         }
+
+        const nat = Math.round((sumNat / n) * 100) / 100;
+        const help = Math.round((sumHelp / n) * 100) / 100;
+        const roboticRate = Math.round((roboticCount / n) * 100) / 100;
+        const im = intentAccuracy(intentCases, normalizeIntent);
 
         console.log('\n══════ CHAT TONE EVAL ══════');
         console.table({
-            'Tự nhiên (1-5)': Math.round((sumNat / n) * 100) / 100,
-            'Hữu ích (1-5)': Math.round((sumHelp / n) * 100) / 100,
-            'Tỉ lệ máy móc': Math.round((roboticCount / n) * 100) / 100,
+            'Tự nhiên (1-5)': nat,
+            'Hữu ích (1-5)': help,
+            'Tỉ lệ máy móc': roboticRate,
+            'Đúng intent': im.accuracy,
+            'Rơi về "chung"': im.fallbackRate,
             'Mẫu': n,
         });
+
+        if (im.mismatches.length > 0) {
+            console.log('\n── Intent lệch ──');
+            im.mismatches.forEach((m) => console.log('  ✗ ' + m));
+        }
+
+        const pass =
+            nat >= THRESHOLD.naturalness &&
+            help >= THRESHOLD.helpfulness &&
+            roboticRate <= THRESHOLD.maxRoboticRate &&
+            im.accuracy >= THRESHOLD.intentAccuracy;
+        console.log(pass ? '\n✅ PASS regression thresholds' : '\n❌ FAIL regression thresholds', THRESHOLD);
+
         await app.close();
-        process.exit(0);
+        process.exit(pass ? 0 : 1);
     } catch (e) {
         logger.error(`Chat eval failed: ${(e as Error).message}`);
         await app.close();

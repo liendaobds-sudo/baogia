@@ -43,7 +43,9 @@ Chúng tôi có đội ngũ thiết kế hỗ trợ. Liên hệ để em báo ch
 - **Công nợ**: Áp dụng cho khách hàng thường xuyên (cần ký hợp đồng)
 
 ### Hỏi: Có xuất hóa đơn VAT không?
-Có, chúng tôi xuất hóa đơn VAT 8% cho tất cả đơn hàng. Vui lòng cung cấp thông tin xuất hóa đơn trước khi thanh toán.
+Có, chúng tôi xuất hóa đơn VAT cho tất cả đơn hàng. Thuế suất áp dụng theo đúng thuế suất trên báo giá của đơn (hiện hành 10%). Vui lòng cung cấp thông tin xuất hóa đơn trước khi thanh toán.
+
+> Lưu ý nội bộ: KHÔNG ghi cứng một con số thuế suất khác vào tài liệu này. Thuế suất là dữ liệu tới hạn, đến từ báo giá và chỉ được áp một lần; ghi cứng "8%" (bản cũ trước 2026-08-29) làm AI trả lời lệch với số tiền hệ thống tính ra.
 
 ## Chất lượng
 

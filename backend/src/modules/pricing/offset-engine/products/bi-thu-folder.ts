@@ -64,6 +64,14 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
             fallbackToLon: fs.soConKhoGiayLon, fallbackBaiIn: fs.soConBaiIn,
         });
         soCon = sc.soConToLon; soConBaiIn = sc.soConBaiIn; soConOutcome = sc;
+        // Audit 2026-08-29: nhánh khổ TĨNH thiếu guard `> 0` (nhánh nhập kích thước đã có).
+        // `soCon = 0` ⇒ tiền giấy 0; `soConBaiIn = 0` ⇒ `luotIn = Infinity` ⇒ báo giá rác.
+        if (!(soCon > 0) || !(soConBaiIn > 0)) {
+            throw new OffsetPricingError(
+                `Khổ "${fs.khoIn}" của kích thước "${input.kichThuoc}" chưa xác định được số con/tờ ` +
+                '(cần bổ sung "số con/bài in" và "số con/khổ giấy lớn" cho khổ này).',
+            );
+        }
         // Người dùng chọn khổ in cụ thể (preview/gợi ý) → dùng khổ đó & dàn khuôn lại theo kích thước
         // phẳng để báo giá đổi realtime. Không chọn (khoIn rỗng) → giữ khổ mặc định của size (golden).
         if (input.khoIn && itemW && itemH) {
@@ -161,7 +169,11 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
         { label: 'Gia công bề mặt (XLBM)', amount: cpXLBM },
         { label: 'Thiết kế', amount: cpThietKe },
     ];
-    const baseSXTK = cpBinhBai + cpBe + cpTP + cpDongGoi + cpXLBM;
+    // Base chiết khấu = SẢN XUẤT + THIẾT KẾ. Audit 2026-08-29: BỔ SUNG `cpThietKe` — đây là
+    // sản phẩm DUY NHẤT trong 5 loại offset thiếu phí thiết kế trong base, trong khi hợp đồng
+    // `totals.ts` và 4 sản phẩm còn lại (to_roi, sp_khac, hop_giay, tui_giay) đều tính.
+    // Ảnh hưởng golden: fixture bi_thu_folder truyền `thietKe: 0` ⇒ cpThietKe = 0 ⇒ số pin KHÔNG đổi.
+    const baseSXTK = cpBinhBai + cpBe + cpTP + cpDongGoi + cpXLBM + cpThietKe;
     const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);

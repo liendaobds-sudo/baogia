@@ -62,13 +62,17 @@ Trước khi nói "X gây ra Y" hoặc "đường chạy là Z", phải đi HẾ
   đó, không giả định môi trường toàn cục.
 - **Backend** (cwd `backend/`):
   - Typecheck: `npx tsc --noEmit -p tsconfig.json` → phải 0 lỗi.
-  - Test: `npx jest --runInBand` (suite chuẩn hiện tại ~**789 test / 87 suite**; mốc này
-    là Backend_Test_Count — kết quả < mốc sau thay đổi phải truy nguyên test mất/skip).
+  - Test: `npx jest --runInBand`.
   - Property test (fast-check) nằm trong suite jest — xem §8.2 về seed.
 - **Frontend** (cwd `frontend/`):
   - Typecheck: `npx tsc --noEmit`.
   - Build production: `npm run build` (Next/Turbopack).
-  - Test: `npx jest` (suite hiện tại ~**307 test / 55 suite**).
+  - Test: `npx jest`.
+- **Mốc số lượng test — KHÔNG hardcode ở đây.** Bản trước ghi "~789 test / 87 suite" (backend) và
+  "~307 test / 55 suite" (frontend); đến 2026-08-29 thực tế đã là hơn 1300 và gần 400. Mốc lạc hậu
+  làm quy tắc "kết quả < mốc phải truy nguyên test mất/skip" mất tác dụng (mọi kết quả đều > mốc).
+  👉 Lấy mốc từ **`docs/PRODUCTION-SMOKE.md`** (bảng "Kết quả test tự động", có ghi ngày) hoặc từ
+  lần chạy xanh gần nhất trên `main`. So sánh theo DELTA của phiên làm việc, không theo số tuyệt đối.
 - **Cài đặt sạch:** `npm ci` thuần (KHÔNG `--legacy-peer-deps`) phải chạy được từ lockfile
   ở cả hai workspace (xem §12.2). ERESOLVE = tín hiệu lệch peer cần truy nguyên.
 - Reproduce lỗi bằng test/ca biên: số lượng = 0/âm, thiếu vật liệu, khổ quá nhỏ,
@@ -273,12 +277,18 @@ ZeplaoPrint có preview dàn khổ/dieline offset (`OffsetPreviewSVG`, `DielineP
 ### 12.2 Dependencies & Supply Chain
 - Lockfile (`backend/package-lock.json`, `frontend/package-lock.json`) phải tracked.
   Version thả nổi trên đường production = 🟠.
-- `npm audit --omit=dev` (backend) + `npm audit` (frontend): mục tiêu **0 HIGH**. Hiện trạng
-  đã đóng HIGH bằng nâng cấp + `overrides` (backend `multer ^2.2.0`, `tar ^7.5.19`;
-  frontend `next 16.2.9`); `sqlite3` ghim `^5.1.7` (khớp peer typeorm, chỉ driver dev/fallback,
-  production dùng `pg`). CVE còn lại là moderate/low build-time hoặc dev-only (ghi reachability).
+- `npm audit --omit=dev` (backend) + `npm audit` (frontend): mục tiêu **0 HIGH**.
+  Hiện trạng sau audit 2026-08-29: **backend prod deps = 0 lỗ hổng; frontend = 0 lỗ hổng;
+  toàn cây backend = 0 high/critical** (còn low/moderate thuần dev từ chuỗi `sqlite3` → `node-gyp`).
+  Cách đạt được: `overrides` nâng lên `socket.io-parser ^4.2.7`, `tar ^7.5.22`,
+  `brace-expansion ^5.0.9`, `js-yaml ^4.3.2`, `fast-uri ^3.1.6`, `ip-address ^10.5.0`;
+  frontend thêm `nanoid ^3.3.18`; `typeorm ^0.3.31`; chuyển `sqlite3` sang **devDependencies**
+  (production dùng `pg`); **gỡ driver không dùng** `mariadb`, `mysql`, `mysql2`, `sql.js`.
+  ⚠️ Khi thêm `overrides`, kiểm dải bị ảnh hưởng của advisory là **inclusive** — ghim đúng bằng
+  mốc cuối của dải (vd `tar ^7.5.19` cho advisory `≤7.5.20`) là VẪN CÒN LỖ HỔNG.
 - `npm ci` thuần (không `--legacy-peer-deps`) phải sạch — CI (`.github/workflows/ci.yml`) đã bỏ cờ.
-- Stack đã ở NestJS 11 / next 16.2.9 / react 19.2.3 — bump phá vỡ phải đi kèm regression đầy đủ.
+- Stack ở NestJS 11 / Next 16.2.x / React 19.2.x — **không hardcode patch version vào tài liệu**;
+  đọc `package.json`. Bump phá vỡ phải đi kèm regression đầy đủ.
 
 ### 12.3 Error Handling & Observability
 - Lỗi đường chạy thật được bắt và báo có nghĩa (xem `all-exceptions.filter.ts`), không nuốt im,
@@ -286,8 +296,9 @@ ZeplaoPrint có preview dàn khổ/dieline offset (`OffsetPreviewSVG`, `DielineP
 - Có log lỗi production để chẩn đoán; tài nguyên (transaction, queue job, file) giải phóng cả nhánh lỗi.
 
 ### 12.4 Tests & CI
-- Test chạy bằng đúng workspace và đang xanh: backend `npx jest` (~789), frontend `npx jest`
-  (~307), `npx tsc --noEmit` cả hai, `npm run build` frontend. Dán output thật.
+- Test chạy bằng đúng workspace và đang xanh: backend `npx jest`, frontend `npx jest`,
+  `npx tsc --noEmit` cả hai, `npm run build` frontend. Dán output thật.
+  (Mốc số lượng: xem §2 — lấy từ `docs/PRODUCTION-SMOKE.md`, không hardcode ở đây.)
 - CI có chặn merge khi fail (không chỉ trang trí).
 - Vùng lõi (engine giá, VAT một nguồn, parity offset, tenant/RLS) phải có test hồi quy.
 

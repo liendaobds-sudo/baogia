@@ -403,9 +403,19 @@ export class PricingService {
         });
         if (fb2) return fb2.pricePerSheet;
 
-        // Fallback 3: any tier for this material
+        // Fallback 3: bất kỳ bậc nào của vật tư này, nhưng VẪN phải hợp lệ theo số lượng.
+        //
+        // Audit 2026-08-29: bản cũ là `findOne({ where: { materialId }, order: { quantityFrom: 'DESC' } })`
+        // — bỏ CẢ `quantityFrom <= quantity`, `paperSizeId` và `printSide` ⇒ luôn trả bậc số lượng
+        // LỚN NHẤT, tức đơn giá/tờ THẤP NHẤT, cho mọi số lượng. Nhánh này kích hoạt thật khi vật tư
+        // có bậc giá nhưng thiếu bậc cho `print_side` đang chọn (mặc định 'double'), vì fb1/fb2 vẫn
+        // lọc `printSide`. Hệ quả: báo giá dưới giá vốn mà không có dấu hiệu nào.
+        //
+        // Nay giữ ràng buộc số lượng (bậc cao nhất mà `quantityFrom <= quantity`). Không tìm được
+        // bậc hợp lệ ⇒ trả 0; caller (`hasAnyTier` + loose/bound guard) đã chặn báo giá 0 đồng
+        // tường minh thay vì âm thầm tính tiếp.
         const fb3 = await this.tierRepo.findOne({
-            where: { materialId },
+            where: { materialId, quantityFrom: LessThanOrEqual(quantity) },
             order: { quantityFrom: 'DESC' },
         });
         if (fb3) return fb3.pricePerSheet;

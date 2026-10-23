@@ -11,41 +11,19 @@ import { OffsetQuoteConfigurator, type OffsetProductType } from '../_components/
 import { useQuoteCart, type QuoteCartItem } from '../_store/useQuoteCart';
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
-import { resolveUnitLabel } from '@/lib/quote/quote-units';
+import { mapCartItemToQuoteItem } from '@/lib/quote/map-cart-item';
 import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
 
 /**
- * Ánh xạ item offset sang QuoteItemDto. KHÁC in nhanh: cấu hình offset dùng khóa camelCase
- * (materialCode, khoIn, rong, soKemIn...) KHÔNG nằm trong whitelist QuoteItemDto → KHÔNG được
- * spread thẳng (sẽ bị `forbidNonWhitelisted` → HTTP 400). Vì vậy chỉ gửi các field whitelisted,
- * và gói toàn bộ cấu hình + kết quả tính (lines/meta) vào `printing_detail` (JSON tự do, được lưu)
- * để báo giá offset tái dựng được sau này. KHÔNG đổi logic tính giá.
+ * Ánh xạ item offset sang QuoteItemDto — nay dùng helper chung
+ * `@/lib/quote/map-cart-item` (audit 2026-08-29 gom 3 bản trùng về một nguồn).
  *
- * unit: resolve theo offset type (to_roi→tờ, còn lại→cái) — backend resolve lại khi save.
+ * Nhắc lại bất biến: cấu hình offset dùng khóa camelCase (materialCode, khoIn, rong,
+ * soKemIn…) KHÔNG nằm trong whitelist `QuoteItemDto` → không được spread thẳng (sẽ bị
+ * `forbidNonWhitelisted` → HTTP 400); toàn bộ cấu hình + kết quả gói vào `printing_detail`
+ * để server tính lại giá khi lưu.
  */
-const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
-    const cfg = (it.configParams as Record<string, unknown>) || {};
-    const productType = (cfg.type as string) ?? 'offset';
-    return {
-        product_name: it.name,
-        item_type: 'offset',
-        product_type: productType,
-        quantity: it.quantity,
-        item_total: it.total,
-        unit: resolveUnitLabel({
-            unit: (cfg.unit as string) || undefined,
-            productUnit: (cfg.productUnit as string) || undefined,
-            quoteType: productType,
-            itemType: 'offset',
-        }),
-        printing_detail: {
-            offset: true,
-            config: it.configParams,
-            result: it.details,
-            unitPrice: it.unitPrice,
-        },
-    };
-};
+const mapItem = (it: QuoteCartItem): Record<string, unknown> => mapCartItemToQuoteItem(it);
 
 const OFFSET_TABS: { id: OffsetProductType; label: string; icon: string }[] = [
     { id: 'to_roi', label: 'Tờ rơi', icon: '📄' },

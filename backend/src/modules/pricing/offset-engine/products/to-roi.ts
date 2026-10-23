@@ -66,6 +66,16 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
             fallbackToLon: fs.soConToLon, fallbackBaiIn: fs.soConBaiIn,
         });
         soCon = imposition.soConToLon; soConBaiIn = imposition.soConBaiIn;
+        // Audit 2026-08-29: nhánh khổ TĨNH trước đây thiếu guard `> 0` mà nhánh nhập kích thước
+        // và sp_khac/hop_giay/tui_giay đều có. Nếu `fixedSizes` có bản ghi `soConBaiIn/soConToLon = 0`
+        // (hoặc hình học không dàn được) thì tiền giấy = 0 và `luotIn = sl/0 = Infinity` ⇒ báo giá
+        // rác thay vì lỗi rõ ràng. Fail-loud để người dùng biết cấu hình khổ đang thiếu.
+        if (!(soCon > 0) || !(soConBaiIn > 0)) {
+            throw new OffsetPricingError(
+                `Khổ "${fs.khoIn}" của kích thước "${input.kichThuoc}" chưa xác định được số con/tờ ` +
+                '(cần bổ sung "số con/bài in" và "số con/tờ lớn" cho khổ này).',
+            );
+        }
         // Người dùng chọn khổ in cụ thể (preview/gợi ý) → dùng khổ đó & dàn khuôn lại theo kích thước
         // phẳng để báo giá đổi realtime. Không chọn (khoIn rỗng) → giữ khổ mặc định của size (golden).
         if (input.khoIn && itemW && itemH) {

@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { TenantContextService } from '../../../common/tenant/tenant-context.service';
+import { tenantSqlScope } from '../../../common/tenant/tenant-sql';
 
 @Injectable()
 export class PricingDashboardService {
@@ -8,12 +10,27 @@ export class PricingDashboardService {
 
     constructor(
         @InjectDataSource() private ds: DataSource,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) {}
+
+    /**
+     * Cô lập tenant cho dashboard ERP (audit 2026-08-29).
+     *
+     * Trước đây MỌI truy vấn dưới đây không có mệnh đề tenant ⇒ bất kỳ user đăng nhập
+     * của tenant nào cũng đọc được tổng doanh thu, tồn kho và TOP KHÁCH HÀNG (tên + SĐT)
+     * của toàn hệ thống. Nay dùng `tenantSqlScope`: thiếu context ⇒ fail-closed.
+     *
+     * @param nextIdx chỉ số `$N` kế tiếp trong query hiện tại.
+     */
+    private scope(nextIdx = 1, col = 'tenant_id') {
+        return tenantSqlScope(this.tenantCtx?.get?.(), nextIdx, col);
+    }
 
     /**
      * Overview KPIs for the tenant's pricing dashboard
      */
     async getOverview() {
+        const s = this.scope(1);
         try {
             // Quote stats
             const quoteStats = await this.ds.query(`
@@ -30,7 +47,11 @@ export class PricingDashboardService {
                     COALESCE(SUM(CASE WHEN status IN ('approved','sent','accepted','completed') THEN total ELSE 0 END), 0) as total_revenue,
                     COALESCE(SUM(CASE WHEN status IN ('approved','sent','accepted','completed') AND created_at >= date_trunc('month', CURRENT_DATE) THEN total ELSE 0 END), 0) as month_revenue
                 FROM quotes
-            `).catch(() => [{}]);
+                WHERE 1 = 1${s.clause}
+            `, s.params).catch((e) => {
+                this.logger.warn(`quoteStats lỗi: ${e instanceof Error ? e.message : e}`);
+                return [{}];
+            });
 
             // Material stats
             const materialStats = await this.ds.query(`
@@ -38,12 +59,19 @@ export class PricingDashboardService {
                     COUNT(*) as total_materials,
                     COUNT(CASE WHEN CAST(stock AS numeric) < CAST(COALESCE(min_stock, '0') AS numeric) THEN 1 END) as low_stock
                 FROM materials
-            `).catch(() => [{}]);
+                WHERE 1 = 1${s.clause}
+            `, s.params).catch((e) => {
+                this.logger.warn(`materialStats lỗi: ${e instanceof Error ? e.message : e}`);
+                return [{}];
+            });
 
             // Customer stats
             const customerStats = await this.ds.query(`
-                SELECT COUNT(*) as total_customers FROM customers
-            `).catch(() => [{ total_customers: 0 }]);
+                SELECT COUNT(*) as total_customers FROM customers WHERE 1 = 1${s.clause}
+            `, s.params).catch((e) => {
+                this.logger.warn(`customerStats lỗi: ${e instanceof Error ? e.message : e}`);
+                return [{ total_customers: 0 }];
+            });
 
             // This month vs last month
             const monthComparison = await this.ds.query(`
@@ -53,7 +81,11 @@ export class PricingDashboardService {
                     COALESCE(SUM(CASE WHEN status IN ('approved','sent','accepted','completed') AND created_at >= date_trunc('month', CURRENT_DATE) THEN total ELSE 0 END), 0) as this_month_revenue,
                     COALESCE(SUM(CASE WHEN status IN ('approved','sent','accepted','completed') AND created_at >= date_trunc('month', CURRENT_DATE) - interval '1 month' AND created_at < date_trunc('month', CURRENT_DATE) THEN total ELSE 0 END), 0) as last_month_revenue
                 FROM quotes
-            `).catch(() => [{}]);
+                WHERE 1 = 1${s.clause}
+            `, s.params).catch((e) => {
+                this.logger.warn(`monthComparison lỗi: ${e instanceof Error ? e.message : e}`);
+                return [{}];
+            });
 
             const q = quoteStats[0] || {};
             const m = materialStats[0] || {};
@@ -102,6 +134,7 @@ export class PricingDashboardService {
      * Monthly revenue chart data (12 months)
      */
     async getRevenueChart(months = 12) {
+        const s = this.scope(2);
         try {
             const rows = await this.ds.query(`
                 SELECT 
@@ -109,10 +142,10 @@ export class PricingDashboardService {
                     COUNT(*) as quotes_count,
                     COALESCE(SUM(CASE WHEN status IN ('approved','sent','accepted','completed') THEN total ELSE 0 END), 0) as revenue
                 FROM quotes
-                WHERE created_at >= (CURRENT_DATE - ($1 || ' months')::interval)
+                WHERE created_at >= (CURRENT_DATE - ($1 || ' months')::interval)${s.clause}
                 GROUP BY date_trunc('month', created_at)
                 ORDER BY month ASC
-            `, [months]);
+            `, [months, ...s.params]);
 
             return rows.map((r: any) => ({
                 month: r.month,
@@ -128,15 +161,16 @@ export class PricingDashboardService {
      * Top products by quote frequency
      */
     async getTopProducts(limit = 10) {
+        const s = this.scope(2);
         try {
             const rows = await this.ds.query(`
                 SELECT product_name, COUNT(*) as count, COALESCE(SUM(total), 0) as revenue
                 FROM quotes
-                WHERE product_name IS NOT NULL AND product_name != ''
+                WHERE product_name IS NOT NULL AND product_name != ''${s.clause}
                 GROUP BY product_name
                 ORDER BY count DESC
                 LIMIT $1
-            `, [limit]);
+            `, [limit, ...s.params]);
 
             return rows.map((r: any) => ({
                 product: r.product_name,
@@ -152,15 +186,16 @@ export class PricingDashboardService {
      * Top customers by quote value
      */
     async getTopCustomers(limit = 10) {
+        const s = this.scope(2);
         try {
             const rows = await this.ds.query(`
                 SELECT customer_name, customer_phone, COUNT(*) as quote_count, COALESCE(SUM(total), 0) as total_value
                 FROM quotes
-                WHERE customer_name IS NOT NULL AND customer_name != ''
+                WHERE customer_name IS NOT NULL AND customer_name != ''${s.clause}
                 GROUP BY customer_name, customer_phone
                 ORDER BY total_value DESC
                 LIMIT $1
-            `, [limit]);
+            `, [limit, ...s.params]);
 
             return rows.map((r: any) => ({
                 name: r.customer_name,
@@ -178,20 +213,21 @@ export class PricingDashboardService {
      */
     async getAlerts() {
         const alerts: { type: string; severity: string; message: string; count?: number }[] = [];
+        const s = this.scope(1);
 
         try {
             // Low stock materials
             const [lowStock] = await this.ds.query(`
-                SELECT COUNT(*) as cnt FROM materials WHERE CAST(stock AS numeric) < CAST(COALESCE(min_stock, '0') AS numeric)
-            `).catch(() => [{ cnt: 0 }]);
+                SELECT COUNT(*) as cnt FROM materials WHERE CAST(stock AS numeric) < CAST(COALESCE(min_stock, '0') AS numeric)${s.clause}
+            `, s.params).catch(() => [{ cnt: 0 }]);
             if (parseInt(lowStock?.cnt || '0') > 0) {
                 alerts.push({ type: 'low_stock', severity: 'warning', message: `${lowStock.cnt} vật tư dưới mức tồn kho tối thiểu`, count: parseInt(lowStock.cnt) });
             }
 
             // Pending approvals
             const [pending] = await this.ds.query(`
-                SELECT COUNT(*) as cnt FROM quotes WHERE status = 'pending_approval'
-            `).catch(() => [{ cnt: 0 }]);
+                SELECT COUNT(*) as cnt FROM quotes WHERE status = 'pending_approval'${s.clause}
+            `, s.params).catch(() => [{ cnt: 0 }]);
             if (parseInt(pending?.cnt || '0') > 0) {
                 alerts.push({ type: 'pending_approval', severity: 'info', message: `${pending.cnt} báo giá đang chờ duyệt`, count: parseInt(pending.cnt) });
             }
@@ -199,12 +235,14 @@ export class PricingDashboardService {
             // Expiring quotes (within 3 days)
             const [expiring] = await this.ds.query(`
                 SELECT COUNT(*) as cnt FROM quotes 
-                WHERE status IN ('draft', 'sent') AND valid_until IS NOT NULL AND valid_until BETWEEN CURRENT_DATE AND CURRENT_DATE + interval '3 days'
-            `).catch(() => [{ cnt: 0 }]);
+                WHERE status IN ('draft', 'sent') AND valid_until IS NOT NULL AND valid_until BETWEEN CURRENT_DATE AND CURRENT_DATE + interval '3 days'${s.clause}
+            `, s.params).catch(() => [{ cnt: 0 }]);
             if (parseInt(expiring?.cnt || '0') > 0) {
                 alerts.push({ type: 'expiring_quotes', severity: 'warning', message: `${expiring.cnt} báo giá sắp hết hạn (3 ngày tới)`, count: parseInt(expiring.cnt) });
             }
-        } catch { /* ignore */ }
+        } catch (e) {
+            this.logger.warn(`getAlerts lỗi: ${e instanceof Error ? e.message : e}`);
+        }
 
         return alerts;
     }

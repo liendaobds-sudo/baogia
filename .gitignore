@@ -48,6 +48,12 @@ minio_data/
 
 # Redis dump (runtime artifact — không commit)
 dump.rdb
+redis_bin/dump.rdb
+
+# ── Debug symbol của Redis Windows (audit 2026-08-29) ──
+# 5 file .pdb = ~41 MB, KHÔNG cần để chạy redis-server (rundev.bat chỉ dùng .exe + .conf).
+# Đã `git rm --cached`; lưu ý xoá khỏi HEAD KHÔNG xoá khỏi lịch sử — clone cũ vẫn nặng.
+redis_bin/*.pdb
 
 # ── Secrets & runtime config (added 2026-06-15 cleanup) ──
 admin-password.txt
@@ -64,6 +70,11 @@ _archive/
 # ── Tài liệu cá nhân / file lạc không thuộc dự án (added audit cleanup) ──
 *.pdf
 JLPT*
+# Ảnh lạc rơi vào repo root (screenshot chat, export Zalo…). Ảnh THUỘC dự án phải nằm trong
+# frontend/public/ hoặc backend/uploads/ nên chặn ở root là an toàn.
+/*.jpg
+/*.jpeg
+/*.png
 
 # ── Test/build output tạm (jest --json reporter, script điều tra) — không commit ──
 .jestout/

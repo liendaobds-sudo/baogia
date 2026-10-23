@@ -1,5 +1,29 @@
 # Implementation Plan: Dependency Security Upgrades
 
+> 🔁 **MỞ LẠI rồi ĐÓNG TIẾP — audit 2026-08-29.**
+>
+> Spec này từng được coi là gần xong (27/29), nhưng audit phát hiện HIGH đã quay lại: backend
+> **11 high** ở prod deps, frontend **4 high**. Nguyên nhân gốc: các `overrides` được ghim ĐÚNG BẰNG
+> mốc cuối của dải bị ảnh hưởng (advisory là *inclusive*), ví dụ `tar ^7.5.19` cho advisory `≤7.5.20`
+> ⇒ vẫn nằm trong dải.
+>
+> Đã xử lý trong đợt audit (đo bằng `npm audit`):
+> - `overrides` nâng: `socket.io-parser ^4.2.7` (HIGH, WS mở Internet — reachability cao nhất),
+>   `tar ^7.5.22`, `brace-expansion ^5.0.9`, `js-yaml ^4.3.2`, `fast-uri ^3.1.6`, `ip-address ^10.5.0`;
+>   frontend thêm `nanoid ^3.3.18`, `socket.io-parser`, `js-yaml`.
+> - `typeorm` → `^0.3.31` (đóng advisory `migration:generate`).
+> - `sqlite3` chuyển sang **devDependencies** (production dùng `pg`) ⇒ cả chuỗi `node-gyp` ra khỏi
+>   cây prod.
+> - **Gỡ driver không dùng**: `mariadb`, `mysql`, `mysql2`, `sql.js` (grep xác nhận 0 import trong
+>   `src/`; `app.module.ts` chỉ hỗ trợ `postgres` + `sqlite`). Kèm xoá test chết
+>   `pricing/tests/fuzz-test.spec.ts` (so với API PHP đã decommission + MySQL `erp_print` không còn).
+>
+> Kết quả đo lại: **backend prod = 0 lỗ hổng; frontend = 0; toàn cây backend = 0 high/critical**
+> (còn low/moderate thuần dev từ `sqlite3` → `node-gyp`).
+>
+> 👉 Việc còn lại: thêm một cổng CI chạy `npm audit --omit=dev --audit-level=high` cho cả hai
+> workspace để HIGH không âm thầm quay lại lần nữa.
+
 ## Overview
 
 Nâng cấp dependency mang tính breaking để đóng các CVE HIGH còn lại, theo thứ tự an toàn B0→B9 trong design (đo baseline → bump NestJS_Suite + typeorm + uuid → typeorm-transactional → tsc + sửa breaking API → jest backend → frontend next → build/typecheck/test frontend → audit after → dọn CI → commit lockfile + bảng so sánh).

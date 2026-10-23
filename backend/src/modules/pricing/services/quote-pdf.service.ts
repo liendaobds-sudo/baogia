@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { TenantContextService } from '../../../common/tenant/tenant-context.service';
 
 /**
  * Generates HTML-based quote documents (print → PDF) in Vietnamese business format.
@@ -11,7 +12,54 @@ export class QuotePdfService {
 
     constructor(
         @InjectDataSource() private dataSource: DataSource,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) {}
+
+    /**
+     * Đọc `site_settings` ĐÚNG tenant của báo giá (audit 2026-08-29).
+     *
+     * Trước đây `SELECT key, value FROM site_settings` không có WHERE và gán vào cùng
+     * một object ⇒ hàng của tenant nào đọc sau thì THẮNG ⇒ PDF gửi khách có thể mang
+     * tên/địa chỉ/MST/logo của tenant KHÁC (vừa rò dữ liệu, vừa sai chứng từ).
+     *
+     * Ưu tiên `quote.tenant_id` (nguồn chính xác nhất — báo giá thuộc tenant nào thì in
+     * pháp nhân của tenant đó), sau đó mới tới tenant context của request.
+     * Hàng `tenant_id IS NULL` (dữ liệu di sản trước Pha A) được dùng làm fallback và
+     * KHÔNG ghi đè hàng có tenant khớp.
+     */
+    private async loadSiteSettings(quoteTenantId?: unknown): Promise<Record<string, string>> {
+        const parsed = Number(quoteTenantId);
+        const tenantId = Number.isSafeInteger(parsed) && parsed > 0
+            ? parsed
+            : this.tenantCtx?.currentTenantId() ?? null;
+
+        const site: Record<string, string> = {};
+        try {
+            const rows: { key: string; value: string; tenant_id: number | null }[] = tenantId == null
+                // Không xác định được tenant → chỉ dùng hàng dùng chung, không trộn tenant khác.
+                ? await this.dataSource.query(
+                    'SELECT key, value, tenant_id FROM site_settings WHERE tenant_id IS NULL',
+                )
+                : await this.dataSource.query(
+                    'SELECT key, value, tenant_id FROM site_settings WHERE tenant_id = $1 OR tenant_id IS NULL',
+                    [tenantId],
+                );
+
+            // Nạp hàng NULL trước, rồi hàng đúng tenant ghi đè lên.
+            for (const r of rows ?? []) if (r?.tenant_id == null && r?.key) site[r.key] = r.value;
+            for (const r of rows ?? []) if (r?.tenant_id != null && r?.key) site[r.key] = r.value;
+        } catch (e) {
+            // Cột tenant_id chưa tồn tại (DB trước Pha A) → thoái về truy vấn cũ, ghi log.
+            this.logger.warn(
+                `site_settings theo tenant thất bại, dùng bản không lọc: ${e instanceof Error ? e.message : e}`,
+            );
+            const rows = await this.dataSource
+                .query('SELECT key, value FROM site_settings')
+                .catch(() => []);
+            for (const r of rows ?? []) if (r?.key) site[r.key] = r.value;
+        }
+        return site;
+    }
 
     /** Số tiền VND → chữ (đơn giản, đủ dùng báo giá). */
     numberToVietnameseWords(n: number): string {
@@ -116,9 +164,7 @@ export class QuotePdfService {
     }
 
     async generateHtml(quote: Record<string, any>): Promise<string> {
-        const siteRows = await this.dataSource.query('SELECT key, value FROM site_settings').catch(() => []);
-        const site: Record<string, string> = {};
-        for (const r of siteRows) site[r.key] = r.value;
+        const site = await this.loadSiteSettings(quote?.tenant_id ?? quote?.tenantId);
 
         let bankAccounts: { bank_name?: string; account_number?: string; account_name?: string }[] = [];
         try { bankAccounts = JSON.parse(site['bank_accounts'] || '[]'); } catch { /* empty */ }

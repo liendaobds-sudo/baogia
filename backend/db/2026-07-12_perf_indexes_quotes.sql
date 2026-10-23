@@ -15,12 +15,12 @@
 -- ════════════════════════════════════════════════════════════════════════
 
 -- quote_items: lookup theo quote_id (list + chi tiết báo giá, batch-attach)
-CREATE INDEX IF NOT EXISTS idx_quote_items_quote_id ON quote_items(quote_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_quote_items_quote_id ON quote_items(quote_id);
 
 -- quotes: filter/ORDER thường dùng
-CREATE INDEX IF NOT EXISTS idx_quotes_customer_id ON quotes(customer_id);
-CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status);
-CREATE INDEX IF NOT EXISTS idx_quotes_created_at ON quotes(created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_quotes_customer_id ON quotes(customer_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_quotes_status ON quotes(status);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_quotes_created_at ON quotes(created_at);
 
 -- large_format_pricing: FK material_id (Postgres không tự index FK) — filter mỗi báo giá khổ lớn
-CREATE INDEX IF NOT EXISTS idx_large_format_material_id ON large_format_pricing(material_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_large_format_material_id ON large_format_pricing(material_id);

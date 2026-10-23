@@ -22,6 +22,11 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit -p tsconfig.json
       - run: npx jest --runInBand
+      # Audit 2026-08-29: HIGH từng được đóng rồi QUAY LẠI âm thầm (overrides ghim đúng bằng mốc
+      # cuối của dải advisory — advisory là inclusive nên vẫn còn lỗ hổng). Không có cổng CI thì
+      # không ai thấy. Chỉ chặn ở mức HIGH trên PROD deps để không đỏ vì tooling dev.
+      - name: Audit prod dependencies (fail on HIGH)
+        run: npm audit --omit=dev --audit-level=high
 
   frontend:
     name: Frontend (tsc + jest + build)
@@ -41,6 +46,10 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx jest --ci
       - run: npm run build
+      # Xem lý do ở job backend. Frontend không tách prod/dev rõ ràng (build-time tooling nằm
+      # trong devDependencies) nên audit toàn cây, vẫn ở ngưỡng HIGH.
+      - name: Audit dependencies (fail on HIGH)
+        run: npm audit --audit-level=high
 
   rls-e2e:
     name: Tenant RLS isolation (e2e)

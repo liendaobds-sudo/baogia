@@ -85,8 +85,20 @@ export class ConfigStore {
             this.safeQuery('SELECT code as kho_in, width as widthMm, height as heightMm, margin_top, margin_bottom, margin_left, margin_right, kho_giay_lon, chia_to, so_con_bai_in, so_con_to_lon, loai_kem FROM paper_sizes WHERE scope_offset = true'),
             this.safeQuery('SELECT * FROM offset_cfg_fixed_size'),
             // Gia công offset dùng CHUNG processing_options + processing_pricing (màn Định mức gia công).
-            this.safeQuery('SELECT id, code, name, ghi_chu, billing_mode, moq_param, min_charge_param FROM processing_options WHERE scope_offset = true'),
-            this.safeQuery('SELECT processing_option_id, quantity_from, quantity_to, unit_price FROM processing_pricing ORDER BY processing_option_id, quantity_from'),
+            // Audit 2026-08-29: thêm `is_active = 1` — `processing_options.is_active` là SMALLINT
+            // (xem STRUCTURE.md "Quy ước cột is_active"), so bằng `= 1` chứ KHÔNG `= true`.
+            // Thiếu điều kiện này thì công đoạn admin ĐÃ TẮT vẫn được nạp thành bậc giá offset.
+            this.safeQuery('SELECT id, code, name, ghi_chu, billing_mode, moq_param, min_charge_param FROM processing_options WHERE scope_offset = true AND is_active = 1'),
+            // Chỉ lấy định mức của các công đoạn offset đang bật (JOIN thay vì quét cả bảng):
+            // trước đây nạp MỌI row `processing_pricing`, kể cả row của công đoạn in nhanh hoặc
+            // công đoạn đã tắt → dựng sai số bậc ⇒ `pickRate` chọn sai đơn giá.
+            this.safeQuery(
+                'SELECT p.processing_option_id, p.quantity_from, p.quantity_to, p.unit_price ' +
+                'FROM processing_pricing p ' +
+                'JOIN processing_options o ON o.id = p.processing_option_id ' +
+                'WHERE o.scope_offset = true AND o.is_active = 1 ' +
+                'ORDER BY p.processing_option_id, p.quantity_from',
+            ),
             this.safeQuery('SELECT * FROM offset_cfg_kem'),
             this.safeQuery('SELECT * FROM offset_cfg_vat_tu_be_mat'),
             this.safeQuery('SELECT * FROM offset_cfg_ep_kim'),

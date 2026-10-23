@@ -1,5 +1,19 @@
 # 🔍 ZaloHub — Comprehensive Project Review
 
+> ## 🗄️ TÀI LIỆU LỊCH SỬ — KHÔNG DÙNG LÀM NGUỒN SỰ THẬT
+>
+> Đóng băng ở **2026-03-03**, khi dự án còn tên "ZaloHub". Đã trôi rất xa so với code:
+> ví dụ mục tính năng ghi "Quote Tool ⚠️ Hoạt động 80% … cần verify calculation", trong khi
+> `.kiro/specs/print-method-unification` (52/52) và `offset-pricebook-revamp` (54/55) đã đóng,
+> và engine giá hiện có golden + property test bảo vệ.
+>
+> 👉 Nguồn sự thật hiện tại, theo thứ tự (xem `AGENTS.md`):
+> 1. Code đang đăng ký trên đường chạy + test bảo vệ nó.
+> 2. `.kiro/specs/` đang hoạt động + `backend/db/TENANT-RLS-RUNBOOK.md` + `docs/PRODUCTION-SMOKE.md`.
+> 3. `STRUCTURE.md` (soát 2026-08-29) và `audit-rules.md`.
+>
+> Giữ file này để tham chiếu lịch sử/roadmap, không sửa để "cập nhật".
+>
 > **Review Date**: 2026-03-03  
 > **Reviewer**: AI Code Review Agent  
 > **Project**: ZaloHub — AI Agent Assist cho CSKH ngành In ấn  

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PermissionsGuard, Permissions } from '../../auth/permissions.guard';
 import { OffsetMasterDataService } from '../services/offset-master-data.service';
@@ -50,10 +50,28 @@ export class OffsetController {
         // Type không hợp lệ → EngineOffset trả success=false kèm thông báo lỗi.
         // GUARDRAIL đơn vị: engine kỳ vọng vatRate/chietKhauRate dạng PHÂN SỐ (0..1). Nếu caller lỡ
         // gửi dạng % (>1, vd 10) thì quy về phân số để tránh VAT/chiết khấu bị ×100.
+        //
+        // Audit 2026-08-29: ngưỡng cũ `n > 1` nhập nhằng đúng tại 1 — caller gửi `1` với ý "1%"
+        // bị hiểu là 100%. Nay: >1 ⇒ chắc chắn là %, chia 100; ==1 ⇒ TỪ CHỐI tường minh thay vì
+        // đoán (frontend luôn chia 100 trước nên không có caller hợp lệ nào gửi đúng 1).
+        // Giá trị âm cũng bị từ chối (VAT/chiết khấu âm là dữ liệu sai, không phải "giảm giá").
         if (body && typeof body === 'object') {
-            const toFraction = (v: any) => { const n = Number(v); return Number.isFinite(n) && n > 1 ? n / 100 : v; };
-            if (body.vatRate != null) body.vatRate = toFraction(body.vatRate);
-            if (body.chietKhauRate != null) body.chietKhauRate = toFraction(body.chietKhauRate);
+            const toFraction = (name: string, v: any) => {
+                const n = Number(v);
+                if (!Number.isFinite(n)) return v;
+                if (n < 0) {
+                    throw new BadRequestException(`${name} không được âm (nhận ${n}).`);
+                }
+                if (n === 1) {
+                    throw new BadRequestException(
+                        `${name} = 1 không rõ nghĩa: gửi 0.01 cho 1% hoặc 1.0 dạng phần trăm (100%) ` +
+                        'thì phải gửi 100. Vui lòng gửi dạng phân số (0..1).',
+                    );
+                }
+                return n > 1 ? n / 100 : n;
+            };
+            if (body.vatRate != null) body.vatRate = toFraction('vatRate', body.vatRate);
+            if (body.chietKhauRate != null) body.chietKhauRate = toFraction('chietKhauRate', body.chietKhauRate);
         }
         return this.engineNew.calculate(body as OffsetEngineInput);
     }

@@ -1,6 +1,6 @@
 import {
     Controller, Get, Post, Body, Query, Res, UseGuards,
-    BadRequestException, NotFoundException, Logger,
+    BadRequestException, NotFoundException, Logger, Optional,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,6 +8,8 @@ import { Repository } from 'typeorm';
 import { SystemSetting } from '../../entities/system-setting.entity';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { UserRole } from '../../entities';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { CskhScopeGuard } from '../../common/app-scope/cskh-scope.guard';
 import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -18,15 +20,42 @@ export class MediaController {
 
     constructor(
         @InjectRepository(SystemSetting)
-        private settingRepo: Repository<SystemSetting>
+        private settingRepo: Repository<SystemSetting>,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) {}
 
     /**
+     * Media lưu theo tenant dùng tiền tố thư mục `t<tenantId>/` (xem
+     * `ZaloMediaArchiverService.archiveOneMessage`). Chặn tenant A đọc file của tenant B
+     * khi biết/đoán được đường dẫn tương đối (audit 2026-08-29).
+     *
+     * File KHÔNG có tiền tố `t<N>/` là dữ liệu di sản trước khi phân vùng theo tenant →
+     * vẫn cho phục vụ để không mất ảnh cũ; file đã phân vùng thì cưỡng chế nghiêm.
+     */
+    private assertTenantOwnsPath(normalizedParam: string): void {
+        const firstSegment = normalizedParam.split(/[/\\]/)[0] ?? '';
+        const match = /^t(\d+)$/.exec(firstSegment);
+        if (!match) return; // layout di sản (không phân vùng tenant)
+
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx?.bypass) return;
+
+        const pathTenantId = Number(match[1]);
+        if (ctx?.tenantId == null || pathTenantId !== ctx.tenantId) {
+            this.logger.warn(
+                `Chặn đọc media chéo tenant: path thuộc t${pathTenantId}, context=${ctx?.tenantId ?? 'none'}`,
+            );
+            throw new NotFoundException();
+        }
+    }
+
+    /**
      * Serve media file under configured storage root.
-     * JWT required (chat/history UIs send Authorization). Path is confined with realpath + startsWith.
+     * JWT + CSKH app-scope required; path is confined under storage root and to the
+     * caller's tenant partition.
      */
     @Get('file')
-    @UseGuards(AuthGuard('jwt'))
+    @UseGuards(AuthGuard('jwt'), CskhScopeGuard)
     async getFile(
         @Query('path') filePath: string,
         @Res() res: Response
@@ -51,6 +80,7 @@ export class MediaController {
             if (normalizedParam.split(/[/\\]/).includes('..')) {
                 throw new NotFoundException();
             }
+            this.assertTenantOwnsPath(normalizedParam);
 
             const absolutePath = path.resolve(storageRoot, normalizedParam);
             // Confine: resolved path must stay under storage root (prefix + path.sep)

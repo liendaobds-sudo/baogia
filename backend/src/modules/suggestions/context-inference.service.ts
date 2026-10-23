@@ -9,6 +9,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import { matchesAnyTerm } from '../../common/text/vietnamese';
 
 @Injectable()
 export class ContextInferenceService implements OnModuleInit {
@@ -91,7 +92,8 @@ export class ContextInferenceService implements OnModuleInit {
 
         for (const [productKey, product] of Object.entries<any>(kb.products || {})) {
             const keywords: string[] = product.keywords || [];
-            const matched = keywords.some((kw: string) => text.includes(kw.toLowerCase()));
+            // Khớp cả bản có dấu và bản không dấu/bung viết tắt (audit 2026-08-29).
+            const matched = matchesAnyTerm(text, keywords);
             if (!matched) continue;
 
             const pName = product.displayName || productKey;
@@ -101,7 +103,7 @@ export class ContextInferenceService implements OnModuleInit {
             if (product.usageRules) {
                 let ruleMatched = false;
                 for (const rule of product.usageRules) {
-                    const contextMatch = (rule.context || []).some((ctx: string) => text.includes(ctx.toLowerCase()));
+                    const contextMatch = matchesAnyTerm(text, rule.context || []);
                     if (contextMatch) {
                         const matName = `${pName}: ${rule.material?.name || ''}`;
                         const matReason = `${pName}: ${rule.reason || ''}`;
@@ -177,7 +179,7 @@ export class ContextInferenceService implements OnModuleInit {
     matchFAQ(text: string): { answer: string; intent: string } | null {
         const kb = this.getKnowledgeData();
         for (const faq of (kb.faq || [])) {
-            const matched = (faq.patterns || []).some((p: string) => text.includes(p.toLowerCase()));
+            const matched = matchesAnyTerm(text, faq.patterns || []);
             if (matched) {
                 return { answer: faq.answer, intent: faq.intent || 'chung' };
             }
@@ -194,7 +196,7 @@ export class ContextInferenceService implements OnModuleInit {
 
         for (const [type, ec] of Object.entries<any>(edgeCases)) {
             const patterns: string[] = ec.patterns || ec.keywords || [];
-            const matched = patterns.some((p: string) => text.includes(p.toLowerCase()));
+            const matched = matchesAnyTerm(text, patterns);
             if (matched) {
                 const labelMap: Record<string, string> = {
                     offTopic: '📋 Ngoài chủ đề',
@@ -221,7 +223,7 @@ export class ContextInferenceService implements OnModuleInit {
 
         for (const [, mat] of Object.entries<any>(materials)) {
             const aliases: string[] = mat.aliases || [];
-            const matched = aliases.some((alias: string) => requestedMaterial.includes(alias.toLowerCase()));
+            const matched = matchesAnyTerm(requestedMaterial, aliases);
             if (matched) {
                 let advice = `\n\n📋 **${mat.displayName}:** ${mat.description}.`;
                 if (mat.pros) advice += `\n✅ Ưu điểm: ${mat.pros}`;
@@ -279,35 +281,167 @@ export class ContextInferenceService implements OnModuleInit {
             // Constraint rules — inject only RELEVANT rules based on customer context
             const constraintContext = this.buildConstraintRulesContext(customerText);
             if (constraintContext) context += constraintContext;
+
+            // Quy tắc file thiết kế — chỉ inject khi khách đang nói về file/màu/độ phân giải.
+            const fileRulesContext = this.buildFileDesignRulesContext(customerText);
+            if (fileRulesContext) context += fileRulesContext;
+
+            // Tín hiệu ngữ cảnh sử dụng + gợi ý cách diễn đạt thuyết phục.
+            const persuasionContext = this.buildPersuasionContext(customerText);
+            if (persuasionContext) context += persuasionContext;
         } catch (e) { /* knowledge injection is optional */ }
 
         return context;
     }
 
     /**
+     * Phát hiện NGỮ CẢNH SỬ DỤNG của khách và gợi ý cách diễn đạt, từ `persuasion.json`.
+     *
+     * Audit 2026-08-29: `persuasion.json` (gồm `persuasionTemplates` và `usageContextKeywords`)
+     * được nạp vào knowledge nhưng KHÔNG có call-site nào đọc hai khoá đó ⇒ toàn bộ tri thức về
+     * ngữ cảnh sử dụng (cao cấp / tiết kiệm / ngoài trời / gấp / thực phẩm) và cách diễn đạt chốt
+     * đơn chưa từng tới model.
+     *
+     * Hai điều được giữ chặt:
+     *  - Template có placeholder (`{threshold}`, `{priceDiff}`) được đưa vào dưới dạng GỢI Ý CÁCH
+     *    DIỄN ĐẠT kèm chỉ thị tuyệt đối không in ra dấu ngoặc nhọn và không tự điền số tiền.
+     *  - Chỉ inject khi thực sự có tín hiệu ngữ cảnh, để không đốt ngân sách prompt.
+     */
+    buildPersuasionContext(customerText?: string): string {
+        if (!customerText) return '';
+        const kb = this.getKnowledgeData();
+        const usageKeywords = kb.usageContextKeywords || {};
+        const templates = kb.persuasionTemplates || {};
+
+        const LABELS: Record<string, string> = {
+            food: 'dùng cho thực phẩm (cần chống nước, an toàn)',
+            outdoor: 'dùng ngoài trời (cần chống nắng/mưa)',
+            indoor: 'dùng trong nhà',
+            premium: 'khách hướng cao cấp (ưu tiên chất liệu/gia công đẹp)',
+            budget: 'khách quan tâm tiết kiệm (ưu tiên phương án kinh tế)',
+            urgent: 'khách đang gấp (ưu tiên phương án làm nhanh)',
+        };
+
+        const detected: string[] = [];
+        for (const [key, terms] of Object.entries<any>(usageKeywords)) {
+            if (key.startsWith('_') || !Array.isArray(terms)) continue;
+            if (matchesAnyTerm(customerText, terms)) {
+                detected.push(LABELS[key] || key);
+            }
+        }
+        if (detected.length === 0) return '';
+
+        let out = `\n## TÍN HIỆU NGỮ CẢNH SỬ DỤNG (suy ra từ lời khách):\n`;
+        out += detected.map((d) => `- ${d}`).join('\n') + '\n';
+        out += 'Dùng các tín hiệu này để CHỌN phương án đề xuất cho phù hợp. Nếu tín hiệu mâu thuẫn '
+            + '(vừa "cao cấp" vừa "tiết kiệm") thì hỏi xác nhận, không tự chọn.\n';
+
+        const phrasing = Object.values<any>(templates).filter((t) => typeof t === 'string');
+        if (phrasing.length > 0) {
+            out += `\n### Gợi ý cách diễn đạt (KHÔNG phải câu để copy nguyên văn):\n`;
+            out += phrasing.map((t) => `- ${t}`).join('\n') + '\n';
+            out += 'BẮT BUỘC: các cụm trong dấu ngoặc nhọn là CHỖ TRỐNG, tuyệt đối không in ra dấu '
+                + 'ngoặc nhọn cho khách. Chỉ điền số tiền/tỉ lệ khi có [Kết quả báo giá tự động] hợp lệ; '
+                + 'nếu chưa có thì diễn đạt định tính, không nêu số.\n';
+        }
+
+        this.logger.log(`🎯 Injecting ${detected.length} tín hiệu ngữ cảnh sử dụng`);
+        return out;
+    }
+
+    /**
+     * Build context từ `file-rules.json` (`fileDesignRules`).
+     *
+     * Audit 2026-08-29: file này được ContextInferenceService NẠP (mọi *.json trong
+     * data/knowledge đều được merge) nhưng KHÔNG có call-site nào ĐỌC khoá `fileDesignRules`
+     * ⇒ toàn bộ quy tắc CMYK/300dpi/bleed/safe-zone/font/format/proof chưa từng tới model.
+     * Chỉ inject khi hội thoại thực sự liên quan tới file để không đốt ngân sách prompt.
+     */
+    buildFileDesignRulesContext(customerText?: string): string {
+        const kb = this.getKnowledgeData();
+        const rules = kb.fileDesignRules;
+        if (!rules) return '';
+
+        const TRIGGERS = [
+            'file', 'thiết kế', 'thiet ke', 'design', 'cmyk', 'rgb', 'dpi', 'độ phân giải',
+            'do phan giai', 'bleed', 'tràn viền', 'tran vien', 'font', 'chữ', 'ai', 'psd',
+            'pdf', 'corel', 'cdr', 'illustrator', 'photoshop', 'word', 'powerpoint',
+            'ảnh', 'anh', 'hình', 'hinh', 'màu', 'mau', 'proof', 'duyệt mẫu', 'duyet mau',
+            'vector', 'outline', 'curve', 'jpg', 'jpeg', 'png',
+        ];
+        if (!customerText || !matchesAnyTerm(customerText, TRIGGERS)) return '';
+
+        const lines: string[] = [];
+        const push = (label: string, key: string) => {
+            const r = rules[key];
+            if (!r) return;
+            const head = r.rule ? `${r.rule} — ` : '';
+            lines.push(`- ${label}: ${head}${r.description || ''}`.trim());
+            if (r.commonMistake) lines.push(`  · Lỗi thường gặp: ${r.commonMistake}`);
+            if (r.exceptions) lines.push(`  · Ngoại lệ: ${r.exceptions}`);
+            if (r.fix) lines.push(`  · Cách xử lý: ${r.fix}`);
+        };
+        push('Hệ màu', 'colorMode');
+        push('Độ phân giải', 'resolution');
+        push('Tràn viền (bleed)', 'bleed');
+        push('Vùng an toàn', 'safeZone');
+        push('Font chữ', 'fonts');
+
+        const fmt = rules.acceptedFormats;
+        if (fmt) {
+            if (fmt.preferred?.length) lines.push(`- Định dạng tốt nhất: ${fmt.preferred.join(', ')}`);
+            if (fmt.acceptable?.length) lines.push(`- Định dạng chấp nhận được: ${fmt.acceptable.join(', ')}`);
+            if (fmt.notRecommended?.length) lines.push(`- Định dạng KHÔNG khuyến nghị: ${fmt.notRecommended.join(', ')}`);
+        }
+        const proof = rules.proofProcess;
+        if (proof?.steps?.length) {
+            lines.push(`- Quy trình duyệt file: ${proof.steps.join(' ')}`);
+        }
+
+        if (lines.length === 0) return '';
+        this.logger.log(`📐 Injecting ${lines.length} dòng quy tắc file thiết kế`);
+        return `\n## QUY TẮC FILE THIẾT KẾ (dùng khi tư vấn về file/màu/độ phân giải):\n${lines.join('\n')}\n`;
+    }
+
+    /**
      * Build constraint rules context from printing-constraints.json
-     * Only injects rules RELEVANT to the current conversation context
-     * Max 12 rules to keep prompt compact
+     * Only injects rules RELEVANT to the current conversation context.
+     *
+     * Audit 2026-08-29 sửa 3 lỗi:
+     *  1. Nhóm `delivery_production` (TIME-001..005) KHÔNG có entry nào trong `categoryTriggers`
+     *     lẫn `productAlwaysInclude` ⇒ 5 quy tắc thời gian sản xuất CHƯA TỪNG được inject, dù
+     *     "bao lâu xong" là một trong các câu hỏi phổ biến nhất.
+     *  2. So khớp bằng `text.includes(...)` trên chuỗi CÓ DẤU ⇒ khách gõ không dấu không kích
+     *     hoạt nhóm nào, luôn rơi về 3 nhóm mặc định.
+     *  3. Trần cứng 12 rule cắt theo thứ tự lặp object (không theo mức liên quan) ⇒ nhóm khai
+     *     báo sau trong JSON gần như không bao giờ tới được model. Nay cắt theo NGÂN SÁCH KÝ TỰ
+     *     và ưu tiên `hard_rule` trước `warning`.
      */
     buildConstraintRulesContext(customerText?: string): string {
         const kb = this.getKnowledgeData();
         const constraints = kb.constraintRules;
         if (!constraints) return '';
 
-        const text = (customerText || '').toLowerCase();
+        const text = customerText || '';
 
         // Map categories → keywords that trigger them
         const categoryTriggers: Record<string, string[]> = {
-            lamination: ['cán', 'cán mờ', 'cán bóng', 'matt', 'gloss', 'lamination'],
+            lamination: ['cán', 'cán mờ', 'cán bóng', 'matt', 'gloss', 'lamination', 'cán màng'],
             paper_weight: ['gsm', 'giấy', 'định lượng', 'dày', 'mỏng', 'couche', 'offset', 'kraft', 'ivory', 'art'],
             print_sides: ['mặt', '2 mặt', '1 mặt', 'in 2', 'in 1'],
             binding: ['đóng', 'ghim', 'keo', 'lò xo', 'cuốn', 'sách', 'catalogue', 'trang', 'brochure'],
-            finishing_foil: ['nhũ', 'uv', 'foil', 'dập nổi', 'emboss', 'spot uv'],
+            finishing_foil: ['nhũ', 'uv', 'foil', 'dập nổi', 'emboss', 'spot uv', 'ép kim'],
             die_cutting: ['bế', 'die-cut', 'kiss-cut', 'bo góc', 'cắt hình'],
             material_compatibility: ['kraft', 'pvc', 'decal', 'ngoài trời', 'chống nước', 'pp', 'trong suốt'],
             quantity_pricing: ['số lượng', 'bao nhiêu cái', 'offset', 'digital', 'gấp'],
             color_design: ['rgb', 'cmyk', 'file', 'màu', 'font', 'dpi', '300'],
             common_mistakes: ['word', 'powerpoint', 'ảnh', 'facebook', 'giống màn hình'],
+            // Nhóm bị bỏ quên: thời gian sản xuất / giao hàng.
+            delivery_production: [
+                'bao lâu', 'mấy ngày', 'khi nào', 'bao giờ', 'thời gian', 'tiến độ', 'kịp',
+                'gấp', 'nhanh', 'express', 'deadline', 'hạn', 'giao hàng', 'nhận hàng',
+                'xong', 'sản xuất', 'ship',
+            ],
         };
 
         // Always-include categories for common products
@@ -329,23 +463,24 @@ export class ContextInferenceService implements OnModuleInit {
             'standee': ['lamination'],                                            // SIDE-004: luôn 1 mặt
             'menu': ['paper_weight', 'lamination'],
             'poster': ['lamination', 'paper_weight'],                             // SIDE-005: luôn 1 mặt
-            'hộp': ['paper_weight', 'die_cutting'],
+            'hộp': ['paper_weight', 'die_cutting', 'material_compatibility'],
             'túi': ['material_compatibility', 'paper_weight'],
         };
 
         // Determine which categories are relevant
         const relevantCategories = new Set<string>();
 
-        // 1. Match by product keywords
-        for (const [product, cats] of Object.entries(productAlwaysInclude)) {
-            if (text.includes(product)) {
-                cats.forEach(c => relevantCategories.add(c));
+        // 1. Match by product keywords (chấp nhận không dấu)
+        const productKeys = Object.keys(productAlwaysInclude);
+        for (const product of productKeys) {
+            if (matchesAnyTerm(text, [product])) {
+                productAlwaysInclude[product].forEach(c => relevantCategories.add(c));
             }
         }
 
-        // 2. Match by topic keywords in customer text
+        // 2. Match by topic keywords in customer text (chấp nhận không dấu)
         for (const [catKey, triggers] of Object.entries(categoryTriggers)) {
-            if (triggers.some(t => text.includes(t))) {
+            if (matchesAnyTerm(text, triggers)) {
                 relevantCategories.add(catKey);
             }
         }
@@ -357,22 +492,37 @@ export class ContextInferenceService implements OnModuleInit {
             relevantCategories.add('color_design');
         }
 
-        // Collect relevant rules
-        const lines: string[] = [];
+        // Collect relevant rules — hard_rule trước, warning sau, để phần bị cắt là phần ít
+        // nghiêm trọng hơn thay vì phụ thuộc thứ tự khai báo trong JSON.
+        const hard: string[] = [];
+        const warn: string[] = [];
+        let totalCandidates = 0;
         for (const [catKey, category] of Object.entries<any>(constraints)) {
             if (!category.rules || !relevantCategories.has(catKey)) continue;
             for (const rule of category.rules) {
-                if (rule.severity === 'hard_rule' || rule.severity === 'warning') {
-                    lines.push(`- [${rule.id}] NẾU ${rule.if} → ${rule.then}`);
+                const line = `- [${rule.id}] NẾU ${rule.if} → ${rule.then}`;
+                if (rule.severity === 'hard_rule') { hard.push(line); totalCandidates++; }
+                else if (rule.severity === 'warning') { warn.push(line); totalCandidates++; }
+                // `info` của nhóm delivery_production cũng hữu ích: đó là câu trả lời thẳng cho
+                // "bao lâu xong". Chỉ nhận khi nhóm này được kích hoạt tường minh.
+                else if (rule.severity === 'info' && catKey === 'delivery_production') {
+                    warn.push(line); totalCandidates++;
                 }
             }
         }
 
-        // Cap at 12 rules to keep prompt compact
-        const capped = lines.slice(0, 12);
+        // Cắt theo NGÂN SÁCH KÝ TỰ (không theo số rule): đủ chỗ cho các nhóm khai báo sau.
+        const MAX_RULE_CHARS = 2200;
+        const capped: string[] = [];
+        let used = 0;
+        for (const line of [...hard, ...warn]) {
+            if (used + line.length + 1 > MAX_RULE_CHARS) break;
+            capped.push(line);
+            used += line.length + 1;
+        }
         if (capped.length === 0) return '';
 
-        this.logger.log(`📏 Injecting ${capped.length}/${lines.length} constraint rules (categories: ${[...relevantCategories].join(', ')})`);
+        this.logger.log(`📏 Injecting ${capped.length}/${totalCandidates} constraint rules (categories: ${[...relevantCategories].join(', ')})`);
         return `\n## QUY TẮC RÀNG BUỘC (tuân thủ khi tư vấn):\n${capped.join('\n')}\n`;
     }
 
@@ -399,14 +549,15 @@ export class ContextInferenceService implements OnModuleInit {
             material_compatibility: ['kraft', 'offset', 'pvc', 'decal', 'ngoài trời', 'chống nước'],
             quantity_pricing: ['số lượng', 'bao nhiêu', 'giá', 'ít', 'nhiều', 'gấp'],
             color_design: ['rgb', 'cmyk', 'file', 'thiết kế', 'màu', 'ảnh', 'font'],
+            delivery_production: ['bao lâu', 'mấy ngày', 'khi nào', 'thời gian', 'gấp', 'kịp', 'giao hàng', 'xong'],
         };
 
         for (const [catKey, category] of Object.entries<any>(constraints)) {
             if (!category.rules) continue;
 
-            // Check if this category is relevant to the context
+            // Check if this category is relevant to the context (chấp nhận không dấu)
             const catKeywords = contextKeywords[catKey] || [];
-            const isRelevant = catKeywords.some(kw => text.includes(kw));
+            const isRelevant = matchesAnyTerm(text, catKeywords);
 
             if (isRelevant) {
                 for (const rule of category.rules) {

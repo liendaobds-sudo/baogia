@@ -12,7 +12,8 @@ import { Logger } from '@nestjs/common';
 import { AppModule } from '../../../app.module';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { GOLDEN_DATASET } from './golden-dataset';
-import { aggregate, hitRateAtK, EvalCase } from './rag-metrics';
+import { aggregate, hitRateAtK, EvalCase, findInvalidIntentLabels } from './rag-metrics';
+import { ALL_INTENTS, normalizeIntent } from '../intents';
 
 const K = 5;
 // Nguong regression — ratchet theo baseline 38 cau (2026-06-15): recall 0.84, mrr 0.71, ndcg 0.69.
@@ -21,6 +22,29 @@ const THRESHOLD = { recall: 0.75, mrr: 0.6, ndcg: 0.6 };
 
 async function main() {
     const logger = new Logger('RagEval');
+
+    /**
+     * Cổng KIỂM TRA DATASET — chạy TRƯỚC khi mở app để không tốn kết nối DB/AI khi dataset sai.
+     *
+     * Audit 2026-08-29: `golden-dataset.ts` từng có 14/38 case gắn nhãn intent NGOÀI enum
+     * canonical, nghĩa là mọi phép chấm intent trên dataset này đều vô nghĩa mà không ai biết.
+     * Nhãn sai là lỗi dataset, không phải lỗi mô hình ⇒ phải fail sớm và rõ.
+     */
+    const invalid = findInvalidIntentLabels(
+        GOLDEN_DATASET.map((g) => normalizeIntent(g.intent)),
+        ALL_INTENTS,
+    );
+    if (invalid.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log('\n❌ Dataset có nhãn intent KHÔNG thuộc enum canonical:');
+        invalid.forEach((label) => {
+            const ids = GOLDEN_DATASET.filter((g) => normalizeIntent(g.intent) === label).map((g) => g.id);
+            console.log(`  ✗ "${label}" tại: ${ids.join(', ')}`);
+        });
+        console.log('Sửa nhãn về một trong các intent canonical (xem ALL_INTENTS trong intents.ts).');
+        process.exit(1);
+    }
+
     const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
     try {
         const kb = app.get(KnowledgeBaseService);

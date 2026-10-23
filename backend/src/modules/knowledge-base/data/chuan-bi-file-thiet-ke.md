@@ -1,4 +1,4 @@
-# HƯỚNG DẪN CHUẨN BỊ FILE THIẾT KẾ CHO IN ẤN — KPrint
+﻿# HƯỚNG DẪN CHUẨN BỊ FILE THIẾT KẾ CHO IN ẤN — ZeplaoPrint
 
 > Tài liệu dành cho Designer và khách hàng tự thiết kế.
 > Chuẩn bị file đúng = in đẹp + không mất phí sửa file.

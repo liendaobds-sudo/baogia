@@ -112,3 +112,86 @@ export function aggregate(cases: EvalCase[], k: number): AggregateMetrics {
         f1: round(f), mrr: round(mrr), ndcg: round(ndcg),
     };
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Intent accuracy — bo sung 2026-08-29 (audit do thong minh)
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * Truoc audit, field `intent` cua golden-dataset la DEAD FIELD: khong runner nao doc,
+ * `rag-metrics.spec` chi kiem truthy. He qua: 14/38 case dung nhan KHONG thuoc enum canonical
+ * (`hoi_chat_lieu`, `hoi_thoi_gian`, `hoi_dich_vu`) va khong test nao do. Moi routing / auto-tag /
+ * auto-reply dua tren intent chay ma khong co phep do.
+ *
+ * Cac ham duoi day THUAN, chay offline duoc (khong goi provider).
+ */
+
+/** Ket qua doi chieu intent cho MOT case. */
+export interface IntentEvalCase {
+    id: string;
+    /** Nhan ky vong (phai la intent canonical sau khi da normalize). */
+    expected: string;
+    /** Nhan model tra ve (thô — se duoc normalize boi caller neu can). */
+    actual: string;
+}
+
+export interface IntentMetrics {
+    count: number;
+    /** Ti le du doan dung tuyet doi. */
+    accuracy: number;
+    /** So case dung / tong. */
+    correct: number;
+    /** Cac case sai, de soi nhanh: "id: expected -> actual". */
+    mismatches: string[];
+    /** Ti le case bi model tra ve `chung` trong khi ky vong khac `chung` (dau hieu nhan lech). */
+    fallbackRate: number;
+}
+
+/**
+ * Cham accuracy intent. `normalize` cho phep caller truyen `normalizeIntent` de quy nhan tho
+ * (LLM tra / du lieu cu) ve canonical truoc khi so — tranh bao sai chi vi alias.
+ */
+export function intentAccuracy(
+    cases: IntentEvalCase[],
+    normalize: (raw: unknown) => string = (r) => String(r ?? ''),
+): IntentMetrics {
+    const n = cases.length || 1;
+    let correct = 0;
+    let fallback = 0;
+    const mismatches: string[] = [];
+
+    for (const c of cases) {
+        const exp = normalize(c.expected);
+        const act = normalize(c.actual);
+        if (exp === act) {
+            correct++;
+        } else {
+            mismatches.push(`${c.id}: ${exp} -> ${act}`);
+            if (act === 'chung' && exp !== 'chung') fallback++;
+        }
+    }
+
+    const round = (x: number) => Math.round((x / n) * 1000) / 1000;
+    return {
+        count: cases.length,
+        correct,
+        accuracy: round(correct),
+        fallbackRate: round(fallback),
+        mismatches,
+    };
+}
+
+/**
+ * Kiem TINH HOP LE cua nhan ky vong trong dataset — chay offline, khong can model.
+ *
+ * Day la hang rao chong drift quan trong nhat: mot nhan khong thuoc enum se lam moi phep do
+ * intent vo nghia (model khong the tra ra token khong co trong schema enum).
+ *
+ * @returns danh sach nhan KHONG hop le (rong = dataset sach)
+ */
+export function findInvalidIntentLabels(
+    labels: string[],
+    canonicalIntents: readonly string[],
+): string[] {
+    const canonical = new Set(canonicalIntents.map(String));
+    return [...new Set(labels.filter((l) => !canonical.has(String(l))))];
+}

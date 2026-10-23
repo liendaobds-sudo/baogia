@@ -92,9 +92,31 @@ const SNAP_EPS = 1e-6;
 /**
  * Chuẩn hóa một độ dài (mm) về SỐ NGUYÊN mm với epsilon snap. Đây là cơ chế tất định cốt lõi:
  * mọi phép `floor` đếm ô sau đó chạy trên số nguyên nên không nhạy thứ tự cộng/trừ float (Req 2.6, 10.4).
+ *
+ * ⚠️ `snapMm` làm tròn VỀ GẦN NHẤT nên KHÔNG dùng cho kích thước tham gia đếm số con — xem
+ * `snapUsable`/`snapItem` bên dưới. Giữ lại cho các đại lượng trung tính (gutter).
  */
 function snapMm(v: number): number {
     return Math.round(v + (v >= 0 ? SNAP_EPS : -SNAP_EPS));
+}
+
+/**
+ * Snap BẢO TOÀN cho VÙNG IN: làm tròn XUỐNG.
+ *
+ * Audit 2026-08-29 (§8.3 audit-rules): trước đây cả vùng in lẫn kích thước con đều dùng
+ * `Math.round`, tức làm tròn theo hướng LẠC QUAN ở cả hai phía. Ví dụ đo được: con 100.4×100mm
+ * trên tờ 300×300 (lề 0) cho `imposeUnified = 9` trong khi hình học chính xác (và cả
+ * `nestRectOnSheet`, `imposeFromKhoIn`) chỉ được 6; con 132×100 trên tờ 395.5×300 cho 9 vs 6.
+ * Số con cao hơn năng lực thật ⇒ ít tờ giấy ⇒ **giá thấp hơn chi phí**, tối đa ~50% ở ca biên.
+ * Đầu vào cm một chữ số thập phân (14.85cm) và khổ trải dieline lẻ .05cm là kích hoạt thực tế.
+ */
+function snapUsable(v: number): number {
+    return Math.floor(v + SNAP_EPS);
+}
+
+/** Snap BẢO TOÀN cho KÍCH THƯỚC CON: làm tròn LÊN (con không thể nhỏ hơn thực tế). */
+function snapItem(v: number): number {
+    return Math.ceil(v - SNAP_EPS);
 }
 
 /** Input cho `imposeUnified` — mọi kích thước theo MILIMET (mm). */
@@ -175,8 +197,25 @@ function fitOrientation(
 }
 
 /**
- * Dàn khuôn trên MỘT khổ đích (tờ lớn hoặc bài in): trừ lề (trái+phải khỏi bề rộng,
- * trên+dưới+gripper khỏi bề cao), thử hướng 0° và 90°, chọn hướng nhiều con hơn (tie → 0°).
+ * Dàn khuôn trên MỘT khổ đích (tờ lớn hoặc bài in).
+ *
+ * Quy ước hình học (đồng bộ với `dieline/nesting.ts` — nguồn của preview/endpoint dieline):
+ *
+ *  1. **Nhíp nằm ở cạnh DÀI.** Tờ được chuẩn hoá về landscape (bề rộng = cạnh dài) trước khi
+ *     trừ lề, nên số con KHÔNG phụ thuộc cách người ta ghi chuỗi khổ.
+ *     Audit 2026-08-29: trước đây `usableH = H − top − bottom − gripper` luôn trừ nhíp theo
+ *     chiều THỨ HAI của chuỗi `"43cm x 65cm"`, nên `uni(430×650) = 8` còn `uni(650×430) = 6`
+ *     — cùng một tờ giấy, chỉ khác cách viết, lệch 33% số con ⇒ lệch tiền.
+ *     `nestOnSheet` thì đã ép `sheetOrientation: 'landscape'` từ trước.
+ *
+ *  2. **Nhíp và lề dưới KHÔNG cộng dồn.** Dải nhíp CHÍNH LÀ phần lề dưới bị kẹp, nên dùng
+ *     `max(bottom, gripper)` như `calcPrintableArea` của nesting engine, thay vì `bottom + gripper`
+ *     (cộng dồn = trừ hai lần cùng một dải giấy ⇒ số con thấp hơn năng lực thật).
+ *
+ *  3. Vùng in làm tròn XUỐNG, kích thước con làm tròn LÊN (`snapUsable`/`snapItem`) — không
+ *     lạc quan hoá số con (xem chú thích ở hai hàm đó).
+ *
+ * Thử hướng 0° và 90°, chọn hướng nhiều con hơn (tie → 0°, tất định — Req 2.5).
  *
  * @param throwOnInvalid khi `true` (tờ lớn) → ném `OffsetPricingError` nếu vùng in ≤ 0;
  *   khi `false` (bài in tùy chọn) → trả count 0 thay vì ném.
@@ -189,8 +228,14 @@ function imposeOnTarget(
     margins: MarginConfig,
     throwOnInvalid: boolean,
 ): { fit: OrientationFit; orientation: 0 | 90; usableW: number; usableH: number } | null {
-    const usableW = snapMm(targetWmm - margins.left - margins.right);
-    const usableH = snapMm(targetHmm - margins.top - margins.bottom - margins.gripper);
+    // (1) Chuẩn hoá tờ về landscape để trục nhíp tất định.
+    const longSide = Math.max(targetWmm, targetHmm);
+    const shortSide = Math.min(targetWmm, targetHmm);
+
+    // (2) Nhíp không cộng dồn với lề dưới.
+    const bottomBand = Math.max(margins.bottom, margins.gripper);
+    const usableW = snapUsable(longSide - margins.left - margins.right);
+    const usableH = snapUsable(shortSide - margins.top - bottomBand);
 
     if (usableW <= 0 || usableH <= 0) {
         if (throwOnInvalid) {
@@ -202,8 +247,9 @@ function imposeOnTarget(
         return null;
     }
 
-    const w = snapMm(itemWmm);
-    const h = snapMm(itemHmm);
+    // (3) Con làm tròn LÊN — không được "co" con để nhồi thêm.
+    const w = snapItem(itemWmm);
+    const h = snapItem(itemHmm);
     const gutter = snapMm(margins.gutter);
 
     const fit0 = fitOrientation(usableW, usableH, w, h, gutter); // 0°

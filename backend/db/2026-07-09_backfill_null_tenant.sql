@@ -16,14 +16,14 @@ DECLARE
   org_tables text[] := ARRAY[
     'accessories','ai_conversations','ai_suggestions','appointments','audit_logs',
     'binding_types','canned_responses','channels','contacts','conversation_participants',
-    'conversations','customer_interactions','customer_price_groups','customers','daily_stats',
+    'conversations','customer_interactions','customer_price_groups','customers',
     'follow_ups','ink_costs','internal_notes','inventory_slip_items','inventory_slips','kb_chunks',
     'kb_documents','large_format_pricing','material_categories','material_types','materials',
     'messages','notifications','offset_cfg_ep_kim','offset_cfg_fixed_size',
     'offset_cfg_gia_cong','offset_cfg_kem','offset_cfg_kho_in','offset_cfg_vat_tu_be_mat',
     'offset_machine_config','paper_sizes','plate_pricing','pricing_config','pricing_tiers',
     'print_types','printers','processing_options','processing_pricing','product_ai_fields',
-    'product_categories','product_quote_configs','production_cost_configs','production_costs','products','quick_prices',
+    'product_categories','product_quote_configs','production_costs','products','quick_prices',
     'quote_items','quote_rules','quote_versions','quotes','setup_fees','site_settings',
     'unified_product_categories','unified_products','units','waste_rules','webhook_settings',
     'zalo_accounts'

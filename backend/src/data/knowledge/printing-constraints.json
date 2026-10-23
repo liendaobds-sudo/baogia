@@ -8,11 +8,12 @@
             "rules": [
                 {
                     "id": "LAM-001",
-                    "if": "Giấy < 200gsm",
+                    "if": "Giấy < 80gsm",
                     "then": "KHÔNG nên cán màng",
-                    "reason": "Giấy mỏng khi cán sẽ bị cong vênh, co rút không đều",
+                    "reason": "Giấy quá mỏng khi cán sẽ cong vênh, co rút không đều. Từ 120gsm trở lên cán bình thường — tờ rơi 150gsm cán mờ là hàng bán chạy nhất.",
                     "severity": "warning",
-                    "suggestion": "Nếu muốn bảo vệ bề mặt, chọn giấy ≥ 200gsm rồi cán, hoặc dùng phủ UV thay cán màng"
+                    "suggestion": "Dưới 80gsm: dùng phủ UV thay cán màng, hoặc tăng lên 150gsm nếu cần cán",
+                    "_note": "Sửa 2026-08-29: bản cũ ghi '< 200gsm KHÔNG nên cán màng' — trái với quy-tac-rang-buoc-nganh-in.md (bản nghiệp vụ viết) và trái với hard check trong printing-constraints.ts (ngưỡng 80gsm). Ba nguồn nay đã thống nhất ở 80gsm."
                 },
                 {
                     "id": "LAM-002",
@@ -23,10 +24,18 @@
                 },
                 {
                     "id": "LAM-003",
-                    "if": "Sản phẩm là banner/hiflex/standee/bạt",
+                    "if": "Sản phẩm là banner/hiflex/bạt (in phun khổ lớn trên hiflex)",
                     "then": "KHÔNG cán màng",
-                    "reason": "Vật liệu in khổ lớn (hiflex, PP, canvas) đã có lớp chống nước sẵn, cán thêm không có tác dụng và không khả thi về kỹ thuật",
+                    "reason": "Hiflex/bạt đã có lớp chống nước sẵn, cán thêm không có tác dụng và không khả thi về kỹ thuật",
                     "severity": "hard_rule"
+                },
+                {
+                    "id": "LAM-009",
+                    "if": "Sản phẩm là standee/PP kẹp format (in trên PP)",
+                    "then": "CÓ THỂ cán mờ hoặc cán bóng để bảo vệ bề mặt",
+                    "reason": "PP là vật liệu cán được và thường cán để chống xước khi vận chuyển/dựng lại nhiều lần. Đây là lựa chọn của khách, không phải điều cấm.",
+                    "severity": "recommendation",
+                    "_note": "Sửa 2026-08-29: LAM-003 cũ gộp standee vào nhóm 'KHÔNG cán màng' (hard_rule), trái với KB nghiệp vụ và trái với hard check trong printing-constraints.ts (vốn đã loại trừ standee/PP). Tách riêng để hết mâu thuẫn."
                 },
                 {
                     "id": "LAM-004",

@@ -114,17 +114,28 @@ export class ErpCustomersController {
     }
 }
 
-@UseGuards(AuthGuard('jwt'))
+/**
+ * Nhóm giá khách hàng (chứa `discount_percent`).
+ *
+ * Audit 2026-08-29: trước đây chỉ có `AuthGuard('jwt')` mà KHÔNG có `PermissionsGuard`
+ * ⇒ mọi user đăng nhập (kể cả role thấp nhất) ghi/xoá được cấu hình chiết khấu. Nay
+ * dùng cùng quyền `customer.*` như controller khách hàng.
+ */
+@UseGuards(AuthGuard('jwt'), PermissionsGuard)
 @Controller('erp/customer-price-groups')
 export class ErpCustomerPriceGroupsController {
     constructor(private readonly service: CustomersService) { }
 
     @Get()
+    @Permissions('customer.view')
     async findAll() { return { success: true, data: await this.service.findAllGroups() }; }
     @Post()
+    @Permissions('customer.create')
     async create(@Body() body: Partial<CustomerPriceGroup>) { return { success: true, data: await this.service.createGroup(body), message: 'Group created' }; }
     @Put(':id')
+    @Permissions('customer.edit')
     async update(@Param('id') id: string, @Body() body: Partial<CustomerPriceGroup>) { return { success: true, data: await this.service.updateGroup(id, body), message: 'Group updated' }; }
     @Delete(':id')
+    @Permissions('customer.delete')
     async remove(@Param('id') id: string) { await this.service.deleteGroup(id); return { success: true, message: 'Group deleted' }; }
 }

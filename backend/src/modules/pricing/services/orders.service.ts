@@ -7,6 +7,7 @@ import { EngineOffsetService } from '../offset-engine/engine-offset.service';
 import { PricingFacadeService } from './pricing-facade.service';
 import { TenantContextService } from '../../../common/tenant/tenant-context.service';
 import { applyTenantToConnection } from '../../../common/tenant/tenant-transaction';
+import { tenantSqlScope } from '../../../common/tenant/tenant-sql';
 import { computeAuthoritativeQuoteTotals } from '../lib/quote-totals';
 
 @Injectable()
@@ -31,14 +32,22 @@ export class OrdersService {
     }
 
     /**
-     * Ràng buộc tenant cho SQL raw (lưới an toàn khi RLS chưa flip): trả mệnh đề
-     * `AND (<col> = $N OR <col> IS NULL)` + tham số, hoặc rỗng khi ngoài context/bypass.
+     * Ràng buộc tenant cho SQL raw (lưới an toàn khi RLS chưa flip).
+     *
+     * Audit 2026-08-29: nhánh "không có context ⇒ mệnh đề rỗng" là FAIL-OPEN — mọi
+     * route `/erp/orders` khi không phân giải được tenant (user có `tenant_id` NULL,
+     * hoặc super_admin không impersonate) đọc/ghi được báo giá của MỌI tenant. Nay
+     * uỷ quyền cho `tenantSqlScope`: thiếu context ⇒ `AND 1 = 0` (fail-closed);
+     * `bypass` tường minh vẫn không lọc.
+     *
+     * `OrdersService` chỉ được gọi từ HTTP controller (đã kiểm: không cron/BullMQ nào
+     * dùng), nên fail-closed không làm chết job nền.
+     *
      * @param nextIdx chỉ số tham số kế tiếp ($N) để nối vào query hiện có.
      */
     private tenantGuard(nextIdx: number, col = 'tenant_id'): { clause: string; params: any[] } {
-        const ctx = this.tenantCtx?.get?.();
-        if (!ctx || ctx.bypass) return { clause: '', params: [] };
-        return { clause: ` AND (${col} = $${nextIdx} OR ${col} IS NULL)`, params: [ctx.tenantId] };
+        const scope = tenantSqlScope(this.tenantCtx?.get?.(), nextIdx, col);
+        return { clause: scope.clause, params: scope.params as any[] };
     }
 
     /** Loại sản phẩm offset (server tự nhận diện, KHÔNG chỉ tin cờ client `printing_detail.offset`). */

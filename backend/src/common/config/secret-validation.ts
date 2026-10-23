@@ -66,3 +66,22 @@ export function requireSecret(name: string, value: string | undefined | null, is
 
     return value;
 }
+
+/**
+ * So sánh hai chuỗi bí mật theo thời gian hằng định (audit 2026-08-29).
+ *
+ * `a !== b` trả về sớm ở byte đầu khác nhau nên về lý thuyết để lộ thông tin qua thời
+ * gian phản hồi. Dùng cho API key / token so khớp trực tiếp (không phải hash).
+ *
+ * Băm cả hai phía trước khi so để `timingSafeEqual` luôn nhận buffer cùng độ dài —
+ * nếu không, chênh lệch độ dài lại trở thành kênh phụ khác.
+ */
+export function timingSafeEqualString(a: string | undefined | null, b: string | undefined | null): boolean {
+    if (!a || !b) return false;
+    // require tại chỗ để file này vẫn là pure helper, không kéo node:crypto vào mọi test.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const crypto = require('node:crypto') as typeof import('node:crypto');
+    const ha = crypto.createHash('sha256').update(a, 'utf8').digest();
+    const hb = crypto.createHash('sha256').update(b, 'utf8').digest();
+    return crypto.timingSafeEqual(ha, hb);
+}

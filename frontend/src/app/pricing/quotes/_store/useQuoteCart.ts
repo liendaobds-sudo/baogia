@@ -59,7 +59,17 @@ export const useQuoteCart = create<QuoteCartState>((set, get) => ({
     return get().items.reduce((sum, item) => sum + (item.total || 0), 0);
   },
 
-  vatRate: 10,
+  /**
+   * Audit 2026-08-29 — mặc định 0, KHÔNG phải 10.
+   *
+   * Bất biến "VAT chỉ một nguồn" (audit-rules §7): VAT đến từ thông số nhập lúc báo giá.
+   * `seedVatRate` nạp mặc định từ company-info, nhưng lời gọi đó nằm trong `.catch(() => {})`
+   * — fetch lỗi hoặc người dùng lưu trước khi fetch xong thì giá trị khởi tạo được persist.
+   * Với default 10, một tenant cấu hình VAT 0% vẫn có thể lưu báo giá +10% VAT. Đây là chỗ
+   * hardcode 10 CUỐI CÙNG còn lại sau đợt enforce VAT; 0 là mặc định an toàn (không tự thêm
+   * thuế mà người dùng không nhập).
+   */
+  vatRate: 0,
   headerDiscountType: 'percent',
   headerDiscountValue: 0,
   offsetEngineDiscountRate: 0,

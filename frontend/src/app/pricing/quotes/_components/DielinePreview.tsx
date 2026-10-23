@@ -225,6 +225,12 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
         const bb = data.bbox;
         // Số con/tờ hiển thị cho khổ đang chọn: ưu tiên engine (parity giá ≡ preview), fallback nesting.
         const selCount = engineSoConBaiIn != null && engineSoConBaiIn > 0 ? engineSoConBaiIn : sheet.countPerSheet;
+        // Audit 2026-08-29: nhãn lấy số của ENGINE nhưng hình vẽ lấy `sheet.positions` của endpoint
+        // dieline. Hai nguồn có thể lệch (engine dàn theo bbox chữ nhật; endpoint dàn khuôn THẬT có
+        // xen kẽ/interlock) ⇒ trước đây người dùng đếm được số khuôn khác số báo mà không có giải
+        // thích nào. Nay nếu lệch thì nói rõ cả hai thay vì âm thầm ghi đè.
+        const drawnCount = sheet.positions.length;
+        const countMismatch = drawnCount > 0 && drawnCount !== selCount;
         const flipT = `translate(0, ${bb.minY + bb.maxY}) scale(1, -1)`;
         const { margin, gripperMargin } = data.config;
         const effBottom = Math.max(margin.bottom, gripperMargin);
@@ -253,7 +259,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                 </defs>
                 {/* Tiêu đề khổ in + số con/tờ (trên cùng) */}
                 <text x={W / 2} y={-dpad * 0.45} textAnchor="middle" fontSize={dimFs * 1.15} fontWeight={800} fill="#334155">
-                    Khổ in {cmW}×{cmH} cm · {selCount} con/tờ
+                    Khổ in {cmW}×{cmH} cm · {selCount} con/tờ{countMismatch ? ` (dàn thật: ${drawnCount})` : ''}
                 </text>
                 {/* Tờ giấy */}
                 <rect x={0} y={0} width={W} height={H} fill="white" stroke="#94a3b8" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
@@ -381,6 +387,13 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
                                 {sheet && (
                                     <span className="text-xs">
                                         <b className="text-indigo-600">{displayCount(sheet, sheetIdx)} con/tờ</b>
+                                        {/* Cảnh báo lệch nhãn ↔ hình (audit 2026-08-29): số dùng tính giá
+                                            khác số khuôn thực sự dàn được trên khổ này. */}
+                                        {sheet.positions.length > 0 && sheet.positions.length !== displayCount(sheet, sheetIdx) && (
+                                            <span className="text-amber-600" title="Số dùng tính giá khác số khuôn dàn thật trên khổ này">
+                                                {' '}· dàn thật {sheet.positions.length}
+                                            </span>
+                                        )}
                                         <span className="text-slate-400"> · {sheet.utilization}%</span>
                                     </span>
                                 )}

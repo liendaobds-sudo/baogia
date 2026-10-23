@@ -30,6 +30,25 @@ function refCountAxis(usable: number, item: number, gutter: number): number {
 }
 
 /**
+ * Oracle vùng in — mirror `imposeOnTarget` SAU sửa 2026-08-29:
+ *  - tờ chuẩn hoá về landscape (nhíp luôn ở cạnh dài);
+ *  - nhíp KHÔNG cộng dồn lề dưới: `max(bottom, gripper)`.
+ * Xem chú thích lý do trong `imposition.ts` và bằng chứng parity trong
+ * `imposition-nesting-parity.spec.ts`.
+ */
+function refUsable(c: {
+    sheetWmm: number; sheetHmm: number;
+    left: number; right: number; top: number; bottom: number; gripper: number;
+}): { usableW: number; usableH: number } {
+    const long = Math.max(c.sheetWmm, c.sheetHmm);
+    const short = Math.min(c.sheetWmm, c.sheetHmm);
+    return {
+        usableW: long - c.left - c.right,
+        usableH: short - c.top - Math.max(c.bottom, c.gripper),
+    };
+}
+
+/**
  * Generator cấu hình HỢP LỆ theo mm nguyên: khổ đủ lớn và lề/gripper nhỏ nên vùng in luôn > 0
  * (sheet ≥ 200, mỗi lề ≤ 30, gripper ≤ 30 ⇒ usableW ≥ 140, usableH ≥ 110). Snap mm là đồng nhất
  * trên số nguyên nên oracle khớp tuyệt đối với implementation.
@@ -138,12 +157,13 @@ describe('Imposition_Service — imposition.property', () => {
         fc.assert(
             fc.property(
                 fc.integer({ min: 50, max: 200 }), // sheetWmm
-                fc.integer({ min: 200, max: 800 }), // sheetHmm (đủ lớn để cô lập lỗi ở trục W)
+                fc.integer({ min: 200, max: 800 }), // sheetHmm
                 fc.integer({ min: 10, max: 100 }),  // itemWmm
                 fc.integer({ min: 10, max: 100 }),  // itemHmm
                 (sheetWmm, sheetHmm, itemWmm, itemHmm) => {
-                    // left + right ≥ sheetWmm ⇒ usableW ≤ 0.
-                    const left = sheetWmm;
+                    // usableW được tính trên CẠNH DÀI (tờ chuẩn hoá landscape — sửa 2026-08-29),
+                    // nên phải cho lề vượt max(W,H) mới chắc chắn vùng in ≤ 0.
+                    const left = Math.max(sheetWmm, sheetHmm);
                     const right = 1;
                     const margins: MarginConfig = {
                         left, right, top: 0, bottom: 0, gripper: 0, gutter: 3,
@@ -171,8 +191,7 @@ describe('Imposition_Service — imposition.property', () => {
                 const input = toInput(c);
                 const res = imposeUnified(input);
 
-                const usableW = c.sheetWmm - c.left - c.right;
-                const usableH = c.sheetHmm - c.top - c.bottom - c.gripper;
+                const { usableW, usableH } = refUsable(c);
                 const count0 =
                     refCountAxis(usableW, c.itemWmm, c.gutter) * refCountAxis(usableH, c.itemHmm, c.gutter);
                 const count90 =
@@ -196,8 +215,15 @@ describe('Imposition_Service — imposition.property', () => {
         fc.assert(
             fc.property(
                 arbValidIntConfig,
-                // Nhiễu float |δ| ≤ 0.05 cho mỗi chiều — dưới ngưỡng snap nên mm nguyên không đổi.
-                fc.array(fc.double({ min: -0.05, max: 0.05, noNaN: true }), { minLength: 10, maxLength: 10 }),
+                // Nhiễu BIỂU DIỄN float |δ| ≤ 1e-9 — đúng loại nhiễu mà Req 2.6 / audit-rules §8.3
+                // nói tới ((a−b)·k vs a·k−b·k lệch ~1e-13). SNAP_EPS = 1e-6 hấp thụ hết.
+                //
+                // Cập nhật 2026-08-29: biên nhiễu cũ là ±0.05, hợp lệ khi snap dùng `Math.round`
+                // (làm tròn về gần nhất). Nay vùng in làm tròn XUỐNG và con làm tròn LÊN để không
+                // lạc quan hoá số con, nên ±0.05 KHÔNG còn là "float-equivalent" (con 100 + 0.05
+                // ⇒ 101mm là một kích thước khác thật sự). Property vẫn khoá đúng bất biến gốc:
+                // thứ tự/nhiễu phép tính float không được đổi số con.
+                fc.array(fc.double({ min: -1e-9, max: 1e-9, noNaN: true }), { minLength: 10, maxLength: 10 }),
                 fc.boolean(), // có kèm khổ bài in hay không
                 (c, noise, withPress) => {
                     const press = withPress

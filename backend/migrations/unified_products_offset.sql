@@ -35,7 +35,10 @@ VALUES
 
     ('offset_sp_khac',       'Sản phẩm khác',   'Other product', 'sp_khac',
         'cái', NULL,
-        '["sản phẩm khác","tem nhãn","poster","standee","in khác"]', 'fa-shapes',
+        -- Sửa 2026-08-29 (audit AI): bỏ "standee" khỏi danh sách này. Standee là in phun khổ lớn
+        -- trên PP, không phải in offset trên tờ giấy; để lại đây thì detectProduct sẽ khoá hội
+        -- thoại "in standee" vào sản phẩm offset và định tuyến sai phương pháp tính giá.
+        '["sản phẩm khác","tem nhãn","poster","in khác"]', 'fa-shapes',
         'Sản phẩm in khác theo khổ in — định tuyến tính giá qua phương pháp offset.', true, true,
         NULL, NULL, NULL, 103),
 

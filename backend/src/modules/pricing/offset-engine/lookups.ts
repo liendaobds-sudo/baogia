@@ -73,20 +73,58 @@ export function dienTichKho(khoBinh: string, d: PricingData): number {
 }
 
 /**
- * 2.2 — Chọn đơn giá theo bậc bằng MocSoLuong (KHÔNG theo min/max của tiers).
- * Tìm ngưỡng lớn nhất ≤ sl, lấy phần tử cùng vị trí trong tiers (giới hạn ở cuối dãy).
+ * 2.2 — Chọn đơn giá theo bậc số lượng.
+ *
+ * QUY ƯỚC NGHIỆP VỤ (PRICING_SPEC.md §2.2): bậc được chọn theo `MocSoLuong`, KHÔNG theo
+ * `min/max` của tiers. Bảng mặc định có 17 mốc ↔ 16 bậc, mốc thứ i là ngưỡng vào bậc i
+ * (moc = tiers[i].min − 1). Đường này được golden giá pin ⇒ GIỮ NGUYÊN.
+ *
+ * Audit 2026-08-29 — LỖ HỎNG: `ConfigStore` dựng tiers theo SỐ ROW THỰC TẾ của bảng
+ * `processing_pricing` (admin thêm/xoá row tuỳ ý qua `POST/DELETE /erp/processing-pricing`).
+ * Khi số bậc DB ≠ số bậc canonical, phép `tiers[min(idx, tiers.length - 1)]` clamp mọi số
+ * lượng lớn về BẬC CUỐI ⇒ sai đơn giá gia công âm thầm (ví dụ chỉ 3 row trong DB ⇒ mọi
+ * `sl ≥ 499` dùng cùng một đơn giá).
+ *
+ * Cách xử lý: chỉ dùng đường index khi tiers ăn khớp bảng mốc canonical
+ * (`tiers.length === mocSoLuong.length - 1`, đúng layout JSON mặc định). Ngoài ra — tức là
+ * dữ liệu DB có số bậc khác — chọn theo KHOẢNG `[min, max)` mà admin đã nhập, vì đó là ngữ
+ * nghĩa duy nhất còn đáng tin. Nửa mở để khớp quy ước `moc = min − 1` của bảng canonical.
+ *
+ * `sl` dưới bậc nhỏ nhất ⇒ bậc nhỏ nhất; vượt mọi bậc đóng ⇒ bậc lớn nhất (không trả 0,
+ * tránh "gia công miễn phí" khi cấu hình thiếu).
  */
 export function pickRate(
     sl: number,
-    tiers: { price: number | null }[],
+    tiers: { price: number | null; min?: number; max?: number | null }[],
     mocSoLuong: number[],
 ): number {
+    if (!tiers || tiers.length === 0) return 0;
+
+    const matchesCanonicalMocs = tiers.length === Math.max(0, mocSoLuong.length - 1);
+    if (matchesCanonicalMocs) {
+        let idx = 0;
+        for (let i = 0; i < mocSoLuong.length; i++) {
+            if (sl >= mocSoLuong[i]) idx = i;
+        }
+        return tiers[Math.min(idx, tiers.length - 1)]?.price ?? 0;
+    }
+
+    const withRange = tiers.filter((t) => typeof t.min === 'number' && Number.isFinite(t.min));
+    if (withRange.length === tiers.length) {
+        const sorted = [...withRange].sort((a, b) => (a.min as number) - (b.min as number));
+        const inRange = sorted.find(
+            (t) => sl >= (t.min as number) && (t.max == null || sl < t.max),
+        );
+        if (inRange) return inRange.price ?? 0;
+        return (sl < (sorted[0].min as number) ? sorted[0] : sorted[sorted.length - 1]).price ?? 0;
+    }
+
+    // Không đủ thông tin khoảng và cũng không khớp bảng mốc: giữ hành vi index cũ.
     let idx = 0;
     for (let i = 0; i < mocSoLuong.length; i++) {
         if (sl >= mocSoLuong[i]) idx = i;
     }
-    const tier = tiers[Math.min(idx, tiers.length - 1)];
-    return tier?.price ?? 0;
+    return tiers[Math.min(idx, tiers.length - 1)]?.price ?? 0;
 }
 
 /** 2.3 — Tính chi phí một công đoạn theo billingMode. */

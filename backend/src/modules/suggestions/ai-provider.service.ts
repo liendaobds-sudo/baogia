@@ -44,6 +44,26 @@ export const PROVIDER_DEFAULTS: Record<string, { model: string; endpoint: string
 const DEFAULT_API_TYPE: AiApiType = 'openai';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
+/**
+ * Lỗi provider KHÔNG nên retry (audit 2026-08-29).
+ *
+ * 4xx (trừ 429 Too Many Requests) là lỗi CẤU HÌNH phía mình: API key sai/hết hạn (401/403),
+ * model không tồn tại (404), schema/payload sai (400). Gọi lại y hệt chắc chắn lỗi lại — chỉ
+ * tốn thêm một lượt gọi và đẩy circuit breaker mở sớm hơn thực tế.
+ *
+ * Nhận diện qua thông điệp lỗi vì `callAI` ném `Error(\`... API ${status}\`)` chứ không mang
+ * status riêng; giữ nguyên hình dạng lỗi để không phải đổi mọi call-site.
+ */
+export function isNonRetryableProviderError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    const m = /\b(4\d{2})\b/.exec(msg);
+    if (!m) return false;
+    const status = Number(m[1]);
+    if (status === 429) return false;         // rate limit → retry hợp lý
+    if (status === 408) return false;         // request timeout → retry hợp lý
+    return status >= 400 && status < 500;
+}
+
 // ── Circuit Breaker State ──
 interface CircuitState {
     failures: number;
@@ -56,6 +76,12 @@ const CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
 @Injectable()
 export class AiProviderService {
+    /**
+     * Trần thời gian cho TOÀN BỘ chuỗi fallback (mọi provider × mọi attempt).
+     * 60s: đủ cho 1–2 provider chậm nhưng vẫn kịp để gợi ý/auto-reply còn ý nghĩa với khách.
+     */
+    static readonly FALLBACK_DEADLINE_MS = 60_000;
+
     private readonly logger = new Logger(AiProviderService.name);
     private circuits = new Map<string, CircuitState>();
     // Cache cho ai-config.json (key luu qua UI Settings) — tranh doc file moi lan goi.
@@ -168,7 +194,20 @@ export class AiProviderService {
         const providers = this.getProviders();
         this.logger.log(`📡 Available providers: ${providers.map(p => p.name).join(', ') || 'NONE'}`);
 
+        // DEADLINE TỔNG (audit 2026-08-29): trước đây không có giới hạn cho cả chuỗi fallback —
+        // 3 provider × 2 attempt × timeout 30–45s ⇒ worst case 3–4 PHÚT cho một tin nhắn khách.
+        // Nhánh gọi là fire-and-forget nên không chặn inbound, nhưng auto-reply tới quá muộn thì
+        // vô nghĩa và vẫn tốn token. Vượt deadline ⇒ dừng thử provider tiếp theo.
+        const deadlineAt = Date.now() + AiProviderService.FALLBACK_DEADLINE_MS;
+
         for (const provider of providers) {
+            if (Date.now() >= deadlineAt) {
+                this.logger.warn(
+                    `⏱️ Hết deadline ${AiProviderService.FALLBACK_DEADLINE_MS}ms cho chuỗi fallback — bỏ qua ${provider.name}`,
+                );
+                break;
+            }
+
             // Circuit breaker check
             if (!this.isProviderAvailable(provider.name)) {
                 this.logger.warn(`⚡ Circuit OPEN for ${provider.name} — skipping`);
@@ -184,17 +223,23 @@ export class AiProviderService {
                         (tokenUsage ? ` [tokens: ${tokenUsage.prompt_tokens}+${tokenUsage.completion_tokens}]` : ''));
                     return { result, usedModel: `${provider.name}/${provider.model}`, tokenUsage };
                 } catch (err: any) {
+                    // LỖI CẤU HÌNH KHÔNG RETRY (audit 2026-08-29): 4xx (trừ 429) là key sai / schema
+                    // sai / model không tồn tại — thử lại y hệt chắc chắn lỗi lại, chỉ đốt thêm một
+                    // lượt gọi và làm circuit mở nhanh hơn thực tế.
+                    const permanent = isNonRetryableProviderError(err);
                     this.logger.warn(
                         `⚠️ ${provider.name} attempt ${attempt} failed (${safeErrorMetadata(err)})` +
-                        `${attempt < 2 ? ', retrying...' : ', trying next provider...'}`,
+                        `${permanent ? ' — lỗi cấu hình, KHÔNG retry' : attempt < 2 ? ', retrying...' : ', trying next provider...'}`,
                     );
-                    
+
                     // claw-code pattern: Adjust prompt on structured output failure
-                    if (err.message.includes('invalid JSON response') || err.message.includes('could not parse JSON')) {
+                    if (err.message?.includes('invalid JSON response') || err.message?.includes('could not parse JSON')) {
                         currentPrompt = `${userPrompt}\n\n[System Warning]: Dữ liệu trả về lần trước bị lỗi cấu trúc JSON. Bắt buộc bỏ Markdown, chỉ trả về chuỗi JSON hợp lệ.`;
                     }
-                    
+
                     this.recordFailure(provider.name);
+                    if (permanent) break;              // sang provider kế tiếp ngay
+                    if (Date.now() >= deadlineAt) break; // hết deadline → không chờ backoff nữa
                     if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
                 }
             }

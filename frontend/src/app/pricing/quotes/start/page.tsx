@@ -40,7 +40,7 @@ import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
 import { decideEntryRouting } from '@/lib/quote/entry-routing';
-import { resolveUnitLabel } from '@/lib/quote/quote-units';
+import { mapCartItemToQuoteItem } from '@/lib/quote/map-cart-item';
 import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
 
 /* -------------------------------------------------------------------------- */
@@ -97,41 +97,13 @@ const mapDigitalType = (tab: DigitalTab): string => {
 /* Ánh xạ item giỏ hàng → QuoteItemDto (hợp nhất digital + offset)             */
 /* -------------------------------------------------------------------------- */
 
-const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
-    const cfg = (it.configParams as Record<string, unknown>) || {};
-    if (it.type === 'offset') {
-        // Offset: khóa cấu hình camelCase ngoài whitelist → gói vào printing_detail.
-        const productType = (cfg.type as string) ?? 'offset';
-        return {
-            product_name: it.name,
-            item_type: 'offset',
-            product_type: productType,
-            quantity: it.quantity,
-            item_total: it.total,
-            unit: resolveUnitLabel({
-                unit: (cfg.unit as string) || undefined,
-                productUnit: (cfg.productUnit as string) || undefined,
-                quoteType: productType,
-                itemType: 'offset',
-            }),
-            printing_detail: { offset: true, config: it.configParams, result: it.details, unitPrice: it.unitPrice },
-        };
-    }
-    // Digital: trải phẳng configParams theo khóa snake_case của QuoteItemDto.
-    return {
-        ...cfg,
-        product_name: it.name,
-        item_type: it.type,
-        product_type: it.type,
-        quantity: it.quantity,
-        item_total: it.total,
-        unit: resolveUnitLabel({
-            unit: (cfg.unit as string) || undefined,
-            productUnit: (cfg.productUnit as string) || undefined,
-            quoteType: it.type,
-        }),
-    };
-};
+/**
+ * Audit 2026-08-29: trang này từng có bản `mapItem` RIÊNG, nhánh digital spread
+ * `configParams` camelCase và thiếu `printing_detail` ⇒ `POST /erp/orders` trả 400
+ * (whitelist DTO) hoặc 500 ("Thiếu pricingPayload") ⇒ KHÔNG lưu được báo giá digital
+ * từ Cổng. Nay dùng chung helper với `/quotes/new` và `/quotes/offset`.
+ */
+const mapItem = (it: QuoteCartItem): Record<string, unknown> => mapCartItemToQuoteItem(it);
 
 /* -------------------------------------------------------------------------- */
 /* Component                                                                   */

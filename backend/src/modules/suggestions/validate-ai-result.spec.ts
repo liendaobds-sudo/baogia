@@ -29,8 +29,9 @@ describe('validateAiResult (Anti-Hallucination)', () => {
     beforeEach(() => {
         // Create service with null dependencies — we only test validateAiResult
         service = Object.create(AiSuggestService.prototype);
-        // Inject logger manually
-        (service as any).logger = { warn: jest.fn(), log: jest.fn() };
+        // Inject logger manually. `debug` bổ sung 2026-08-29: việc gỡ claim giá là hành vi bình
+        // thường (tới 6 pattern × mỗi reply) nên đã hạ từ `warn` xuống `debug` theo §11 audit-rules.
+        (service as any).logger = { warn: jest.fn(), log: jest.fn(), debug: jest.fn(), error: jest.fn() };
     });
 
     // ─── Structure validation ───

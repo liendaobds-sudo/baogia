@@ -43,6 +43,60 @@ export interface HopGiayInput {
 const phi = (code: string, d: PricingData): number =>
     d.phiCoDinh.find((p) => p.code === code)?.giaTri ?? 0;
 
+/**
+ * Số bài in (tờ xả) cắt được từ MỘT tờ giấy NHẬP — nguồn khổ tờ nhập ưu tiên bản ghi VẬT TƯ.
+ *
+ * Vì sao (audit 2026-08-29): `giaTo = giaGiay(materialCode)` là đơn giá MỘT tờ nguyên khổ của
+ * chính vật tư đó. Nếu số tờ lại chia theo `kho.khoGiayLon` (một khổ khác, có thể không tồn tại
+ * trong danh mục giấy) thì "số lượng" và "đơn giá" đến từ hai nguồn khác nhau ⇒ tiền giấy sai.
+ *
+ * Thứ tự nguồn:
+ *  1. `material.sheetWidth × sheetHeight` (cùng bản ghi cấp giá) — chuẩn.
+ *  2. `pressPerParentFallback` suy từ `kho.khoGiayLon` — chỉ khi vật tư không khai khổ.
+ *
+ * Trả thêm `source` + `mismatch` để đính vào meta/log, giúp admin phát hiện dữ liệu lệch.
+ */
+function resolveParentSheetPerPress(
+    materialCode: string,
+    kho: { khoIn: string; khoGiayLon: string },
+    d: PricingData,
+    pressPerParentFallback: number,
+): { pressPerParent: number; source: 'material' | 'khoGiayLon'; mismatch: boolean } {
+    const press = docKichThuocCm(kho.khoIn);
+    const mat = d.materials.find(
+        (m) => m.code === materialCode || (m.aliases ?? []).includes(materialCode),
+    );
+    const matW = Number(mat?.sheetWidth);
+    const matH = Number(mat?.sheetHeight);
+    const hasMatSheet = Number.isFinite(matW) && Number.isFinite(matH) && matW > 0 && matH > 0;
+
+    if (!press || !hasMatSheet) {
+        return { pressPerParent: pressPerParentFallback, source: 'khoGiayLon', mismatch: false };
+    }
+
+    // Cùng công thức grid như `pressPerParent` của selector (xả = cắt, KHÔNG trừ nhíp),
+    // thử cả hai hướng đặt bài in trên tờ nhập.
+    const fit = (pw: number, ph: number) =>
+        Math.floor(matW / pw) * Math.floor(matH / ph);
+    const perParent = Math.max(fit(press.w, press.h), fit(press.h, press.w));
+
+    const parentCfg = docKichThuocCm(kho.khoGiayLon);
+    const mismatch = !!parentCfg
+        && !(Math.abs(parentCfg.w - matW) < 0.01 && Math.abs(parentCfg.h - matH) < 0.01)
+        && !(Math.abs(parentCfg.w - matH) < 0.01 && Math.abs(parentCfg.h - matW) < 0.01);
+
+    if (perParent <= 0) {
+        // Bài in KHÔNG cắt được từ khổ giấy đã chọn ⇒ dữ liệu sai, không được âm thầm dùng
+        // fallback (sẽ ra giá thấp hơn thực tế).
+        throw new OffsetPricingError(
+            `Khổ bài in "${kho.khoIn}" không cắt được từ khổ giấy của vật tư "${materialCode}" ` +
+            `(${matW}×${matH}cm). Chọn khổ in khác hoặc sửa khổ giấy của vật tư.`,
+        );
+    }
+
+    return { pressPerParent: perParent, source: 'material', mismatch };
+}
+
 export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     if (!input.soLuong || input.soLuong < 1) {
         throw new OffsetPricingError('Số lượng đặt hàng phải >= 1');
@@ -122,7 +176,19 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     // GĐ C — SỬA LỆCH ĐƠN VỊ GIẤY: `sheetsGross` đếm theo tờ XẢ (bài in, tờ vào máy) — đúng cho
     // IN/CAN/XLBM/lượt in. Nhưng GIẤY mua theo tờ NHẬP (`giaTo` = giá 1 tờ nhập). Quy về tờ nhập:
     // 1 tờ nhập xả ra `pressPerParent` bài in. Khổ xả ≡ khổ nhập (in thẳng) → pressPerParent=1 → không đổi.
-    const ppp = outcome.pressPerParent && outcome.pressPerParent > 0 ? outcome.pressPerParent : 1;
+    //
+    // Audit 2026-08-29 — SỬA NGUỒN KHỔ TỜ NHẬP: `outcome.pressPerParent` suy từ
+    // `kho.khoGiayLon` (cấu hình của khổ in), KHÔNG phải khổ giấy thật của vật tư đã chọn.
+    // Với dữ liệu hiện tại, `khoIn = "28cm x 60cm"` khai `khoGiayLon = "84cm x 120cm"` trong khi
+    // MỌI vật tư giấy chỉ có khổ 65×86 / 60×84 / 79×109 — không tồn tại tờ 84×120. Engine vì thế
+    // chia số tờ theo một khổ KHÔNG TỒN TẠI (ppp = 6) rồi nhân với đơn giá tờ 65×86 ⇒ đếm THIẾU
+    // giấy ~2 lần ⇒ báo giá dưới chi phí.
+    //
+    // Nguyên tắc mới: SỐ TỜ và ĐƠN GIÁ TỜ phải đến từ CÙNG MỘT nguồn — bản ghi vật tư
+    // (`sheetWidth × sheetHeight` đi kèm `priceNoVAT`). Chỉ khi vật tư không khai khổ mới quay
+    // về `khoGiayLon` như trước. Lệch giữa hai nguồn được log để admin sửa dữ liệu.
+    const parentSheet = resolveParentSheetPerPress(input.materialCode, kho, d, outcome.pressPerParent ?? 0);
+    const ppp = parentSheet.pressPerParent > 0 ? parentSheet.pressPerParent : 1;
     const parentGross = Math.ceil(sheetsGross / ppp);
     const parentNet = Math.ceil(w.sheetsNet / ppp);
     const pcsBe = w.q('BE') || sl;
@@ -197,18 +263,31 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
         { label: 'Giấy bồi', amount: cpGiayBoi },
         { label: 'Thiết kế', amount: cpThietKe },
     ];
-    const baseSXTK = cpBinhBai + cpXLBM + cpBe + cpDanHop + cpBoi + cpDongGoi + cpEpKim + cpGiayBoi + cpThietKe;
+    // Base chiết khấu = SẢN XUẤT + THIẾT KẾ. Audit 2026-08-29: `cpGiayBoi` đã bị GỠ khỏi base —
+    // đó là chi phí VẬT TƯ (dòng nhãn 'Giấy bồi' = giaTo × parentGross), mà hợp đồng ở
+    // `totals.ts` ghi rõ "chiết khấu KHÔNG áp trên giấy/kẽm/vật tư". `cpBoi` (công gia công bồi)
+    // vẫn nằm trong base vì đó là công đoạn sản xuất.
+    // Ảnh hưởng golden: fixture hop_giay có `boi2Lop: false` ⇒ cpGiayBoi = 0 ⇒ số pin KHÔNG đổi.
+    // Đơn hộp bồi 2 lớp thật sẽ có chiết khấu giảm đúng bằng `giaGiayBoi × TyLe_ChietKhau`.
+    const baseSXTK = cpBinhBai + cpXLBM + cpBe + cpDanHop + cpBoi + cpDongGoi + cpEpKim + cpThietKe;
     const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
     const wasteInfo = giaTo * (parentGross - parentNet);
 
     const sheet = docKichThuocCm(kho.khoGiayLon);
-    // meta.soConToLon = pieces per LARGE sheet (preview/PDF parity — Req 10).
-    // Khi unified, lấy từ outcome.soConToLon (large sheet). Khi legacy, giữ giá trị `soCon` (trước
-    // đây tính trên press sheet cho hình học, nhưng cần map sang large sheet cho meta.soConToLon).
-    // Ưu tiên outcome.soConToLon nếu > 0 vì nó luôn tính trên large sheet (đúng ngữ nghĩa meta).
-    const metaSoConToLon = outcome.soConToLon > 0 ? outcome.soConToLon : soCon;
+    /**
+     * `meta.soConToLon` = số con trên MỘT TỜ NHẬP — đại lượng PDF và danh sách báo giá in ra
+     * cạnh `soToLon` ("N con/tờ · M tờ in").
+     *
+     * Audit 2026-08-29: trước đây lấy `outcome.soConToLon` — con số `imposeUnified` tính ĐỘC LẬP
+     * trên khổ `khoGiayLon`, KHÔNG phải cơ sở tính giá (giá hộp đi theo `soConBaiIn` × số bài in
+     * trên tờ nhập). Hệ quả: PDF in "15 con/tờ · 110 tờ in" cho đơn 1.000 con (15 × 110 = 1.650)
+     * — chứng từ tự mâu thuẫn. Nay dẫn xuất ĐÚNG từ cơ sở giá:
+     *      soConToLon = soConBaiIn × (số bài in / tờ nhập)
+     * nên luôn thoả `ceil(soLuong / soConToLon) ≤ soToLon`.
+     */
+    const metaSoConToLon = soConBaiInVal * ppp;
     const res = tongHopKetQua(lines, baseSXTKFull, sl, d, wasteInfo, input.chietKhauRate, input.vatRate);
     res.meta = {
         khoBinh: kho.khoIn, khoGiayLon: kho.khoGiayLon, soConBaiIn: soConBaiInVal, soConToLon: metaSoConToLon,
@@ -216,6 +295,11 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
         sheetW: sheet?.w, sheetH: sheet?.h, itemW: trai.ngang, itemH: trai.doc,
         dielineStdCode, dielineWarnings,
         impositionSource: outcome.source,
+        // Nguồn khổ TỜ NHẬP dùng để đếm giấy + cờ lệch dữ liệu (audit 2026-08-29). Hiển thị/chẩn
+        // đoán: `mismatch = true` nghĩa là `paper_sizes.kho_giay_lon` khai khác khổ giấy của vật tư.
+        pressPerParent: ppp,
+        parentSheetSource: parentSheet.source,
+        ...(parentSheet.mismatch ? { parentSheetMismatch: true } : {}),
         ...(outcome.shadow ? { shadow: outcome.shadow } : {}),
         ...(outcome.positions ? { positions: outcome.positions } : {}),
         ...(outcome.marginConfig ? { marginConfig: outcome.marginConfig } : {}),

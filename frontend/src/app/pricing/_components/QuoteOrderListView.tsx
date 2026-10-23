@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth, usePermissions } from '@/lib/auth-context';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 
 import { API_URL as API } from '@/lib/api';
@@ -146,7 +146,16 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
         'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json',
     }), [token]);
 
+    /** Số thứ tự truy vấn danh sách — chỉ response MỚI NHẤT được phép ghi state. */
+    const listSeqRef = useRef(0);
+
     const fetchQuotes = useCallback(async () => {
+        // Sequence guard (audit 2026-08-29): danh sách chỉ có debounce, KHÔNG có chống
+        // response-cũ-ghi-state. Đổi trang/bộ lọc nhanh thì response của truy vấn TRƯỚC có thể
+        // về SAU và ghi đè danh sách đúng — người dùng thấy dữ liệu của bộ lọc cũ. Cùng cơ chế
+        // đã dùng cho vùng tính giá (`useQuoteConfigurator.calcSeqRef`).
+        const seq = ++listSeqRef.current;
+        const isStale = () => seq !== listSeqRef.current;
         try {
             const params = new URLSearchParams();
             if (debouncedSearch) params.set('keyword', debouncedSearch);
@@ -161,6 +170,7 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
 
             const res = await fetch(`${API}/erp/orders?${params}`, { headers: headers() });
             const json = await res.json();
+            if (isStale()) return; // đã có truy vấn mới hơn → bỏ kết quả này
             if (json.success && json.data) {
                 const items = Array.isArray(json.data) ? json.data : (json.data.data || []);
                 setQuotes(items.map((q: any) => ({
@@ -180,7 +190,11 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                 setQuotes([]); setTotal(0);
                 setPagination({ total: 0, total_pages: 1, has_prev: false, has_next: false });
             }
-        } catch (err) { console.error(err); setQuotes([]); }
+        } catch (err) {
+            if (isStale()) return;
+            console.error(err);
+            setQuotes([]);
+        }
     }, [page, debouncedSearch, statusFilter, view, fromDate, toDate, headers]);
 
     const fetchDetail = useCallback(async (id: number) => {
@@ -197,6 +211,13 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                     vat_amount: parseFloat(d.vat_amount || 0),
                     shipping_fee: parseFloat(d.shipping_fee || 0),
                     grand_total: parseFloat(d.grand_total || 0),
+                    // Audit 2026-08-29: 3 field chiết khấu trước đây KHÔNG được map ⇒ bảng in
+                    // thiếu hẳn dòng chiết khấu, và vì server tính VAT trên (subtotal − discount)
+                    // nên `Σ item_total + vat + ship ≠ grand_total` khi có chiết khấu. PDF backend
+                    // vốn đã in đúng; bảng in ở danh sách mới là chỗ lệch.
+                    discount_type: d.discount_type || 'percent',
+                    discount_value: parseFloat(d.discount_value || 0),
+                    discount_amount: parseFloat(d.discount_amount || 0),
                     validity_days: d.validity_days ?? 7,
                     validUntil: d.valid_until || d.validUntil,
                     customer_address: d.customer_address,
@@ -575,9 +596,19 @@ export default function QuoteOrderListView({ defaultView, title }: QuoteOrderLis
                                                 );
                                             })}
                                             <tr style={{ background: '#f8fafc' }}>
-                                                <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600 }}>Cộng tiền hàng (chưa VAT):</td>
+                                                <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600 }}>Cộng tiền hàng (trước chiết khấu, chưa VAT):</td>
                                                 <td style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600 }}>{formatVND(detail.items?.reduce((s: number, i: QuoteItemDetail) => s + (i.itemTotal || 0), 0) || detail.total)}</td>
                                             </tr>
+                                            {(detail as any).discount_amount > 0 && (
+                                                <tr style={{ background: '#fef9f9' }}>
+                                                    <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#b91c1c' }}>
+                                                        {(detail as any).discount_type === 'percent'
+                                                            ? `Chiết khấu (${(detail as any).discount_value}%):`
+                                                            : 'Chiết khấu:'}
+                                                    </td>
+                                                    <td style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#b91c1c' }}>−{formatVND((detail as any).discount_amount || 0)}</td>
+                                                </tr>
+                                            )}
                                             {(detail as any).vat_rate > 0 && (
                                                 <tr style={{ background: '#f0fdf4' }}>
                                                     <td colSpan={6} style={{ border: '1px solid #000', padding: 8, textAlign: 'right', fontWeight: 600, color: '#16a34a' }}>{`Thuế GTGT (${(detail as any).vat_rate}%):`}</td>

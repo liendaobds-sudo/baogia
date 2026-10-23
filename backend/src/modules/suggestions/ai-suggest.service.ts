@@ -38,7 +38,10 @@ import { AutoReplyService } from './auto-reply.service';
 import { ConversationSummaryService } from './conversation-summary.service';
 import { OutcomeLearningService } from './outcome-learning.service';
 import { ConversationSearchService } from './conversation-search.service';
-import { Intent, INTENT_TAG_MAP, MEMORY_TRIGGER_INTENTS, normalizeIntent } from './intents';
+import {
+    Intent, INTENT_TAG_MAP, MEMORY_TRIGGER_INTENTS, normalizeIntent,
+    isConversationTopic, type ConversationTopic,
+} from './intents';
 import { AiMemoryService } from './ai-memory.service';
 import { ProductsService } from '../pricing/services/products.service';
 import {
@@ -56,6 +59,39 @@ const SHORT_REPLIES = ['có', 'không', 'ko', 'ok', 'vâng', 'ừ', 'dạ', 'r�
 
 // Cache limits
 const KB_CACHE_MAX_SIZE = 100;
+
+/**
+ * Thử đọc câu trả lời TEXT của agent pipeline thành đúng hình dạng JSON mà downstream cần
+ * (`{ replies: [...] }`). Trả `null` nếu không parse được — caller khi đó vẫn đi đường
+ * `callWithFallback` như trước, nên đây thuần là tối ưu chi phí, không hạ chất lượng.
+ *
+ * Chấp nhận cả trường hợp model bọc JSON trong code fence ```json ... ``` (rất phổ biến).
+ */
+export function parseAgentJsonResponse(raw: string | null | undefined): any | null {
+    if (!raw || typeof raw !== 'string') return null;
+    let text = raw.trim();
+
+    const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+    if (fence) text = fence[1].trim();
+    else {
+        // Cắt lấy khối JSON ngoài cùng nếu model chèn thêm lời dẫn.
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) text = text.slice(start, end + 1);
+    }
+
+    try {
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+        if (!Array.isArray(parsed.replies) || parsed.replies.length === 0) return null;
+        const hasText = parsed.replies.some(
+            (r: unknown) => r && typeof (r as { text?: unknown }).text === 'string' && (r as { text: string }).text.trim(),
+        );
+        return hasText ? parsed : null;
+    } catch {
+        return null;
+    }
+}
 
 @Injectable()
 export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
@@ -255,12 +291,40 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
             }
         }
 
+        /**
+         * Ngân sách nội dung cho MỖI chunk KB.
+         *
+         * Audit 2026-08-29: bản cũ cứng `substring(0, 800)` cho mọi chunk. Vì `CHUNK_MAX_CHARS`
+         * của KB là 1500, mỗi chunk mất tới ~47% nội dung; nặng nhất là chunk kiểu `table`
+         * (bảng định lượng/khổ giấy/thời gian) — vết cắt 800 rơi giữa bảng markdown, model nhận
+         * một bảng THIẾU HÀNG mà không có dấu hiệu gì là đã bị cắt ⇒ dễ trả lời sai theo phần
+         * còn lại. Nay:
+         *  - chunk `table` được giữ NGUYÊN (bảng chỉ có nghĩa khi trọn vẹn);
+         *  - các loại còn lại nới lên 1200 và cắt theo ranh giới DÒNG, có marker tường minh.
+         * Tổng ngân sách vẫn được `PromptBuilderService.buildUserPrompt` chặn bằng MAX_KB_CONTEXT.
+         */
+        const PER_CHUNK_CHARS = 1200;
+        const clipChunk = (content: string, chunkType?: string): string => {
+            if (chunkType === 'table' || content.length <= PER_CHUNK_CHARS) return content;
+            const lines = content.split('\n');
+            const kept: string[] = [];
+            let used = 0;
+            for (const line of lines) {
+                if (used + line.length + 1 > PER_CHUNK_CHARS) break;
+                kept.push(line);
+                used += line.length + 1;
+            }
+            if (kept.length === 0) return content.slice(0, PER_CHUNK_CHARS);
+            return `${kept.join('\n')}\n[...đoạn còn lại của tài liệu đã lược bớt...]`;
+        };
+
         const kbContext = relevantKb.length > 0
             ? relevantKb.map((c: any, i: number) => {
                 const docTitle = kbDocTitles.get(c.documentId) || 'Tài liệu';
                 const heading = (c.metadata as any)?.heading || '';
                 const sourceLabel = heading ? `${docTitle} > ${heading}` : docTitle;
-                return `[Tài liệu ${i + 1} — Nguồn: ${sourceLabel}]:\n${this.promptBuilder.simplifyForCustomer(c.content.substring(0, 800))}`;
+                const body = clipChunk(String(c.content ?? ''), c.chunkType);
+                return `[Tài liệu ${i + 1} — Nguồn: ${sourceLabel}]:\n${this.promptBuilder.simplifyForCustomer(body)}`;
             }).join('\n\n')
             : '(Chưa có tài liệu nội bộ liên quan — trả lời dựa trên kinh nghiệm chung về in ấn)';
 
@@ -364,10 +428,25 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         }
 
         // Learning context (now with intent-based filtering)
+        /**
+         * CHỦ ĐỀ hội thoại suy từ chính câu khách vừa nhắn — KHÔNG phải intent canonical.
+         *
+         * Audit 2026-08-29: trước đây mỗi call-site tự dựng token riêng ('objection',
+         * 'comparison', hoặc `detectedObjections[0]` = 'price'/'competitor'/...), rồi truyền
+         * xuống 3 nhánh học vốn đối chiếu với intent CANONICAL đã lưu. Không token nào thuộc
+         * enum ⇒ few-shot ký ức chốt sale và lời khuyên theo intent chết đúng lúc khách phản đối
+         * hoặc so sánh. Nay có MỘT topic duy nhất, và `resolveLearningIntents` quy nó về tập
+         * intent canonical ở phía consumer.
+         */
+        const conversationTopic: ConversationTopic | undefined = isObjection
+            ? (isConversationTopic(detectedObjections[0]) ? detectedObjections[0] as ConversationTopic : 'objection')
+            : isComparison
+                ? 'comparison'
+                : undefined;
+
         let learningContext = '';
         try {
-            const detectedIntent = isObjection ? 'objection' : isComparison ? 'comparison' : undefined;
-            learningContext = await this.learningService.buildLearningContext(detectedIntent, convTenantId);
+            learningContext = await this.learningService.buildLearningContext(conversationTopic, convTenantId);
         } catch { /* optional */ }
 
         // Phase 2: Outcome-based learning + similar won conversations
@@ -377,18 +456,20 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
         try {
             const [outcome, similar, memory] = await Promise.all([
                 this.outcomeLearning.buildOutcomeContext(
-                    isObjection ? 'objection' : undefined,
+                    conversationTopic,
                     productMatch?.product,
                     convTenantId,
                 ),
                 this.convSearch.buildSimilarConversationContext(
                     productMatch?.product,
                     combinedCustomerText,
-                    isObjection ? 'objection' : isComparison ? 'comparison' : undefined,
+                    conversationTopic,
                     convTenantId,
                 ),
                 this.aiMemory.retrieveMemoryContext(
-                    isObjection ? 'objection' : isComparison ? 'comparison' : detectedObjections.length > 0 ? detectedObjections[0] : 'chung',
+                    // Không có topic ⇒ vẫn truyền 'chung' để hàm chạy và rơi vào fallback
+                    // "không lọc intent" (lấy ví dụ chốt đơn bất kỳ của tenant).
+                    conversationTopic ?? 'chung',
                     productMatch?.product || '',
                     convTenantId,
                 ),
@@ -437,7 +518,7 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
             similarConvContext,
         });
 
-        const systemPrompt = this.promptBuilder.getSystemPrompt(productMatch?.product || (matchedTemplate as any)?.code);
+        const systemPrompt = this.promptBuilder.getSystemPrompt();
         this.logger.log(`📏 Prompt length: SYSTEM=${systemPrompt.length} chars, USER=${userPrompt.length} chars`);
 
         // 9. Call AI (with fallback chain + circuit breaker)
@@ -473,6 +554,25 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                             ).join('\n\n');
                         this.logger.log(`🤖 Agent enriched prompt with ${agentResult.toolCalls.length} tool results`);
                     }
+                    /**
+                     * TÁI SỬ DỤNG LƯỢT SINH TEXT CỦA AGENT (audit 2026-08-29).
+                     *
+                     * Tồn đọng cũ (STRUCTURE.md): vòng lặp agent chạy tới khi model trả TEXT rồi
+                     * `return { response, toolCalls }`, nhưng caller chỉ đọc `toolCalls` và BỎ hẳn
+                     * `response`, sau đó gọi `callWithFallback` một lượt nữa để lấy JSON có schema.
+                     * Tức mỗi suggestion "deep reasoning" trả tiền cho một lượt sinh text bị ném đi
+                     * và cộng thêm 15–45s độ trễ.
+                     *
+                     * Nay: nếu `response` PARSE ĐƯỢC thành JSON đúng hình dạng downstream cần
+                     * (có `replies`), dùng luôn. Không parse được ⇒ vẫn đi đường `callWithFallback`
+                     * như cũ, nên không có rủi ro hạ chất lượng — chỉ bỏ chi phí khi đã có kết quả tốt.
+                     */
+                    const reusable = parseAgentJsonResponse(agentResult.response);
+                    if (reusable) {
+                        result = reusable;
+                        usedModel = `${agentResult.usedAgent ? 'agent' : 'gemini'}/reused`;
+                        this.logger.log('♻️ Dùng lại câu trả lời JSON của agent — bỏ 1 lượt gọi LLM');
+                    }
                 } catch (e) {
                     this.logger.warn(
                         `⚠️ Agent pipeline failed, using standard path (${safeErrorMetadata(e)})`,
@@ -484,16 +584,18 @@ export class AiSuggestService implements OnModuleInit, OnModuleDestroy {
                 this.logger.log(`ℹ️ Bỏ qua agent pipeline: câu cần suy luận sâu nhưng chưa nhận diện được sản phẩm — dùng luồng LLM chuẩn.`);
             }
 
-            // Standard AI call with enriched prompt
-            const enrichedUserPrompt = agentContext ? userPrompt + agentContext : userPrompt;
-            const aiResult = await this.aiProvider.callWithFallback(systemPrompt, enrichedUserPrompt);
-            if (aiResult) {
-                result = aiResult.result;
-                usedModel = aiResult.usedModel + (agentContext ? '+agent' : '');
-                tokenUsage = aiResult.tokenUsage || null;
-            } else {
-                result = this.templateFallback.generateFallback(lastMsg.content, relevantKb, quoteResult, messages, matchedTemplate);
-                usedModel = 'template';
+            // Standard AI call with enriched prompt — BỎ QUA nếu đã tái dùng được câu trả lời agent.
+            if (!result) {
+                const enrichedUserPrompt = agentContext ? userPrompt + agentContext : userPrompt;
+                const aiResult = await this.aiProvider.callWithFallback(systemPrompt, enrichedUserPrompt);
+                if (aiResult) {
+                    result = aiResult.result;
+                    usedModel = aiResult.usedModel + (agentContext ? '+agent' : '');
+                    tokenUsage = aiResult.tokenUsage || null;
+                } else {
+                    result = this.templateFallback.generateFallback(lastMsg.content, relevantKb, quoteResult, messages, matchedTemplate);
+                    usedModel = 'template';
+                }
             }
         }
 
@@ -883,8 +985,29 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
         return data.choices?.[0]?.message?.content?.trim() || '';
     }
 
+    /**
+     * Key cache KB — GỒM nội dung truy vấn, không chỉ `conversationId` (audit 2026-08-29).
+     *
+     * Trước đây key là `conversationId` thuần với TTL 5 phút: khách hỏi câu thứ hai (chủ đề khác)
+     * trong cùng hội thoại vẫn nhận lại đúng chunk của câu trước ⇒ RAG trả context sai một cách
+     * vô hình. Thêm hash của text truy vấn + có/không có productMatch để tách các câu hỏi khác nhau,
+     * vẫn giữ tenant/hội thoại trong key nên không rò chéo.
+     */
+    private kbCacheKey(conversationId: string, productMatch: any, customerText: string): string {
+        const normalized = String(customerText ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+        // Hash 32-bit (FNV-1a) — đủ để phân biệt truy vấn, không cần crypto cho cache cục bộ.
+        let h = 0x811c9dc5;
+        for (let i = 0; i < normalized.length; i++) {
+            h ^= normalized.charCodeAt(i);
+            h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        const product = productMatch?.code ?? productMatch?.id ?? (productMatch ? 'match' : 'none');
+        return `${conversationId}|${product}|${h.toString(16)}`;
+    }
+
     private async searchKBWithCache(conversationId: string, productMatch: any, customerText: string): Promise<any[]> {
-        const cached = this.kbCache.get(conversationId);
+        const cacheKey = this.kbCacheKey(conversationId, productMatch, customerText);
+        const cached = this.kbCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < KB_CACHE_TTL_MS) {
             return cached.results;
         }
@@ -930,7 +1053,7 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
             const oldest = this.kbCache.keys().next().value;
             if (oldest) this.kbCache.delete(oldest);
         }
-        this.kbCache.set(conversationId, { results, timestamp: Date.now() });
+        this.kbCache.set(cacheKey, { results, timestamp: Date.now() });
 
         if (expandedQueries.length > 1) {
             this.logger.log(`🔀 Multi-query KB search: ${expandedQueries.length} queries → ${allResults.length} unique chunks → ${results.length} used`);
@@ -1129,6 +1252,12 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
             '\\d[\\d.,]*\\s*(?:nghìn|ngàn|k)\\b',
             '(?:khoảng|tầm|từ|chỉ|giá)\\s*\\d[\\d.,]*\\s*[-–~]\\s*\\d[\\d.,]*',
             '(?:giá|chi phí|đơn giá|tổng tiền|thành tiền)\\s*(?:là|khoảng|tầm|chỉ|từ)?\\s*(?:\\d{1,3}(?:[.,]\\d{3})+|\\d{4,})(?!\\s*(?:cm|mm|gsm|cái|cuốn|sp|sản phẩm))',
+            // Audit 2026-08-29 — SỐ TIỀN VIẾT TRẦN: số có dấu phân cách nghìn đứng ngay trước
+            // đơn vị đóng gói/tính, KHÔNG có hậu tố tiền và KHÔNG có từ "giá/chi phí" phía trước.
+            // Đo trên chính bảng giá KB: bỏ ký tự tiền đi thì 85/85 dòng LỌT qua 5 pattern cũ,
+            // ví dụ "Couche 300gsm cán mờ 2 mặt: ~150.000/hộp 200 cái" hoặc "~1.500/tờ (từ 100 tờ)".
+            // Loại trừ `gsm/cm/mm/g/kg`… ở NGAY SAU số để không bắt thông số kỹ thuật.
+            '\\d{1,3}(?:[.,]\\d{3})+(?!\\s*(?:gsm|cm|mm|m2|m²))\\s*(?:/|\\s+mỗi\\s+|\\s+một\\s+)\\s*(?:hộp|tờ|cái|con|cuốn|quyển|bộ|bao|thùng|kg|m2|m²|sp|sản phẩm|chiếc|túi|bịch)',
         ];
 
         // Giá trong prose luôn do LLM/canned/KB sinh ra nên không có provenance. Kể cả
@@ -1150,7 +1279,10 @@ Trả lời JSON: {"facts": ["fact1"], "profile": {"industry": "...", ...}} — 
                 const detectPattern = new RegExp(src, 'gi');
                 const matches = reply.text.match(detectPattern);
                 if (matches) {
-                    this.logger.warn(`🚫 Anti-hallucination: Detected untrusted price claim "${matches[0]}"`);
+                    // §11 audit-rules: đây là hành vi BÌNH THƯỜNG (LLM hay viết giá, server gỡ ra),
+                    // xảy ra tới 6 pattern × mỗi reply ⇒ dùng `debug`, không `warn` (tránh flood log
+                    // trong vòng lặp nóng). Cảnh báo thật đã có ở nhánh constraint.
+                    this.logger.debug(`🚫 Anti-hallucination: gỡ claim giá không nguồn "${matches[0]}"`);
                     // Khi có quote thật, hướng người đọc xuống khối canonical do server dựng.
                     // Khi chưa có quote, giữ placeholder rõ nghĩa và chuyển nhân viên báo giá.
                     const replacement = hasVerifiedPrice

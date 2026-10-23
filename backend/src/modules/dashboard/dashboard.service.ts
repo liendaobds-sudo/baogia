@@ -1,10 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 import { Conversation, AiSuggestion, Message, SuggestionStatus, KbDocument, KbChunk } from '../../entities';
 import { ConversationStatus } from '../../entities/conversation.entity';
 import { EventsGateway } from '../gateway/events.gateway';
 import { AiProviderService } from '../suggestions/ai-provider.service';
+import { TenantContextService } from '../../common/tenant/tenant-context.service';
+import { tenantQbCondition } from '../../common/tenant/tenant-sql';
 
 @Injectable()
 export class DashboardService {
@@ -18,15 +20,44 @@ export class DashboardService {
         @InjectRepository(KbChunk) private kbChunkRepo: Repository<KbChunk>,
         private gateway: EventsGateway,
         private aiProvider: AiProviderService,
+        @Optional() private readonly tenantCtx?: TenantContextService,
     ) { }
+
+    /**
+     * Cô lập tenant cho mọi số liệu dashboard (audit 2026-08-29): trước đây các
+     * `count()`/`getRawMany()` dưới đây quét TOÀN BẢNG ⇒ mọi tenant thấy số liệu
+     * gộp của nhau. Thiếu context ⇒ fail-closed (`1 = 0`), bypass ⇒ không lọc.
+     */
+    private applyScope<T extends object>(qb: SelectQueryBuilder<T>, alias: string): SelectQueryBuilder<T> {
+        const scope = tenantQbCondition(this.tenantCtx?.get?.(), alias);
+        if (scope) qb.andWhere(scope.condition, scope.params);
+        return qb;
+    }
+
+    /** Điều kiện `where` cho repo.count/find theo tenant hiện hành. */
+    private scopedWhere<T extends object>(base: FindOptionsWhere<T> = {}): FindOptionsWhere<T>[] {
+        const ctx = this.tenantCtx?.get?.();
+        if (ctx?.bypass) return [base];
+        if (!ctx || ctx.tenantId == null) {
+            // Fail-closed: tenantId âm không tồn tại ⇒ đếm 0 thay vì đếm toàn bảng.
+            return [{ ...base, tenantId: -1 } as FindOptionsWhere<T>];
+        }
+        return [
+            { ...base, tenantId: ctx.tenantId } as FindOptionsWhere<T>,
+            { ...base, tenantId: IsNull() } as FindOptionsWhere<T>,
+        ];
+    }
 
     async getKpi(from?: string, to?: string) {
         try {
             // Batch conversation stats with single query
-            const convStatusRaw = await this.convRepo
-                .createQueryBuilder('c')
-                .select('c.status', 'status')
-                .addSelect('COUNT(*)', 'count')
+            const convStatusRaw = await this.applyScope(
+                this.convRepo
+                    .createQueryBuilder('c')
+                    .select('c.status', 'status')
+                    .addSelect('COUNT(*)', 'count'),
+                'c',
+            )
                 .groupBy('c.status')
                 .getRawMany();
 
@@ -42,13 +73,16 @@ export class DashboardService {
             }
 
             // Batch message & suggestion counts
-            const totalMessages = await this.msgRepo.count();
+            const totalMessages = await this.msgRepo.count({ where: this.scopedWhere<Message>() });
 
             // Batch suggestion stats with single query
-            const sugStatusRaw = await this.sugRepo
-                .createQueryBuilder('s')
-                .select('s.status', 'status')
-                .addSelect('COUNT(*)', 'count')
+            const sugStatusRaw = await this.applyScope(
+                this.sugRepo
+                    .createQueryBuilder('s')
+                    .select('s.status', 'status')
+                    .addSelect('COUNT(*)', 'count'),
+                's',
+            )
                 .groupBy('s.status')
                 .getRawMany();
 
@@ -65,24 +99,40 @@ export class DashboardService {
             }
 
             let slaBreached = 0;
-            try { slaBreached = await this.convRepo.count({ where: { slaBreached: true } }); } catch (e) { /* ignore missing column */ }
+            try {
+                slaBreached = await this.convRepo.count({
+                    where: this.scopedWhere<Conversation>({ slaBreached: true }),
+                });
+            } catch (e) {
+                // Cột slaBreached có thể chưa tồn tại trên DB cũ — bỏ qua nhưng ghi debug.
+                this.logger.debug(`slaBreached count bỏ qua: ${e instanceof Error ? e.message : e}`);
+            }
 
             // KB stats
             let kbDocs = 0, kbChunks = 0;
             try {
-                kbDocs = await this.kbDocRepo.count();
-                kbChunks = await this.kbChunkRepo.count({ where: { isActive: true } });
-            } catch (e) {}
+                kbDocs = await this.kbDocRepo.count({ where: this.scopedWhere<KbDocument>() });
+                kbChunks = await this.kbChunkRepo.count({ where: this.scopedWhere<KbChunk>({ isActive: true }) });
+            } catch (e) {
+                this.logger.debug(`KB stats bỏ qua: ${e instanceof Error ? e.message : e}`);
+            }
 
             // Avg suggestion latency
             let avgLatency = 0;
             try {
-                const latencySugs = await this.sugRepo.find({ select: ['latencyMs'], take: 100, order: { createdAt: 'DESC' } });
+                const latencySugs = await this.sugRepo.find({
+                    where: this.scopedWhere<AiSuggestion>(),
+                    select: ['latencyMs'],
+                    take: 100,
+                    order: { createdAt: 'DESC' },
+                });
                 const latencyValid = latencySugs.filter(s => s.latencyMs);
                 avgLatency = latencyValid.length > 0
                     ? Math.round(latencyValid.reduce((a, s) => a + (s.latencyMs || 0), 0) / latencyValid.length)
                     : 0;
-            } catch (e) {}
+            } catch (e) {
+                this.logger.debug(`avgLatency bỏ qua: ${e instanceof Error ? e.message : e}`);
+            }
 
             return {
                 period: { from: from || 'all', to: to || 'now' },
@@ -129,11 +179,14 @@ export class DashboardService {
 
     async getAiAnalytics() {
         // Top intents
-        const intentRaw = await this.sugRepo
-            .createQueryBuilder('s')
-            .select('s.intent', 'intent')
-            .addSelect('COUNT(*)', 'count')
-            .where('s.intent IS NOT NULL')
+        const intentRaw = await this.applyScope(
+            this.sugRepo
+                .createQueryBuilder('s')
+                .select('s.intent', 'intent')
+                .addSelect('COUNT(*)', 'count')
+                .where('s.intent IS NOT NULL'),
+            's',
+        )
             .groupBy('s.intent')
             .orderBy('count', 'DESC')
             .take(10)
@@ -141,7 +194,7 @@ export class DashboardService {
 
         // Top products from quote results
         const allSugsWithQuotes = await this.sugRepo.find({
-            where: {},
+            where: this.scopedWhere<AiSuggestion>(),
             select: ['quoteResult'],
             take: 500,
             order: { createdAt: 'DESC' },
@@ -157,16 +210,20 @@ export class DashboardService {
             .map(([product, count]) => ({ product, count }));
 
         // Model usage
-        const modelRaw = await this.sugRepo
-            .createQueryBuilder('s')
-            .select('s.model', 'model')
-            .addSelect('COUNT(*)', 'count')
+        const modelRaw = await this.applyScope(
+            this.sugRepo
+                .createQueryBuilder('s')
+                .select('s.model', 'model')
+                .addSelect('COUNT(*)', 'count'),
+            's',
+        )
             .groupBy('s.model')
             .orderBy('count', 'DESC')
             .getRawMany();
 
         // Confidence distribution
         const allSugsConf = await this.sugRepo.find({
+            where: this.scopedWhere<AiSuggestion>(),
             select: ['confidence'],
             take: 200,
             order: { createdAt: 'DESC' },
@@ -180,14 +237,19 @@ export class DashboardService {
         }
 
         // Accept/Reject rates
-        const total = await this.sugRepo.count();
-        const sent = await this.sugRepo.count({ where: { status: 'sent' as any } });
-        const edited = await this.sugRepo.count({ where: { status: 'edited' as any } });
-        const rejected = await this.sugRepo.count({ where: { status: 'rejected' as any } });
-        const autoReplied = await this.sugRepo.count({ where: { autoReplyEligible: true } });
+        const total = await this.sugRepo.count({ where: this.scopedWhere<AiSuggestion>() });
+        const sent = await this.sugRepo.count({ where: this.scopedWhere<AiSuggestion>({ status: 'sent' as any }) });
+        const edited = await this.sugRepo.count({ where: this.scopedWhere<AiSuggestion>({ status: 'edited' as any }) });
+        const rejected = await this.sugRepo.count({ where: this.scopedWhere<AiSuggestion>({ status: 'rejected' as any }) });
+        const autoReplied = await this.sugRepo.count({ where: this.scopedWhere<AiSuggestion>({ autoReplyEligible: true }) });
 
         // Average response time
-        const latencySugs = await this.sugRepo.find({ select: ['latencyMs'], take: 100, order: { createdAt: 'DESC' } });
+        const latencySugs = await this.sugRepo.find({
+            where: this.scopedWhere<AiSuggestion>(),
+            select: ['latencyMs'],
+            take: 100,
+            order: { createdAt: 'DESC' },
+        });
         const validLatency = latencySugs.filter(s => s.latencyMs);
         const avgLatency = validLatency.length > 0
             ? Math.round(validLatency.reduce((a, s) => a + (s.latencyMs || 0), 0) / validLatency.length)
@@ -223,6 +285,7 @@ export class DashboardService {
         };
 
         const recentSugs = await this.sugRepo.find({
+            where: this.scopedWhere<AiSuggestion>(),
             select: ['tokenUsage', 'model', 'createdAt'],
             take: 500,
             order: { createdAt: 'DESC' },
@@ -312,11 +375,14 @@ export class DashboardService {
                 ? "TO_CHAR(m.created_at, 'HH24')"
                 : "strftime('%H', m.created_at)";
 
-            const raw = await this.msgRepo
-                .createQueryBuilder('m')
-                .select(hourExpr, 'hour')
-                .addSelect('COUNT(*)', 'count')
-                .where('m.createdAt >= :today', { today: today.toISOString() })
+            const raw = await this.applyScope(
+                this.msgRepo
+                    .createQueryBuilder('m')
+                    .select(hourExpr, 'hour')
+                    .addSelect('COUNT(*)', 'count')
+                    .where('m.createdAt >= :today', { today: today.toISOString() }),
+                'm',
+            )
                 .groupBy('hour')
                 .orderBy('hour', 'ASC')
                 .getRawMany();
@@ -346,12 +412,12 @@ export class DashboardService {
             lastWeekStart.setDate(now.getDate() - 14);
 
             const [convThis, convLast, msgThis, msgLast, sugThis, sugLast] = await Promise.all([
-                this.convRepo.createQueryBuilder('c').where('c.createdAt >= :d', { d: thisWeekStart.toISOString() }).getCount(),
-                this.convRepo.createQueryBuilder('c').where('c.createdAt >= :d1 AND c.createdAt < :d2', { d1: lastWeekStart.toISOString(), d2: thisWeekStart.toISOString() }).getCount(),
-                this.msgRepo.createQueryBuilder('m').where('m.createdAt >= :d', { d: thisWeekStart.toISOString() }).getCount(),
-                this.msgRepo.createQueryBuilder('m').where('m.createdAt >= :d1 AND m.createdAt < :d2', { d1: lastWeekStart.toISOString(), d2: thisWeekStart.toISOString() }).getCount(),
-                this.sugRepo.createQueryBuilder('s').where('s.createdAt >= :d', { d: thisWeekStart.toISOString() }).getCount(),
-                this.sugRepo.createQueryBuilder('s').where('s.createdAt >= :d1 AND s.createdAt < :d2', { d1: lastWeekStart.toISOString(), d2: thisWeekStart.toISOString() }).getCount(),
+                this.applyScope(this.convRepo.createQueryBuilder('c').where('c.createdAt >= :d', { d: thisWeekStart.toISOString() }), 'c').getCount(),
+                this.applyScope(this.convRepo.createQueryBuilder('c').where('c.createdAt >= :d1 AND c.createdAt < :d2', { d1: lastWeekStart.toISOString(), d2: thisWeekStart.toISOString() }), 'c').getCount(),
+                this.applyScope(this.msgRepo.createQueryBuilder('m').where('m.createdAt >= :d', { d: thisWeekStart.toISOString() }), 'm').getCount(),
+                this.applyScope(this.msgRepo.createQueryBuilder('m').where('m.createdAt >= :d1 AND m.createdAt < :d2', { d1: lastWeekStart.toISOString(), d2: thisWeekStart.toISOString() }), 'm').getCount(),
+                this.applyScope(this.sugRepo.createQueryBuilder('s').where('s.createdAt >= :d', { d: thisWeekStart.toISOString() }), 's').getCount(),
+                this.applyScope(this.sugRepo.createQueryBuilder('s').where('s.createdAt >= :d1 AND s.createdAt < :d2', { d1: lastWeekStart.toISOString(), d2: thisWeekStart.toISOString() }), 's').getCount(),
             ]);
 
             const calcTrend = (cur: number, prev: number): 'up' | 'down' | 'flat' =>

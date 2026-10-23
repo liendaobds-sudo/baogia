@@ -27,12 +27,19 @@ export const QUANTITY_BASIS_OPTIONS: ReadonlyArray<{ basis: QuantityBasis; label
     Object.keys(UNIT_LABELS_VI) as QuantityBasis[]
 ).map((basis) => ({ basis, label: UNIT_LABELS_VI[basis] }));
 
+/**
+ * Alias free-text → basis. PHẢI khớp 1:1 với backend/src/modules/pricing/lib/quote-units.ts.
+ * Audit 2026-08-29: FE trước đây thiếu 'sản phẩm', 'san_pham', 'm^2', 'cuon_giay' ⇒ cùng một
+ * chuỗi đơn vị cho ra nhãn khác nhau giữa mapItem (client) và lúc lưu (server).
+ */
 const UNIT_ALIASES: Record<string, QuantityBasis> = {
     piece: 'piece',
     cai: 'piece',
     'cái': 'piece',
     con: 'piece',
     sp: 'piece',
+    'sản phẩm': 'piece',
+    san_pham: 'piece',
     sheet: 'sheet',
     to: 'sheet',
     'tờ': 'sheet',
@@ -47,10 +54,12 @@ const UNIT_ALIASES: Record<string, QuantityBasis> = {
     sqm: 'sqm',
     m2: 'sqm',
     'm²': 'sqm',
+    'm^2': 'sqm',
     set: 'set',
     bo: 'set',
     'bộ': 'set',
     roll: 'roll',
+    cuon_giay: 'roll',
     'cuộn': 'roll',
 };
 

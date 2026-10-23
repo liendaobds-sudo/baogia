@@ -263,6 +263,15 @@ export interface QuoteMeta {
     pressH?: number;           // cm — bề cao khổ bài in
     pressPositions?: Array<{ x: number; y: number; w: number; h: number }>; // mm — vị trí con trên khổ bài in
     pressUsableArea?: { width: number; height: number };                    // mm — vùng in khả dụng khổ bài in
+    /**
+     * Số bài in (tờ xả) cắt được từ MỘT tờ giấy nhập — cơ sở quy đổi số tờ khi đếm tiền giấy.
+     * Thêm 2026-08-29 để `soConToLon` truy vết được: `soConToLon = soConBaiIn × pressPerParent`.
+     */
+    pressPerParent?: number;
+    /** Khổ tờ nhập lấy từ đâu: bản ghi vật tư (chuẩn) hay `paper_sizes.kho_giay_lon` (fallback). */
+    parentSheetSource?: 'material' | 'khoGiayLon';
+    /** true khi `kho_giay_lon` của khổ in KHÁC khổ giấy của vật tư đã chọn (dữ liệu cần sửa). */
+    parentSheetMismatch?: boolean;
     shadow?: {                                  // chỉ khi ShadowMode bật (Req 5.2)
         legacyToLon: number;
         unifiedToLon: number;

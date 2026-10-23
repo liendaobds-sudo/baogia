@@ -45,12 +45,25 @@ const EXCLUDED = new Set([
   '2026-06-26_tenant_phaseB_enable_rls.sql',
   '2026-07-06_seed_fake_pricing.sql',
   '2026-07-09_backfill_null_tenant.sql',
+  // ─── Audit 2026-08-29 ───────────────────────────────────────────────────────────────
+  // Tạo DB ROLE có mật khẩu nằm trong repo ('CHANGE_ME_...'). Trước đây file này KHÔNG
+  // bị loại ⇒ mọi lần dựng môi trường mới đều sinh role login đoán được + GRANT ALL.
+  // Chỉ chạy TAY trong phiên flip RLS, sau khi đã thay mật khẩu (xem TENANT-RLS-RUNBOOK.md).
+  '2026-06-26_tenant_app_role.sql',
+  // Hai patch dưới PHỤ THUỘC cột `tenant_id` do Pha A tạo (mà Pha A bị loại khỏi đường auto).
+  // Trước đây chúng nằm trong ledger ⇒ trên DB mới patch fail → ROLLBACK → `process.exit(3)`
+  // ⇒ 7 patch SAU không được áp (mất `quotes.customer_email`/`customer_contact` ⇒ POST
+  // /erp/orders vỡ). Nay thuộc chuỗi tenant: chạy sau Pha A theo runbook.
+  // (Bản thân 2 file cũng đã được bọc guard `IF EXISTS column` để rerun an toàn.)
+  '2026-07-09_customers_tenant_scoped_unique.sql',
+  '2026-08-13_auto_kb_tenant_backfill.sql',
   // Index hiệu năng: KHÔNG áp qua đường này.
   // Lý do: (1) trên bảng đã lớn cần `CREATE INDEX CONCURRENTLY`, mà CONCURRENTLY KHÔNG chạy
   // được trong transaction (script này bọc mỗi patch trong BEGIN/COMMIT); (2) đã xác minh
   // 2026-07-25 rằng file 2026-07-12 CHƯA được áp trên DB thật, nên nếu để trong danh sách thì
   // `--mark-only` sẽ đánh dấu sai là "đã áp" và index sẽ không bao giờ được tạo.
   // → Áp thủ công trong maintenance window, xem hướng dẫn trong chính 2 file này.
+  // (Audit 2026-08-29: cả 2 file nay ĐÃ dùng CONCURRENTLY đúng như lý do trên.)
   '2026-07-12_perf_indexes_quotes.sql',
   '2026-07-25_perf_indexes_audit.sql',
 ]);

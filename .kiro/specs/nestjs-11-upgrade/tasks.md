@@ -1,5 +1,13 @@
 # Implementation Plan: Nâng cấp NestJS 10 → 11
 
+> ✅ **ĐÃ HOÀN THÀNH — sổ sách trôi (audit 2026-08-29).** 8 checkbox để trống nhưng việc đã xong:
+> `backend/package.json` khai `@nestjs/core`/`common`/`platform-express`/… ở `^11.0.0`,
+> `@nestjs/cli` `^11`, và `.github/workflows/ci.yml` đã **bỏ `--legacy-peer-deps`** kèm comment
+> "NestJS_Suite đã đồng bộ lên major 11 → không còn xung đột peer". Rà lại rồi tick để đóng spec.
+>
+> Lưu ý: mốc "722 pass" trong mục Notes bên dưới đã lạc hậu (xem `audit-rules.md` §2 — không
+> hardcode số test vào tài liệu).
+
 ## Overview
 
 Nâng đồng bộ hệ `@nestjs/*` lên v11 trên nhánh git riêng, từng cụm có kiểm thử, giữ nguyên hành vi + schema + parity giá. Mỗi task chỉ gồm thay đổi dependency/điểm-chạm API + verify.

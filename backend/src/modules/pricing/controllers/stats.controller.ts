@@ -22,7 +22,16 @@ export class ErpSyncStatusController {
     }
 }
 
-@Controller()
+/**
+ * Audit 2026-08-29: controller này trước đây khai `@Controller()` + `@Get('health')`
+ * ⇒ map ĐÚNG cùng path `/api/v1/health` với `HealthController` (module health). Route
+ * trùng: module nào đăng ký trước thì thắng, nên endpoint DB-ping của `HealthController`
+ * có thể bị che một cách âm thầm. Đổi sang `/api/v1/erp/health` để hai nguồn tách bạch:
+ *   • `/api/v1/health`         → HealthController (có ping DB, dùng bởi super-admin UI)
+ *   • `/api/v1/erp/health`     → engine ERP còn sống hay không
+ *   • `/api/v1/pricing/health` → engine giá (frontend đang gọi)
+ */
+@Controller('erp')
 export class ErpHealthController {
     @Get('health')
     health() {

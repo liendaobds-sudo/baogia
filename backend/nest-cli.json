@@ -8,6 +8,10 @@
             {
                 "include": "**/*.json",
                 "watchAssets": true
+            },
+            {
+                "include": "**/*.md",
+                "watchAssets": true
             }
         ]
     }

@@ -11,7 +11,7 @@ import { CustomerInfo, type CustomerInfoHandle } from '@/app/pricing/_components
 import { useResizableSidebar } from '../_components/useResizableSidebar';
 import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
-import { resolveUnitLabel } from '@/lib/quote/quote-units';
+import { mapCartItemToQuoteItem } from '@/lib/quote/map-cart-item';
 import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
 
 type QuoteTab = 'loose' | 'bound' | 'large_format';
@@ -32,63 +32,14 @@ const numOrUndef = (v: unknown): number | undefined => {
 };
 
 /**
- * Ánh xạ item giỏ hàng → QuoteItemDto.
- * LƯU Ý: QuoteItemDto whitelist theo snake_case + ValidationPipe(forbidNonWhitelisted) →
- * KHÔNG spread thẳng configParams (camelCase) (sẽ bị HTTP 400 "property ... should not exist").
- * Vì vậy: map sang đúng cột snake_case theo từng loại, đồng thời gói FULL configParams + details
- * vào `printing_detail` (JSON whitelisted) để mở Sửa khôi phục lại cấu hình.
+ * Ánh xạ item giỏ hàng → QuoteItemDto — dùng helper chung `@/lib/quote/map-cart-item`
+ * (audit 2026-08-29 gom 3 bản trùng ở /quotes/new, /quotes/offset, /quotes/start về một nguồn;
+ * bản ở trang Cổng bị lỗi spread camelCase làm hỏng hẳn đường lưu báo giá digital).
  *
- * unit: nguồn `resolveUnitLabel` (catalog SP / type) — backend resolve lại khi save.
+ * Bất biến: chỉ gửi khoá snake_case whitelisted của QuoteItemDto; cấu hình camelCase + payload
+ * replay giá nằm trong `printing_detail`.
  */
-const mapItem = (it: QuoteCartItem): Record<string, unknown> => {
-    const cfg = (it.configParams ?? {}) as Record<string, unknown>;
-    const unit = resolveUnitLabel({
-        unit: (cfg.unit as string) || undefined,
-        productUnit: (cfg.productUnit as string) || undefined,
-        quoteType: it.type,
-    });
-    const base: Record<string, unknown> = {
-        product_name: it.name,
-        item_type: it.type,
-        product_type: it.type,
-        quantity: it.quantity,
-        item_total: it.total,
-        unit,
-        // Denormalize tên để PDF/list không phụ thuộc join master-data
-        material_name: (cfg.materialName as string) || undefined,
-        // Gói cấu hình + kết quả tính + payload GỐC để Sửa khôi phục & backend replay xác thực giá.
-        printing_detail: { digital: true, configParams: cfg, details: it.details, pricingPayload: it.pricingPayload },
-    };
-    if (it.type === 'loose') {
-        return {
-            ...base,
-            material_id: numOrUndef(cfg.materialId),
-            paper_size_id: numOrUndef(cfg.paperSizeId),
-            paper_size_name: (cfg.paperSizeName as string) || undefined,
-            item_width: numOrUndef(cfg.itemWidth),
-            item_height: numOrUndef(cfg.itemHeight),
-            print_type: (cfg.printType as string) || undefined,
-            print_side: (cfg.printSide as string) || undefined,
-        };
-    }
-    if (it.type === 'large_format') {
-        return {
-            ...base,
-            material_id: numOrUndef(cfg.lfMaterialId),
-            item_width: numOrUndef(cfg.lfWidth),
-            item_height: numOrUndef(cfg.lfHeight),
-            print_type: (cfg.lfPrintType as string) || undefined,
-        };
-    }
-    if (it.type === 'bound') {
-        return {
-            ...base,
-            page_count: numOrUndef(cfg.bPageCount),
-            binding_type: (cfg.bBindingType as string) || undefined,
-        };
-    }
-    return base;
-};
+const mapItem = (it: QuoteCartItem): Record<string, unknown> => mapCartItemToQuoteItem(it);
 
 export default function NewQuotePage() {
     const { token } = useAuth();
