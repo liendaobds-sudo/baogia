@@ -16,6 +16,7 @@ interface Placed { x: number; y: number; rotation: number; }
 interface SheetNest {
     khoIn: string; khoGiayLon: string; loaiKem?: string; sheetWmm: number; sheetHmm: number;
     countPerSheet: number; utilization: number; label: string; positions: Placed[];
+    marginConfig?: { margin: { top: number; right: number; bottom: number; left: number }; gripperMargin: number };
 }
 interface DielineData {
     boxType: string;
@@ -232,7 +233,7 @@ export default function DielinePreview({ boxType, rong, hong, cao, thickness, mi
         const drawnCount = sheet.positions.length;
         const countMismatch = drawnCount > 0 && drawnCount !== selCount;
         const flipT = `translate(0, ${bb.minY + bb.maxY}) scale(1, -1)`;
-        const { margin, gripperMargin } = data.config;
+        const { margin, gripperMargin } = sheet.marginConfig ?? data.config;
         const effBottom = Math.max(margin.bottom, gripperMargin);
         const W = sheet.sheetWmm, H = sheet.sheetHmm;
         // DIM: chừa lề để vẽ mũi tên kích thước (mm) + tiêu đề số con — đồng bộ preview In Nhanh.

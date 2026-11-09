@@ -92,13 +92,17 @@ describe('Offset price preservation (golden) — Property 11, Req 6.5', () => {
 
     const GOLDEN: Record<string, GoldenPrice> = {
         to_roi: {
-            tongChuaVAT: 10835129.629629627,
+        // ─── RE-BASELINE 2026-10-25 (audit O-02): sửa lỗi nhân bình phương (luotIn / MOQ)^2 ở to-roi.ts ───
+        // Trước đây to-roi.ts gọi `giaGocBinhBai = chiPhiBinhBai(kemType, soKemIn, luotIn, d)` (ĐÃ nhân
+        // `luotIn / moq` = 800.000 × 10.000 / 6.000 = 1.333.333,33đ), rồi lại nhân `luotIn / moq` lần 2
+        // ⇒ 2.222.222,22đ (thừa 888.888,89đ, cpChayMay = 0). Sau sửa: cpBinhBai = 1.333.333,33đ.
+            tongChuaVAT: 9946240.740740737,
             haoHut: 223666.66666666622,
-            vat: 866810.3703703702,
-            tongGomVAT: 11701939.999999996,
-            chietKhau: 311111.1111111111,
-            khachTra: 11390828.888888884,
-            donGia1SP: 2278.165777777777,
+            vat: 795699.259259259,
+            tongGomVAT: 10741939.999999996,
+            chietKhau: 266666.6666666667,
+            khachTra: 10475273.33333333,
+            donGia1SP: 2095.054666666666,
         },
         bi_thu_folder: {
             tongChuaVAT: 3076357.4074074067,

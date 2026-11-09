@@ -14,13 +14,15 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { useOffsetPricebook, type OffsetQuoteResult, type Pricebook, type KhoInOpt, type OffsetProductConfig } from '../_hooks/useOffsetPricebook';
+import { useOffsetPricebook, type OffsetQuoteResult, type Pricebook, type OffsetProductConfig } from '../_hooks/useOffsetPricebook';
 import { useQuoteCart } from '../_store/useQuoteCart';
 import { OffsetPreviewSVG } from './OffsetPreviewSVG';
 import DielinePreview from './DielinePreview';
 import { formatVND, StatCard, LBL, INP } from './quote-ui';
 import { quoteAlignedOffsetTotals } from '@/lib/quote/offset-quote-total';
 import { ResizableColumns } from './ResizableColumns';
+import { useTrialMode, groupOffsetLinesForTrial } from '@/lib/scope/use-trial-mode';
+import { useCustomPresets, PresetSaveControls } from '@/lib/quote/use-custom-presets';
 
 /** Loại khuôn bế cho xếp bài chính xác (engine dieline). BẮT BUỘC chọn — không còn chế độ ước lượng. */
 const BOX_TYPE_OPTS = [
@@ -89,13 +91,13 @@ function Chk({ label, value, onChange, disabled }: { label: string; value: boole
     );
 }
 
-/** Nhóm các toggle (checkbox) vào 1 card gọn — tự ẩn khi không có mục nào hiển thị. */
+/** Nhóm các toggle (checkbox) gọn gàng không lồng khung nét đứt — tự ẩn khi không có mục nào hiển thị. */
 function ToggleCard({ items }: { items: { show: boolean; label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }[] }) {
     const vis = items.filter((i) => i.show);
     if (vis.length === 0) return null;
     return (
-        <div className="bg-slate-50/80 border border-dashed border-slate-200 rounded-lg px-3 py-2.5">
-            <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 tracking-wider">Tuỳ chọn gia công</div>
+        <div className="pt-1">
+            <div className={lbl}>Tuỳ chọn gia công</div>
             <div className="flex flex-wrap gap-x-6 gap-y-1">
                 {vis.map((i) => <Chk key={i.label} label={i.label} value={i.value} onChange={i.onChange} disabled={i.disabled} />)}
             </div>
@@ -168,7 +170,7 @@ function ExtraProcSel({ pb, st, set }: { pb: any; st: any; set: (k: string, v: a
         set('extraProcessing', next);
     };
     return (
-        <div className="col-span-2">
+        <div>
             <label className={lbl}>Gia công thêm</label>
             <div className="flex flex-wrap gap-2">
                 {opts.map((o) => {
@@ -185,27 +187,41 @@ function ExtraProcSel({ pb, st, set }: { pb: any; st: any; set: (k: string, v: a
     );
 }
 
-/** Select có Ô LỌC: gõ để lọc danh sách (vd "couche" → chỉ hiện giấy Couché). */
+/** Select có Ô LỌC: gõ để lọc danh sách (vd "couche" → chỉ hiện giấy Couché), tự động mở lên trên nếu sát đáy. */
 function SearchSelect({ label, value, onChange, options, disabled, placeholder = 'Gõ để lọc...' }: { label: string; value: string; onChange: (v: string) => void; options: { id: string; label: string }[]; disabled?: boolean; placeholder?: string }) {
     const [query, setQuery] = useState('');
     const [open, setOpen] = useState(false);
+    const [openUpward, setOpenUpward] = useState(false);
+    const wrapperRef = useRef<HTMLDivElement>(null);
     const selected = options.find((o) => o.id === value);
     const q = query.trim().toLowerCase();
     const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+
+    const handleFocus = () => {
+        if (disabled) return;
+        if (wrapperRef.current && typeof window !== 'undefined') {
+            const rect = wrapperRef.current.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - rect.bottom;
+            setOpenUpward(spaceBelow < 240 && rect.top > 240);
+        }
+        setOpen(true);
+        setQuery('');
+    };
+
     return (
-        <div className="relative">
+        <div className="relative" ref={wrapperRef}>
             <label className={lbl}>{label}</label>
             <input
                 className={`${inp} ${disabled ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : ''}`}
                 value={open ? query : (selected?.label ?? '')}
                 placeholder={selected ? selected.label : placeholder}
                 disabled={disabled}
-                onFocus={() => { if (!disabled) { setOpen(true); setQuery(''); } }}
+                onFocus={handleFocus}
                 onChange={(e) => setQuery(e.target.value)}
                 onBlur={() => setTimeout(() => setOpen(false), 150)}
             />
             {open && !disabled && (
-                <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg">
+                <div className={`absolute z-30 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'} w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg custom-scrollbar`}>
                     {filtered.length === 0 && <div className="px-3 py-2 text-[12px] text-slate-400 italic">Không có kết quả</div>}
                     {filtered.map((o) => (
                         <div key={o.id} onMouseDown={() => { onChange(o.id); setQuery(''); setOpen(false); }}
@@ -221,7 +237,7 @@ function SearchSelect({ label, value, onChange, options, disabled, placeholder =
 
 function SectionHeader({ num, title }: { num: number; title: string }) {
     return (
-        <h4 className="font-bold text-[11px] mb-2.5 text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b-2 border-slate-200 pb-1.5">
+        <h4 className="font-bold text-[11px] mb-2 text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
             <span className="bg-indigo-100 text-indigo-700 w-4 h-4 rounded-full flex items-center justify-center text-[9px]">{num}</span> {title}
         </h4>
     );
@@ -229,24 +245,37 @@ function SectionHeader({ num, title }: { num: number; title: string }) {
 
 // ─────────────── per-type forms ───────────────
 
+/** Kiểm tra khổ giấy lớn của khổ in có khớp khổ gốc (sheetWidth × sheetHeight) của vật tư giấy hay không. */
+function isKhoCompatibleWithMat(khoGiayLon: string | undefined, mat: { sheetWidth?: number; sheetHeight?: number } | undefined): boolean {
+    if (!khoGiayLon || !mat || !mat.sheetWidth || !mat.sheetHeight) return true;
+    const m = String(khoGiayLon).match(/([\d.]+)\s*(?:cm)?\s*[x×]\s*([\d.]+)/i);
+    if (!m) return true;
+    const pW = Math.min(parseFloat(m[1]), parseFloat(m[2]));
+    const pH = Math.max(parseFloat(m[1]), parseFloat(m[2]));
+    const mW = Math.min(mat.sheetWidth, mat.sheetHeight);
+    const mH = Math.max(mat.sheetWidth, mat.sheetHeight);
+    return Math.abs(mW - pW) <= 1 && Math.abs(mH - pH) <= 1;
+}
+
 /** Bộ trợ giúp lọc danh sách + ẩn/khoá field theo cấu hình loại sản phẩm (whitelist). */
-function makeUI(pb: any, cfg: OffsetProductConfig = {}) {
+function makeUI(pb: any, cfg: OffsetProductConfig = {}, selectedMaterialCode?: string) {
     const hidden = new Set(cfg.hidden ?? []);
     const locked = new Set(cfg.locked ?? []);
-    // STRICT: chỉ hiển thị mục NẰM TRONG whitelist của sản phẩm. Danh sách rỗng/chưa cấu hình
-    // = không có mục nào (đi đúng theo cài đặt, KHÔNG fallback hiện tất cả).
-    const keep = (allowed: string[] | undefined, id: string) => Array.isArray(allowed) && allowed.includes(id);
+    const keep = (allowed: string[] | undefined, id: string) => !Array.isArray(allowed) || allowed.includes(id);
+    const selectedMat = pb?.materials?.find((m: any) => m.code === selectedMaterialCode);
     return {
         show: (f: string) => !hidden.has(f),
         lock: (f: string) => locked.has(f),
         materials: () => pb.materials.filter((m: any) => keep(cfg.allowedMaterials, m.code)).map((m: any) => ({ id: m.code, label: `${m.code} — ${m.materialName}` })),
         vatTuBeMat: () => pb.vatTuBeMat.filter((v: any) => keep(cfg.allowedVatTuBeMat, v.ten)).map((v: any) => ({ id: v.ten, label: v.ten })),
-        khoIn: () => pb.khoIn.filter((k: any) => keep(cfg.allowedKhoIn, k.khoIn)).map((k: any) => ({ id: k.khoIn, label: k.loaiKem ? `${k.khoIn} (${k.loaiKem})` : k.khoIn })),
+        khoIn: () => pb.khoIn.filter((k: any) => keep(cfg.allowedKhoIn, k.khoIn)).map((k: any) => {
+            const baseLbl = k.loaiKem ? `${k.khoIn} (${k.loaiKem})` : k.khoIn;
+            const compat = isKhoCompatibleWithMat(k.khoGiayLon, selectedMat);
+            return { id: k.khoIn, label: selectedMat?.sheetWidth && compat ? `${baseLbl} · ✓ Khớp giấy` : baseLbl, compat };
+        }),
         epKim: () => [{ id: 'Không', label: 'Không' }, ...pb.epKim.rows.filter((r: any) => keep(cfg.allowedEpKim, r.viTri)).map((r: any) => ({ id: r.viTri, label: r.viTri }))],
         kichToRoi: () => pb.fixedSizes.toRoi.filter((f: any) => keep(cfg.allowedKichThuoc, f.kichThuoc)).map((f: any) => ({ id: f.kichThuoc, label: f.kichThuoc })),
         kichBiThu: () => pb.fixedSizes.biThuFolder.filter((f: any) => keep(cfg.allowedKichThuoc, f.kichThuoc)).map((f: any) => ({ id: f.kichThuoc, label: `${f.kichThuoc} (${f.loai})` })),
-        // STRICT (đồng bộ với các list khác): chỉ hiện khuôn nằm trong whitelist.
-        // Chưa cấu hình → rỗng. Cấu hình ở Settings → Cấu Hình Sản Phẩm Offset → Hộp giấy.
         boxTypes: (full: { id: string; label: string }[]) => full.filter((o) => keep(cfg.allowedBoxTypes, o.id)),
     };
 }
@@ -272,18 +301,35 @@ function KieuInSel({ pb, value, onChange, disabled }: { pb: any; value: number; 
     return <Sel label="Kiểu in (số màu)" value={String(value)} onChange={(v) => onChange(Number(v))} options={opts} disabled={disabled} />;
 }
 
+function KieuTroBanSel({ st, set, disabled, defaultBoKem = 1 }: { st: any; set: (k: string, v: any) => void; disabled?: boolean; defaultBoKem?: number }) {
+    if (Number(st.soMatIn) !== 2) return null;
+    const val = String(st.soBoKem ?? defaultBoKem);
+    return (
+        <Sel
+            label="Kiểu trở bản (bộ kẽm)"
+            value={val}
+            disabled={disabled}
+            onChange={(v) => set('soBoKem', Number(v) || 1)}
+            options={[
+                { id: '1', label: 'Tự trở (1 bộ kẽm)' },
+                { id: '2', label: 'Bắt đôi / Khác kẽm (2 bộ kẽm)' },
+            ]}
+        />
+    );
+}
+
 function ToRoiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: any) => void; ui: UI }) {
     return (
         <div className="flex flex-col gap-4">
             <SectionHeader num={1} title="Thông tin sản phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 <SizeModeToggle mode={st.sizeMode} onChange={(m) => set('sizeMode', m)} />
                 {st.sizeMode === 'custom' ? (
                     <>
                         <Num label="Số lượng" value={st.soLuong} onChange={(v) => set('soLuong', v)} min={1} disabled={ui.lock('soLuong')} />
                         <Num label="Rộng (cm)" value={st.rong} onChange={(v) => set('rong', v)} step={0.1} disabled={ui.lock('rong')} />
                         <Num label="Cao (cm)" value={st.cao} onChange={(v) => set('cao', v)} step={0.1} disabled={ui.lock('cao')} />
-                        <div className="col-span-2 text-[12px] text-slate-600 bg-indigo-50/60 border border-indigo-100 rounded-lg px-3 py-2">
+                        <div className="col-span-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                             Khổ in: <b className="text-indigo-700">{st.khoIn || '— chọn ở thẻ "Gợi ý khổ giấy" bên phải →'}</b>
                         </div>
                     </>
@@ -296,14 +342,15 @@ function ToRoiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: 
             </div>
 
             <SectionHeader num={2} title="Vật tư & In ấn" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('materialCode') && <SearchSelect label="Giấy in" value={st.materialCode} onChange={(v) => set('materialCode', v)} options={ui.materials()} disabled={ui.lock('materialCode')} />}
                 {ui.show('soMatIn') && <Sel label="Số mặt in" value={String(st.soMatIn)} onChange={(v) => set('soMatIn', Number(v))} options={[{ id: '1', label: '1 mặt' }, { id: '2', label: '2 mặt' }]} disabled={ui.lock('soMatIn')} />}
                 {ui.show('soKemIn') && <KieuInSel pb={pb} value={st.soKemIn} onChange={(v) => set('soKemIn', v)} disabled={ui.lock('soKemIn')} />}
+                {ui.show('soBoKem') && <KieuTroBanSel st={st} set={set} disabled={ui.lock('soBoKem')} />}
             </div>
 
             <SectionHeader num={3} title="Gia Công & Thành phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('vatTuBeMat') && <Sel label="Vật tư bề mặt" value={st.vatTuBeMat} onChange={(v) => set('vatTuBeMat', v)} options={ui.vatTuBeMat()} disabled={ui.lock('vatTuBeMat')} />}
                 {ui.show('thanhPhamGap') && <Sel label="Thành phẩm gấp" value={st.thanhPhamGap} onChange={(v) => set('thanhPhamGap', v)} options={TP_OPTS} disabled={ui.lock('thanhPhamGap')} />}
                 {(ui.show('khuon') || ui.show('be')) && <BeKhuonSel st={st} set={set} disabled={ui.lock('be') || ui.lock('khuon')} />}
@@ -319,10 +366,13 @@ function ToRoiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: 
 }
 
 function BiThuForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: any) => void; ui: UI }) {
+    const isFolder = st.sizeMode === 'custom'
+        ? st.loai === 'folder'
+        : pb?.fixedSizes?.biThuFolder?.find((f: any) => f.kichThuoc === st.kichThuoc)?.loai === 'folder';
     return (
         <div className="flex flex-col gap-4">
             <SectionHeader num={1} title="Thông tin sản phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 <SizeModeToggle mode={st.sizeMode} onChange={(m) => set('sizeMode', m)} />
                 {st.sizeMode === 'custom' ? (
                     <>
@@ -330,7 +380,7 @@ function BiThuForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: 
                         <Sel label="Loại" value={st.loai} onChange={(v) => set('loai', v)} options={[{ id: 'bithu', label: 'Bì thư' }, { id: 'folder', label: 'Folder' }]} disabled={ui.lock('loai')} />
                         <Num label="Rộng (cm)" value={st.rong} onChange={(v) => set('rong', v)} step={0.1} disabled={ui.lock('rong')} />
                         <Num label="Cao (cm)" value={st.cao} onChange={(v) => set('cao', v)} step={0.1} disabled={ui.lock('cao')} />
-                        <div className="col-span-2 text-[12px] text-slate-600 bg-indigo-50/60 border border-indigo-100 rounded-lg px-3 py-2">
+                        <div className="col-span-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                             Khổ in: <b className="text-indigo-700">{st.khoIn || '— chọn ở thẻ "Gợi ý khổ giấy" bên phải →'}</b>
                         </div>
                     </>
@@ -348,13 +398,14 @@ function BiThuForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: 
                 )}
             </div>
             <SectionHeader num={2} title="Vật tư & In ấn" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('materialCode') && <SearchSelect label="Giấy in" value={st.materialCode} onChange={(v) => set('materialCode', v)} options={ui.materials()} disabled={ui.lock('materialCode')} />}
                 {ui.show('soMatIn') && <Sel label="Số mặt in" value={String(st.soMatIn)} onChange={(v) => set('soMatIn', Number(v))} options={[{ id: '1', label: '1 mặt' }, { id: '2', label: '2 mặt' }]} disabled={ui.lock('soMatIn')} />}
                 {ui.show('soKemIn') && <KieuInSel pb={pb} value={st.soKemIn} onChange={(v) => set('soKemIn', v)} disabled={ui.lock('soKemIn')} />}
+                {ui.show('soBoKem') && <KieuTroBanSel st={st} set={set} disabled={ui.lock('soBoKem')} defaultBoKem={isFolder ? 2 : 1} />}
             </div>
             <SectionHeader num={3} title="Gia Công & Thành phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('vatTuBeMat') && <Sel label="Vật tư bề mặt" value={st.vatTuBeMat} onChange={(v) => set('vatTuBeMat', v)} options={ui.vatTuBeMat()} disabled={ui.lock('vatTuBeMat')} />}
                 {ui.show('thanhPhamDan') && <Sel label="Thành phẩm dán" value={st.thanhPhamDan} onChange={(v) => set('thanhPhamDan', v)} options={TP_OPTS} disabled={ui.lock('thanhPhamDan')} />}
                 {(ui.show('khuon') || ui.show('be')) && <BeKhuonSel st={st} set={set} disabled={ui.lock('be') || ui.lock('khuon')} />}
@@ -372,20 +423,21 @@ function SpKhacForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v:
     return (
         <div className="flex flex-col gap-4">
             <SectionHeader num={1} title="Thông tin sản phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('soLuong') && <Num label="Số lượng" value={st.soLuong} onChange={(v) => set('soLuong', v)} min={1} disabled={ui.lock('soLuong')} />}
                 {ui.show('soMatIn') && <Sel label="Số mặt in" value={String(st.soMatIn)} onChange={(v) => set('soMatIn', Number(v))} options={[{ id: '1', label: '1 mặt' }, { id: '2', label: '2 mặt' }]} disabled={ui.lock('soMatIn')} />}
                 {ui.show('rong') && <Num label="Rộng (cm) — 0 = tự động" value={st.rong} onChange={(v) => set('rong', v)} step={0.1} disabled={ui.lock('rong')} />}
                 {ui.show('cao') && <Num label="Cao (cm) — 0 = tự động" value={st.cao} onChange={(v) => set('cao', v)} step={0.1} disabled={ui.lock('cao')} />}
             </div>
             <SectionHeader num={2} title="Vật tư & In ấn" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('khoIn') && <Sel label="Khổ in" value={st.khoIn} onChange={(v) => set('khoIn', v)} options={ui.khoIn()} disabled={ui.lock('khoIn')} />}
                 {ui.show('materialCode') && <SearchSelect label="Giấy in" value={st.materialCode} onChange={(v) => set('materialCode', v)} options={ui.materials()} disabled={ui.lock('materialCode')} />}
                 {ui.show('soMau') && <KieuInSel pb={pb} value={st.soMau} onChange={(v) => set('soMau', v)} disabled={ui.lock('soMau')} />}
+                {ui.show('soBoKem') && <KieuTroBanSel st={st} set={set} disabled={ui.lock('soBoKem')} />}
             </div>
             <SectionHeader num={3} title="Gia Công & Thành phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('vatTuBeMat') && <Sel label="Vật tư bề mặt" value={st.vatTuBeMat} onChange={(v) => set('vatTuBeMat', v)} options={ui.vatTuBeMat()} disabled={ui.lock('vatTuBeMat')} />}
                 {(ui.show('khuon') || ui.show('be')) && <BeKhuonSel st={st} set={set} disabled={ui.lock('be') || ui.lock('khuon')} />}
                 {ui.show('epKimViTri') && <Sel label="Ép kim" value={st.epKimViTri} onChange={(v) => set('epKimViTri', v)} options={ui.epKim()} disabled={ui.lock('epKimViTri')} />}
@@ -405,7 +457,7 @@ function HopForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: an
     return (
         <div className="flex flex-col gap-4">
             <SectionHeader num={1} title="Thông tin sản phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 <Sel label="Kiểu hộp (khuôn bế)" value={st.boxType} onChange={(v) => {
                     set('boxType', v);
                     const d = BOX_TYPE_DIMS[v];
@@ -417,14 +469,15 @@ function HopForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: an
                 {ui.show('hong') && <Num label="Hông (cm)" value={st.hong} onChange={(v) => set('hong', v)} step={0.1} disabled={ui.lock('hong')} />}
             </div>
             <SectionHeader num={2} title="Vật tư & In ấn" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('khoIn') && <Sel label="Khổ in" value={st.khoIn} onChange={(v) => set('khoIn', v)} options={ui.khoIn()} disabled={ui.lock('khoIn')} />}
                 {ui.show('materialCode') && <SearchSelect label="Giấy in" value={st.materialCode} onChange={(v) => set('materialCode', v)} options={ui.materials()} disabled={ui.lock('materialCode')} />}
                 {ui.show('soMatIn') && <Sel label="Số mặt in" value={String(st.soMatIn)} onChange={(v) => set('soMatIn', Number(v))} options={[{ id: '1', label: '1 mặt' }, { id: '2', label: '2 mặt' }]} disabled={ui.lock('soMatIn')} />}
                 {ui.show('soMau') && <KieuInSel pb={pb} value={st.soMau} onChange={(v) => set('soMau', v)} disabled={ui.lock('soMau')} />}
+                {ui.show('soBoKem') && <KieuTroBanSel st={st} set={set} disabled={ui.lock('soBoKem')} />}
             </div>
             <SectionHeader num={3} title="Gia Công & Thành phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('vatTuBeMat') && <Sel label="Vật tư bề mặt" value={st.vatTuBeMat} onChange={(v) => set('vatTuBeMat', v)} options={ui.vatTuBeMat()} disabled={ui.lock('vatTuBeMat')} />}
                 {ui.show('danHop') && <Sel label="Dán hộp" value={st.danHop} onChange={(v) => set('danHop', v)} options={[{ id: 'khong', label: 'Không' }, { id: 'tc', label: 'Thủ công' }, { id: 'auto', label: 'Máy/Tự động' }]} disabled={ui.lock('danHop')} />}
                 {ui.show('epKimViTri') && <Sel label="Ép kim" value={st.epKimViTri} onChange={(v) => set('epKimViTri', v)} options={ui.epKim()} disabled={ui.lock('epKimViTri')} />}
@@ -444,7 +497,7 @@ function TuiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: an
     return (
         <div className="flex flex-col gap-4">
             <SectionHeader num={1} title="Thông tin sản phẩm" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('soLuong') && <Num label="Số lượng" value={st.soLuong} onChange={(v) => set('soLuong', v)} min={1} disabled={ui.lock('soLuong')} />}
                 {ui.show('cao') && <Num label="Cao (cm)" value={st.cao} onChange={(v) => set('cao', v)} step={0.1} disabled={ui.lock('cao')} />}
                 {ui.show('rong') && <Num label="Rộng (cm)" value={st.rong} onChange={(v) => set('rong', v)} step={0.1} disabled={ui.lock('rong')} />}
@@ -452,7 +505,7 @@ function TuiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: an
                 {ui.show('mi') && <Num label="Mí (cm)" value={st.mi} onChange={(v) => set('mi', v)} step={0.1} disabled={ui.lock('mi')} />}
             </div>
             <Collapsible title="Cấu trúc sản phẩm" hint="Quai & miệng túi" defaultOpen={false}>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                     <Sel label="Loại quai" value={st.quaiType || 'lo'} onChange={(v) => set('quaiType', v)}
                         options={[{ id: 'lo', label: 'Quai lỗ xỏ dây' }, { id: 'dan', label: 'Quai dán (bản giấy)' }]} />
                     <Sel label="Miệng túi" value={st.mieng || 'gap'} onChange={(v) => set('mieng', v)}
@@ -463,7 +516,7 @@ function TuiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: an
                 </p>
             </Collapsible>
             <SectionHeader num={2} title="Vật tư & In ấn" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('materialCode') && <SearchSelect label="Giấy in" value={st.materialCode} onChange={(v) => set('materialCode', v)} options={ui.materials()} disabled={ui.lock('materialCode')} />}
                 {ui.show('soKem') && <KieuInSel pb={pb} value={st.soKem} onChange={(v) => set('soKem', v)} disabled={ui.lock('soKem')} />}
             </div>
@@ -471,7 +524,7 @@ function TuiForm({ pb, st, set, ui }: { pb: any; st: any; set: (k: string, v: an
             <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                 Túi giấy đã bao gồm sẵn <b>bế khuôn + dán + thành phẩm túi</b> (bắt buộc, tính tự động trong giá).
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
                 {ui.show('vatTuBeMat') && <Sel label="Vật tư bề mặt" value={st.vatTuBeMat} onChange={(v) => set('vatTuBeMat', v)} options={ui.vatTuBeMat()} disabled={ui.lock('vatTuBeMat')} />}
                 {ui.show('dayXachLoai') && <Sel label="Dây xách" value={st.dayXachLoai} onChange={(v) => set('dayXachLoai', v)} options={[{ id: 'khong', label: 'Không' }, { id: '1', label: '1 dây' }, { id: '2', label: '2 dây' }]} disabled={ui.lock('dayXachLoai')} />}
                 {ui.show('dayXachDonGia') && <Num label="Đơn giá dây (VND)" value={st.dayXachDonGia} onChange={(v) => set('dayXachDonGia', v)} disabled={ui.lock('dayXachDonGia')} />}
@@ -518,27 +571,47 @@ function buildPayload(type: ProductType, st: Record<string, any>): Record<string
         };
     }
     if (type === 'to_roi' || type === 'bi_thu_folder') {
-        // Chế độ nhập kích thước → bỏ kichThuoc để engine đi nhánh động; chế độ tĩnh → giữ kichThuoc.
         delete base.sizeMode;
         if (st.sizeMode === 'custom') base.kichThuoc = '';
+        if (Number(st.soMatIn) !== 2) delete base.soBoKem;
         return base;
     }
+    if (Number(st.soMatIn) !== 2) delete base.soBoKem;
     return base;
 }
 
-function ResultPanel({ result, error, quantity }: { result: OffsetQuoteResult | null; error: string | null; quantity: number }) {
+function ResultPanel({
+    result,
+    error,
+    quantity,
+    calculating,
+    onAddToCart,
+}: {
+    result: OffsetQuoteResult | null;
+    error: string | null;
+    quantity: number;
+    calculating?: boolean;
+    onAddToCart: () => void;
+}) {
     // Quy đổi về ĐÚNG quy ước tiền của tầng báo giá (VAT trên giá SAU chiết khấu) để số hiển
     // thị ở đây khớp `grand_total` mà OrdersService lưu và QuotePdfService in ra.
-    // KHÔNG dùng `result.khachTra` (engine áp VAT trên base TRƯỚC chiết khấu ⇒ lệch chietKhau × VAT).
+    const { isTrialMode } = useTrialMode();
     const aligned = quoteAlignedOffsetTotals(result, quantity);
-    // Cùng "khung thẻ" với luồng kỹ thuật số (TỔNG CHI PHÍ): luôn hiển thị thẻ,
-    // kể cả khi chưa có kết quả (hiện "-"), để hai trang nhìn đồng bộ.
+    const displayLines = result && result.lines.length > 0
+        ? (isTrialMode ? groupOffsetLinesForTrial(result.lines) : result.lines)
+        : [];
     const DOT = ['bg-blue-400', 'bg-emerald-400', 'bg-orange-400', 'bg-purple-400', 'bg-pink-400'];
     return (
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] flex-1 relative overflow-hidden">
-            <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-slate-50 border border-slate-100 z-0" />
-            <h3 className="font-extrabold text-[15px] mb-5 text-slate-800 relative z-10 border-b border-slate-100 pb-3 uppercase tracking-wider flex items-center justify-between">
-                TỔNG CHI PHÍ
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] flex-1 min-h-0 relative overflow-hidden flex flex-col">
+            <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-slate-50 border border-slate-100 z-0 pointer-events-none" />
+            <h3 className="font-extrabold text-[14px] mb-3 text-slate-800 relative z-10 border-b border-slate-100 pb-2.5 uppercase tracking-wider flex items-center justify-between shrink-0">
+                <span>TỔNG CHI PHÍ</span>
+                {calculating && (
+                    <span className="text-[11px] font-semibold text-indigo-500 normal-case flex items-center gap-1.5">
+                        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Đang tính...
+                    </span>
+                )}
             </h3>
             {error ? (
                 <div className="relative z-10 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs font-semibold flex items-start gap-2">
@@ -546,41 +619,47 @@ function ResultPanel({ result, error, quantity }: { result: OffsetQuoteResult | 
                     {error}
                 </div>
             ) : (
-                <div className="space-y-4 text-[13px] relative z-10">
-                    {/* Cảnh báo cấu hình (không chặn tính) */}
-                    {result?.warnings && result.warnings.length > 0 && (
-                        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
-                            {result.warnings.map((w, i) => (
-                                <div key={i} className="flex items-start gap-1.5"><span>⚠️</span><span>{w}</span></div>
-                            ))}
-                        </div>
-                    )}
-                    {/* Các khoản chi phí (line items từ engine) */}
-                    <div className="flex flex-col gap-1.5">
-                        {result && result.lines.length > 0 ? result.lines.map((l, i) => (
-                            <div key={i} className="flex justify-between items-center text-slate-600 font-medium">
-                                <span className="flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${DOT[i % DOT.length]}`} /> {l.label}:</span>
-                                <span className="font-bold text-slate-800">{formatVND(l.amount)}</span>
-                            </div>
-                        )) : (
-                            <div className="flex justify-between items-center text-slate-600 font-medium">
-                                <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> Chi phí in:</span>
-                                <span className="font-bold text-slate-800">-</span>
+                <>
+                    {/* Vùng danh sách chi phí cuộn độc lập để không bao giờ cắt chữ hoặc đẩy mất nút Thêm */}
+                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 space-y-3 text-[13px] relative z-10">
+                        {result?.warnings && result.warnings.length > 0 && (
+                            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+                                {result.warnings.map((w, i) => (
+                                    <div key={i} className="flex items-start gap-1.5"><span>⚠️</span><span>{w}</span></div>
+                                ))}
                             </div>
                         )}
+                        {isTrialMode && displayLines.length > 0 && (
+                            <div className="text-[10.5px] text-amber-700 bg-amber-50/90 border border-amber-200/80 rounded-md px-2.5 py-1.5 font-medium flex items-center gap-1.5">
+                                <span>🔒</span>
+                                <span>Chế độ Dùng thử: Đã gộp 12 hạng mục giá vốn thành 3 nhóm chính</span>
+                            </div>
+                        )}
+                        <div className="flex flex-col gap-1.5">
+                            {displayLines.length > 0 ? displayLines.map((l, i) => (
+                                <div key={i} className="flex justify-between items-center text-slate-600 font-medium gap-2">
+                                    <span className="flex items-center gap-1.5 min-w-0 truncate"><div className={`w-1.5 h-1.5 rounded-full shrink-0 ${DOT[i % DOT.length]}`} /> <span className="truncate">{l.label}:</span></span>
+                                    <span className="font-bold text-slate-800 shrink-0">{formatVND(l.amount)}</span>
+                                </div>
+                            )) : (
+                                <div className="flex justify-between items-center text-slate-600 font-medium">
+                                    <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-slate-300" /> Chi phí in:</span>
+                                    <span className="font-bold text-slate-800">-</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex flex-col gap-1 text-[12px] text-slate-500 border-t border-slate-100 pt-2.5">
+                            {!isTrialMode && <Row k="Tổng chưa VAT" v={result?.tongChuaVAT} />}
+                            {!isTrialMode && <Row k="Hao hụt" v={result?.haoHut} />}
+                            {!isTrialMode && <Row k="Chiết khấu" v={result ? -result.chietKhau : undefined} />}
+                            <Row k={isTrialMode ? "Tạm tính trước VAT" : "Còn lại trước VAT"} v={result ? aligned.netPreVat : undefined} />
+                            <Row k="VAT" v={result ? aligned.vatAmount : undefined} />
+                        </div>
                     </div>
 
-                    {/* VAT / hao hụt / chiết khấu */}
-                    <div className="flex flex-col gap-1 text-[12px] text-slate-500 border-t border-slate-100 pt-3">
-                        <Row k="Tổng chưa VAT" v={result?.tongChuaVAT} />
-                        <Row k="Hao hụt" v={result?.haoHut} />
-                        <Row k="Chiết khấu" v={result ? -result.chietKhau : undefined} />
-                        <Row k="Còn lại trước VAT" v={result ? aligned.netPreVat : undefined} />
-                        <Row k="VAT" v={result ? aligned.vatAmount : undefined} />
-                    </div>
-
-                    {/* Tổng cuối */}
-                    <div className="border-t-2 border-dashed border-slate-200 pt-4 mt-2">
+                    {/* Khối tổng cuối & nút Thêm vào báo giá ghim cố định ở đáy card */}
+                    <div className="border-t-2 border-dashed border-slate-200 pt-3 mt-3 shrink-0 relative z-10">
                         <div className="flex justify-between items-end mb-1">
                             <span className="text-slate-800 font-extrabold text-sm uppercase">Khách trả:</span>
                             <span className="font-black text-2xl text-indigo-600 leading-none tracking-tight">{result ? formatVND(aligned.grandTotal) : '0 ₫'}</span>
@@ -591,8 +670,18 @@ function ResultPanel({ result, error, quantity }: { result: OffsetQuoteResult | 
                         <div className="mt-2 text-[10px] text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-200 font-medium flex items-center gap-1.5">
                             <span>💡</span> Giá đã gồm VAT &amp; chiết khấu nội bộ theo cấu hình hệ thống.
                         </div>
+                        {result && (
+                            <button
+                                type="button"
+                                onClick={onAddToCart}
+                                className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white font-bold py-2.5 px-4 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                                THÊM VÀO BÁO GIÁ
+                            </button>
+                        )}
                     </div>
-                </div>
+                </>
             )}
         </div>
     );
@@ -604,7 +693,7 @@ const Row = ({ k, v }: { k: string; v: number | undefined }) => (
 function PreviewPanel({ result }: { result: OffsetQuoteResult | null }) {
     const m = result?.meta;
     return (
-        <div className="flex flex-col gap-4 h-full">
+        <div className="flex flex-col gap-3 h-full">
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col flex-1 min-h-0">
                 <div className="py-2.5 px-4 border-b border-slate-100 flex items-center bg-slate-50/50">
                     <svg className="text-indigo-600 mr-2 w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
@@ -649,6 +738,9 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
     } = useQuoteCart();
     const [internalType] = useState<ProductType>('to_roi');
     const type = activeType ?? internalType;
+    const { presets: userPresets, savePreset, deletePreset, resetDefaultPresets } = useCustomPresets(`offset:${type}`);
+    const [activeUserPresetId, setActiveUserPresetId] = useState<string | null>(null);
+    const activeUserPreset = userPresets.find((p) => p.id === activeUserPresetId);
     const [fileName, setFileName] = useState('');
     const [states, setStates] = useState<Record<ProductType, Record<string, any>>>(() => ({
         to_roi: defaultState('to_roi'),
@@ -657,21 +749,74 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
         hop_giay: defaultState('hop_giay'),
         tui_giay: defaultState('tui_giay'),
     }));
+    // [MQ-08] Hydrate số lượng, kích thước (mm -> cm) và tên sản phẩm khi mở từ Báo giá Mini (Inbox)
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('edit')) return;
+        const rawProd = sp.get('prefill_product') || '';
+        const qty = parseInt(sp.get('prefill_qty') || '0');
+        const wMm = parseFloat(sp.get('prefill_w') || '0');
+        const hMm = parseFloat(sp.get('prefill_h') || '0');
+        const name = sp.get('prefill_name') || '';
+        if (!rawProd && !qty && !wMm && !hMm && !name) return;
+
+        if (name) setFileName(name);
+        const aliasMap: Record<string, ProductType> = {
+            to_roi: 'to_roi',
+            bi_thu_folder: 'bi_thu_folder',
+            bi_thu: 'bi_thu_folder',
+            folder: 'bi_thu_folder',
+            hop_giay: 'hop_giay',
+            tui_giay: 'tui_giay',
+            sp_khac: 'sp_khac',
+            catalogue: 'sp_khac',
+        };
+        const targetType: ProductType = aliasMap[rawProd] || type;
+        const wCm = wMm > 0 ? Math.round((wMm / 10) * 10) / 10 : 0;
+        const hCm = hMm > 0 ? Math.round((hMm / 10) * 10) / 10 : 0;
+
+        setStates(prev => {
+            const cur = { ...prev[targetType] };
+            if (qty > 0) cur.soLuong = qty;
+            if (wCm > 0) cur.rong = wCm;
+            if (hCm > 0) cur.cao = hCm;
+            if ((targetType === 'to_roi' || targetType === 'bi_thu_folder') && wCm > 0 && hCm > 0) {
+                cur.sizeMode = 'custom';
+            }
+            return { ...prev, [targetType]: cur };
+        });
+
+        try { window.history.replaceState(null, '', window.location.pathname); } catch { /* noop */ }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const [result, setResult] = useState<OffsetQuoteResult | null>(null);
     const [calcError, setCalcError] = useState<string | null>(null);
     const [calculating, setCalculating] = useState(false);
-    /** Số thứ tự lần tính giá gần nhất (chống đua response — xem onCalc). */
     const calcSeqRef = useRef(0);
 
     const st = states[type];
-    const set = (k: string, v: any) => setStates((prev) => ({ ...prev, [type]: { ...prev[type], [k]: v } }));
     const pb = pricebook as Pricebook;
+    const set = (k: string, v: any) => setStates((prev) => {
+        const nextTypeState = { ...prev[type], [k]: v };
+        if (k === 'materialCode' && pb?.materials && pb?.khoIn) {
+            const newMat = pb.materials.find((m) => m.code === v);
+            const cfg = pb.productConfig?.[type] ?? {};
+            const keepKho = (id: string) => !Array.isArray(cfg.allowedKhoIn) || cfg.allowedKhoIn.includes(id);
+            const curKho = pb.khoIn.find((kh) => kh.khoIn === nextTypeState.khoIn);
+            if (newMat && (!curKho || !isKhoCompatibleWithMat(curKho.khoGiayLon, newMat))) {
+                const compatKho = pb.khoIn.find((kh) => keepKho(kh.khoIn) && isKhoCompatibleWithMat(kh.khoGiayLon, newMat));
+                if (compatKho && (type === 'sp_khac' || type === 'hop_giay' || nextTypeState.sizeMode === 'custom')) {
+                    nextTypeState.khoIn = compatKho.khoIn;
+                }
+            }
+        }
+        return { ...prev, [type]: nextTypeState };
+    });
 
-    // Cấu hình form theo loại sản phẩm (whitelist/ẩn/khoá) + bộ lọc UI.
-    const ui = useMemo(() => makeUI(pb, (pb?.productConfig?.[type]) ?? {}), [pb, type]);
+    const ui = useMemo(() => makeUI(pb, (pb?.productConfig?.[type]) ?? {}, st.materialCode), [pb, type, st.materialCode]);
 
-    // Gợi ý khổ giấy từ pb.khoIn. Khi SP khác có nhập kích thước → tính số con/tờ THẬT theo hình học
-    // (thay con số tĩnh 0). Sắp xếp theo số con/tờ giảm dần.
     const suggestedSizes = useMemo(() => {
         if (!pb?.khoIn) return [];
         const parse = (s: string) => { const m = s?.match(/([\d.]+)\s*(?:cm)?\s*[x×]\s*([\d.]+)/i); return m ? { w: parseFloat(m[1]), h: parseFloat(m[2]) } : null; };
@@ -679,22 +824,22 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
             if (kw <= 0 || kh <= 0 || pw <= 0 || ph <= 0) return 0;
             return Math.max(Math.floor(kw / (pw + g)) * Math.floor(kh / (ph + g)), Math.floor(kw / (ph + g)) * Math.floor(kh / (pw + g)));
         };
-        // Áp số con/tờ THẬT khi đã biết kích thước phẳng: SP khác (rong/cao) hoặc tờ rơi/bì thư chế độ nhập.
         const isFlatCustom = (type === 'to_roi' || type === 'bi_thu_folder') && st.sizeMode === 'custom';
         const useDims = (type === 'sp_khac' || isFlatCustom) && st.rong > 0 && st.cao > 0;
-        const list = pb.khoIn.map((k) => {
+        const allowedSet = new Set(ui.khoIn().map((x: { id: string }) => x.id));
+        const selectedMat = pb.materials?.find((m) => m.code === st.materialCode);
+        const list = pb.khoIn.filter((k) => allowedSet.has(k.khoIn)).map((k) => {
             let soConDisplay = k.soConToLon || 0;
             if (useDims) { const big = parse(k.khoGiayLon); soConDisplay = big ? fit(big.w, big.h, st.rong, st.cao) : 0; }
-            return { ...k, soConDisplay };
+            const compat = isKhoCompatibleWithMat(k.khoGiayLon, selectedMat);
+            return { ...k, soConDisplay, compat };
         });
-        return list.sort((a, b) => (b.soConDisplay || 0) - (a.soConDisplay || 0));
-    }, [pb?.khoIn, type, st.rong, st.cao, st.sizeMode]);
+        return list.sort((a, b) => {
+            if (a.compat !== b.compat) return a.compat ? -1 : 1;
+            return (b.soConDisplay || 0) - (a.soConDisplay || 0);
+        });
+    }, [pb?.khoIn, pb?.materials, ui, type, st.rong, st.cao, st.sizeMode, st.materialCode]);
 
-    // Props cho DielinePreview HỢP NHẤT — render khuôn thật + dàn khổ + số con/tờ cho MỌI loại SP.
-    //  • hop_giay (có chọn khuôn)  → khuôn hộp thật theo boxType.
-    //  • tui_giay                  → ánh xạ sang khuôn paper_bag thật của engine.
-    //  • sp_khac / tờ rơi / bì thư → cắt phẳng (rectangle die) theo kích thước phẳng.
-    // null ⇒ chưa đủ dữ kiện → hiển thị PreviewPanel mặc định.
     const dielineProps = useMemo(() => {
         const parseSz = (s: string) => { const m = s?.match(/([\d.]+)\s*(?:cm)?\s*[x×]\s*([\d.]+)/i); return m ? { w: parseFloat(m[1]), h: parseFloat(m[2]) } : null; };
         const rong = Number(st.rong) || 0, hong = Number(st.hong) || 0, cao = Number(st.cao) || 0;
@@ -704,8 +849,6 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
             return null;
         }
         if (type === 'tui_giay') {
-            // Túi: engine chọn "bài in" theo nhãn = khoIn. Chọn khổ ở preview phải set `baiIn`
-            // (không chỉ khoIn) thì giá mới đổi. selectedKhoIn highlight theo baiIn đang dùng.
             if (rong > 0 && cao > 0) return {
                 boxType: 'paper_bag', rong, hong: hong || Math.max(2, Math.round(rong * 0.3)), cao,
                 mi: Number(st.mi) || 0, handleHoles: (st.quaiType || 'lo') === 'lo', mieng: st.mieng || 'gap',
@@ -719,13 +862,11 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
             return null;
         }
         if (type === 'to_roi' || type === 'bi_thu_folder') {
-            // Bì thư = khuôn ENVELOPE thật (engine); folder = cắt phẳng có nắp túi; tờ rơi = cắt phẳng.
             const dims = st.sizeMode === 'custom'
                 ? (rong > 0 && cao > 0 ? { w: rong, h: cao } : null)
                 : parseSz(st.kichThuoc);
             if (!dims) return null;
             if (type === 'bi_thu_folder' && st.loai !== 'folder') {
-                // Bì thư: dùng engine envelope (nắp Nhọn/Tròn/Thẳng + kiểu Ngang/Dọc).
                 return { boxType: 'envelope', rong: dims.w, cao: dims.h, envFlapShape: st.envFlapShape || 'pointed', envStyle: st.envStyle || 'wallet', ...common };
             }
             const shape = type === 'bi_thu_folder' ? 'folder' : 'rect';
@@ -735,10 +876,8 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [type, st.boxType, st.rong, st.hong, st.cao, st.mi, st.quaiType, st.mieng, st.baiIn, st.kichThuoc, st.sizeMode, st.loai, st.envFlapShape, st.envStyle, st.khoIn]);
 
-    // Auto-calculate realtime (debounce 500ms)
     const onCalc = useCallback(async () => {
         if (!pb) return;
-        // Validate minimum fields
         const s = states[type];
         if (!s.materialCode) return;
         if (type === 'to_roi' || type === 'bi_thu_folder') {
@@ -750,14 +889,10 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
 
         setCalculating(true);
         setCalcError(null);
-        // VAT chung và chiết khấu NỘI BỘ engine là hai input riêng. Chiết khấu đầu báo giá
-        // không được đi vào payload này; nó chỉ được áp khi lưu báo giá.
         const payload = buildPayload(type, states[type]);
         payload.vatRate = (Number(vatRate) || 0) / 100;
         payload.chietKhauRate = (Number(offsetEngineDiscountRate) || 0) / 100;
 
-        // CHỐNG ĐUA REQUEST (audit 2026-07-25) — vùng tiền: nếu 2 lần tính chồng nhau, chỉ
-        // response của lần MỚI NHẤT được ghi vào state (tránh hiện giá của cấu hình cũ).
         const seq = ++calcSeqRef.current;
         const res = await calculate(payload);
         if (seq !== calcSeqRef.current) return;
@@ -772,17 +907,12 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
         return () => clearTimeout(timeout);
     }, [onCalc]);
 
-    // Đổi loại sản phẩm (điều khiển từ thanh tiêu đề) → xoá kết quả cũ trước khi tính lại.
-    useEffect(() => { setResult(null); setCalcError(null); }, [type]);
+    useEffect(() => { setResult(null); setCalcError(null); setActiveUserPresetId(null); }, [type]);
 
-    // Seed mặc định từ cấu hình vào tất cả loại — chỉ 1 lần sau khi nạp bảng giá:
-    //  - Phí thiết kế mặc định (Gia_ThietKe) khi chưa nhập.
-    //  - Giá trị mặc định theo loại từ productConfig.defaults (whitelist/lock đã áp ở form).
     const seededRef = useRef(false);
     useEffect(() => {
         if (!pb || seededRef.current) return;
         seededRef.current = true;
-        // Seed chiết khấu mặc định từ cấu hình (TyLe_ChietKhau, phân số → %) — chỉ khi user chưa chỉnh.
         const ckDefaultRaw = Number(pb.params?.TyLe_ChietKhau ?? 0);
         seedOffsetEngineDiscountRate(Number.isFinite(ckDefaultRaw) ? ckDefaultRaw * 100 : 0);
         const giaThietKe = (pb.phiCoDinh?.find((p: any) => p.code === 'Gia_ThietKe')?.giaTri) ?? 0;
@@ -791,11 +921,35 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
             const next = { ...prev };
             (Object.keys(next) as ProductType[]).forEach((k) => {
                 let merged = { ...next[k] };
-                // 1) Mặc định cấu hình theo loại (ghi đè giá trị khởi tạo cứng).
                 const defs = pc[k]?.defaults;
                 if (defs) merged = { ...merged, ...defs };
-                // 2) Phí thiết kế mặc định nếu chưa có/đang 0 và admin chưa đặt qua defaults.
                 if (giaThietKe > 0 && !merged.thietKe) merged.thietKe = giaThietKe;
+                const uiK = makeUI(pb, pc[k] ?? {});
+                const mats = uiK.materials();
+                if (!merged.materialCode || !mats.some((m: any) => m.id === merged.materialCode)) {
+                    merged.materialCode = mats[0]?.id ?? '';
+                }
+                const vtbms = uiK.vatTuBeMat();
+                if (vtbms.length > 0 && (!merged.vatTuBeMat || !vtbms.some((v: any) => v.id === merged.vatTuBeMat))) {
+                    merged.vatTuBeMat = vtbms[0].id;
+                }
+                const uiKWithMat = makeUI(pb, pc[k] ?? {}, merged.materialCode);
+                const khos = uiKWithMat.khoIn();
+                if (k === 'to_roi' && (!merged.kichThuoc || !uiK.kichToRoi().some((x: any) => x.id === merged.kichThuoc))) {
+                    merged.kichThuoc = uiK.kichToRoi()[0]?.id ?? '';
+                }
+                if (k === 'bi_thu_folder' && (!merged.kichThuoc || !uiK.kichBiThu().some((x: any) => x.id === merged.kichThuoc))) {
+                    merged.kichThuoc = uiK.kichBiThu()[0]?.id ?? '';
+                }
+                if ((k === 'sp_khac' || k === 'hop_giay') && (!merged.khoIn || !khos.some((x: any) => x.id === merged.khoIn))) {
+                    const compatKho = khos.find((x: any) => x.compat);
+                    merged.khoIn = compatKho?.id ?? khos[0]?.id ?? '';
+                }
+                if (k === 'hop_giay' && !merged.boxType) {
+                    const allowedBoxes = pc[k]?.allowedBoxTypes;
+                    merged.boxType = Array.isArray(allowedBoxes) ? (allowedBoxes[0] ?? 'rte') : 'rte';
+                }
+                if (k === 'tui_giay' && !merged.baiIn && pb.tuiBaiIn?.length) merged.baiIn = pb.tuiBaiIn[0];
                 next[k] = merged;
             });
             return next;
@@ -805,7 +959,6 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
     const handleAddToCart = () => {
         if (!result) return;
         const label = TYPE_TABS.find(t => t.id === type)?.label || 'Offset';
-        // QUY ƯỚC THỐNG NHẤT: lưu giá TRƯỚC VAT (đã trừ chiết khấu engine); VAT cộng 1 lần ở tầng báo giá.
         const netPreVat = (result.tongChuaVAT || 0) - (result.chietKhau || 0);
         addItem({
             name: fileName || `${label} Offset`,
@@ -825,47 +978,102 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
 
     return (
         <div className="flex flex-col h-full bg-white">
-            <div className="flex-1 overflow-hidden p-5 bg-[#f8fafc]">
+            <div className="flex-1 overflow-hidden p-3.5 bg-[#f8fafc]">
                 {loading && <div className="text-slate-400 text-sm">Đang tải bảng giá...</div>}
                 {pbError && <div className="text-red-600 text-sm font-semibold">{pbError}</div>}
                 {!loading && pb && (
                     <ResizableColumns storageKey="zp.quote.cols.offset" defaultRatios={[0.375, 0.375, 0.25]} className="w-full h-full">
-                        {/* LEFT: Form cấu hình */}
-                        <div className="flex-1 min-h-0 mr-1 bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 overflow-y-auto custom-scrollbar shadow-sm">
-                            {(() => {
-                                const missing: string[] = [];
-                                if (ui.materials().length === 0) missing.push('Giấy in');
-                                if (type === 'hop_giay' && ui.boxTypes(BOX_TYPE_OPTS).length === 0) missing.push('Loại khuôn');
-                                if ((type === 'sp_khac' || type === 'hop_giay') && ui.khoIn().length === 0) missing.push('Khổ in');
-                                if (type === 'to_roi' && ui.kichToRoi().length === 0) missing.push('Kích thước');
-                                if (type === 'bi_thu_folder' && ui.kichBiThu().length === 0) missing.push('Kích thước');
-                                if (missing.length === 0) return null;
-                                return (
-                                    <div className="mb-3 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-                                        <div className="font-bold flex items-center gap-1.5 mb-0.5"><span>⚠️</span> Chưa cấu hình: {missing.join(', ')}</div>
-                                        <div className="text-[11px] leading-relaxed">Các mục trên đang trống vì chưa được whitelist cho loại sản phẩm này. Vào <a href="/pricing/settings/offset-products" className="font-semibold text-indigo-600 underline">Cấu Hình Sản Phẩm Offset</a> để thiết lập rồi các lựa chọn sẽ hiện ra.</div>
+                        {/* LEFT: Form cấu hình trên nền card trắng sạch sẽ */}
+                        <div className="h-full min-h-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 flex flex-col gap-3">
+                                {(() => {
+                                    const missing: string[] = [];
+                                    if (ui.materials().length === 0) missing.push('Giấy in');
+                                    if (type === 'hop_giay' && ui.boxTypes(BOX_TYPE_OPTS).length === 0) missing.push('Loại khuôn');
+                                    if ((type === 'sp_khac' || type === 'hop_giay') && ui.khoIn().length === 0) missing.push('Khổ in');
+                                    if (type === 'to_roi' && ui.kichToRoi().length === 0) missing.push('Kích thước');
+                                    if (type === 'bi_thu_folder' && ui.kichBiThu().length === 0) missing.push('Kích thước');
+                                    if (missing.length === 0) return null;
+                                    return (
+                                        <div className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                                            <div className="font-bold flex items-center gap-1.5 mb-0.5"><span>⚠️</span> Chưa cấu hình: {missing.join(', ')}</div>
+                                            <div className="text-[11px] leading-relaxed">Các mục trên đang trống vì chưa được whitelist cho loại sản phẩm này. Vào <a href="/pricing/settings/offset-products" className="font-semibold text-indigo-600 underline">Cấu Hình Sản Phẩm Offset</a> để thiết lập rồi các lựa chọn sẽ hiện ra.</div>
+                                        </div>
+                                    );
+                                })()}
+                                <div className="grid grid-cols-12 gap-2.5">
+                                    <div className="col-span-5">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-[11px] font-semibold text-slate-600 m-0">Mẫu cấu hình</label>
+                                            <PresetSaveControls
+                                                defaultLabel={fileName || `${TYPE_TABS.find(t => t.id === type)?.label || 'Offset'} (${st.soLuong || 1000})`}
+                                                activeCustomPresetId={activeUserPresetId}
+                                                activeCustomPresetLabel={activeUserPreset?.label}
+                                                hasAnyPreset={userPresets.length > 0}
+                                                onResetDefaults={resetDefaultPresets}
+                                                onSave={(lbl, updateId) => {
+                                                    const saved = savePreset(lbl, fileName || lbl, { ...st }, updateId);
+                                                    setActiveUserPresetId(saved.id);
+                                                }}
+                                                onDelete={(id) => {
+                                                    deletePreset(id);
+                                                    setActiveUserPresetId(null);
+                                                }}
+                                            />
+                                        </div>
+                                        <select
+                                            value={activeUserPresetId || ''}
+                                            key={type}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                const up = userPresets.find((x) => x.id === val);
+                                                if (up) {
+                                                    setActiveUserPresetId(up.id);
+                                                    setFileName(up.name || up.label);
+                                                    setStates((prev) => {
+                                                        const cur = prev[type];
+                                                        const khos = ui.khoIn();
+                                                        const fallbackKho = cur.khoIn || khos.find((x: any) => x.compat)?.id || khos[0]?.id || '';
+                                                        return {
+                                                            ...prev,
+                                                            [type]: {
+                                                                ...cur,
+                                                                khoIn: fallbackKho,
+                                                                ...(up.data || {}),
+                                                            },
+                                                        };
+                                                    });
+                                                    return;
+                                                }
+                                                setActiveUserPresetId(null);
+                                            }}
+                                            className={inp}
+                                        >
+                                            <option value="">-- Chọn mẫu ({userPresets.length}) --</option>
+                                            {userPresets.map((up) => (
+                                                <option key={up.id} value={up.id}>{up.label}</option>
+                                            ))}
+                                        </select>
                                     </div>
-                                );
-                            })()}
-                            <div className="mb-3">
-                                <label className="block text-[10px] font-bold text-indigo-700 mb-1 tracking-wide uppercase">Tên File / Sản Phẩm <span className="text-red-500">*</span></label>
-                                <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} placeholder="Nhập tên gọi để phân biệt" className={inp} />
+                                    <div className="col-span-7">
+                                        <label className={lbl}>Tên File / Sản Phẩm <span className="text-red-500">*</span></label>
+                                        <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} placeholder="Nhập tên gọi để phân biệt" className={inp} />
+                                    </div>
+                                </div>
+                                {type === 'to_roi' && <ToRoiForm pb={pb} st={st} set={set} ui={ui} />}
+                                {type === 'bi_thu_folder' && <BiThuForm pb={pb} st={st} set={set} ui={ui} />}
+                                {type === 'sp_khac' && <SpKhacForm pb={pb} st={st} set={set} ui={ui} />}
+                                {type === 'hop_giay' && <HopForm pb={pb} st={st} set={set} ui={ui} />}
+                                {type === 'tui_giay' && <TuiForm pb={pb} st={st} set={set} ui={ui} />}
                             </div>
-                            {type === 'to_roi' && <ToRoiForm pb={pb} st={st} set={set} ui={ui} />}
-                            {type === 'bi_thu_folder' && <BiThuForm pb={pb} st={st} set={set} ui={ui} />}
-                            {type === 'sp_khac' && <SpKhacForm pb={pb} st={st} set={set} ui={ui} />}
-                            {type === 'hop_giay' && <HopForm pb={pb} st={st} set={set} ui={ui} />}
-                            {type === 'tui_giay' && <TuiForm pb={pb} st={st} set={set} ui={ui} />}
                         </div>
+
                         {/* CENTER: Preview + Gợi ý khổ giấy */}
-                        <div className="flex-1 min-h-0 px-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+                        <div className="h-full min-h-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar">
                             {dielineProps
                                 ? <DielinePreview {...dielineProps} engineSoConBaiIn={result?.meta?.soConBaiIn} />
                                 : <PreviewPanel result={result} />}
-                            {/* Gợi ý khổ giấy — KHÔNG cho hop_giay: DielinePreview đã có danh sách chọn khổ
-                                tính nesting thật (số con/khổ in). Danh sách này dùng số tĩnh soConToLon (tờ lớn)
-                                nên vênh + trùng chức năng → chỉ giữ cho sp_khac / tờ rơi·bì thư custom (useDims tính đúng). */}
-                            {suggestedSizes.length > 0 && (type === 'sp_khac' || ((type === 'to_roi' || type === 'bi_thu_folder') && st.sizeMode === 'custom')) && (
+                            {!dielineProps && suggestedSizes.length > 0 && (type === 'sp_khac' || ((type === 'to_roi' || type === 'bi_thu_folder') && st.sizeMode === 'custom')) && (
                                 <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
                                     <div className="flex items-center gap-2 mb-2">
                                         <svg className="text-blue-500 w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2.5 2v6h6M21.5 22v-6h-6"/><path d="M22 11.5A10 10 0 0 0 3.2 7.2M2 12.5a10 10 0 0 0 18.8 4.2"/></svg>
@@ -896,17 +1104,16 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
                                 </div>
                             )}
                         </div>
-                        {/* RIGHT: Chi phí + Thêm vào báo giá */}
-                        <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto custom-scrollbar pl-1 pr-1">
-                            {calculating && <div className="text-[12px] text-indigo-500 font-semibold flex items-center gap-2"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Đang tính giá...</div>}
-                            <ResultPanel result={result} error={calcError} quantity={st.soLuong || 0} />
-                            {result && !calcError && (
-                                <button onClick={handleAddToCart}
-                                    className="w-full bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white font-bold py-3 px-5 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                                    THÊM VÀO BÁO GIÁ
-                                </button>
-                            )}
+
+                        {/* RIGHT: Chi phí + Thêm vào báo giá ghim đáy */}
+                        <div className="h-full min-h-0 flex flex-col">
+                            <ResultPanel
+                                result={result}
+                                error={calcError}
+                                quantity={st.soLuong || 0}
+                                calculating={calculating}
+                                onAddToCart={handleAddToCart}
+                            />
                         </div>
                     </ResizableColumns>
                 )}
@@ -914,4 +1121,3 @@ export const OffsetQuoteConfigurator = ({ activeType }: { activeType?: ProductTy
         </div>
     );
 };
-

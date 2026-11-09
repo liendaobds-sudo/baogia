@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { DataTable, ColumnDef } from '../../_components/DataTable';
 import { CrudModal, DeleteConfirm, FieldDef } from '../../_components/CrudModal';
 import { api } from '../../_components/apiClient';
+import { DigitalSettingsNav } from '../_components/DigitalSettingsNav';
 
 // Hồ sơ chi phí máy in (tầng 3) — nguồn để suy machine/labor/overhead per tờ khi gợi ý giá định mức.
 interface Printer {
@@ -115,6 +116,7 @@ export default function PrintersPage() {
 
     return (
         <div className="flex flex-col h-full bg-slate-50/50 p-6">
+            <DigitalSettingsNav activeTab="printers" />
             <div className="mb-6 flex justify-between items-center">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Chi phí máy in</h1>

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '../../_components/apiClient';
+import { DigitalSettingsNav } from '../_components/DigitalSettingsNav';
 
 /**
  * Lợi nhuận & Làm tròn — In Nhanh (digital). CẤU HÌNH ĐƯỢC, không gán cứng.
@@ -81,6 +82,7 @@ export default function PricingMarkupPage() {
 
     return (
         <div className="flex flex-col h-full bg-slate-50/50 p-6">
+            <DigitalSettingsNav activeTab="markup" markup={data} />
             {toast && <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-semibold text-white ${toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>{toast.msg}</div>}
 
             <div className="mb-6 flex justify-between items-center">

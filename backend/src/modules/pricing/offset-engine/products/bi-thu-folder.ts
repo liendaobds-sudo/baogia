@@ -21,7 +21,8 @@ export interface BiThuFolderInput {
     soMatIn: 1 | 2;
     soLuong: number;
     kemType?: 'Kẽm nhỏ' | 'Kẽm lớn'; // tuỳ chọn — mặc định suy từ khổ in
-    soKemIn: number;                  // số màu in (= số bản kẽm)
+    soKemIn: number;                  // số màu in (= số bản kẽm / bộ)
+    soBoKem?: number;                 // số bộ kẽm khi in 2 mặt: 1 = tự trở, 2 = bắt đôi
     vatTuBeMat: string;
     khuon: boolean;
     be: boolean;
@@ -118,7 +119,9 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
 
     const cpGiay = giaGiay(input.materialCode, d) * sheetsGross;
     const don1Kem = kemType === 'Kẽm lớn' ? d.kem.donGia1Kem.kemLon : d.kem.donGia1Kem.kemNho;
-    const don1KemAdj = isFolder && soMat === 2 ? don1Kem * 2 : don1Kem;
+    const defaultBoKem = isFolder && soMat === 2 ? 2 : 1;
+    const soBoKem = soMat === 2 ? (input.soBoKem != null ? Math.max(1, Math.round(Number(input.soBoKem) || 1)) : defaultBoKem) : 1;
+    const don1KemAdj = don1Kem * soBoKem;
     const cpLamKem = don1KemAdj * input.soKemIn;
 
     let cpCanMang = 0;
@@ -131,7 +134,7 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
 
     const bang = kemType === 'Kẽm lớn' ? d.kem.kemLon : d.kem.kemNho;
     const giaGocBinhBai = (bang.find((k) => k.soKem === input.soKemIn) ?? bang[bang.length - 1]).donGia;
-    const moqBinhBai = params.MOQ_BinhBai_Nho;
+    const moqBinhBai = kemType === 'Kẽm lớn' ? params.MOQ_BinhBai_Lon : params.MOQ_BinhBai_Nho;
     const cpBinhBai = luotIn <= moqBinhBai ? giaGocBinhBai : (luotIn * giaGocBinhBai) / moqBinhBai;
     // Tách rõ 2 phần (tổng = cpBinhBai): Lên bài = công gốc (trọn gói canh máy); Chạy máy = phần vượt MOQ.
     const cpLenBai = giaGocBinhBai;
@@ -174,7 +177,7 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
     // `totals.ts` và 4 sản phẩm còn lại (to_roi, sp_khac, hop_giay, tui_giay) đều tính.
     // Ảnh hưởng golden: fixture bi_thu_folder truyền `thietKe: 0` ⇒ cpThietKe = 0 ⇒ số pin KHÔNG đổi.
     const baseSXTK = cpBinhBai + cpBe + cpTP + cpDongGoi + cpXLBM + cpThietKe;
-    const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
+    const extraLines = extraProcessingLines(input.extraProcessing, sl, d, sheetsGross);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
     const wasteInfo = giaGiay(input.materialCode, d) * (sheetsGross - w.sheetsNet);
@@ -183,7 +186,7 @@ export function tinhBiThuFolder(input: BiThuFolderInput, d: PricingData): QuoteR
     const res = tongHopKetQua(lines, baseSXTKFull, sl, d, wasteInfo, input.chietKhauRate, input.vatRate);
     res.meta = {
         khoBinh, khoGiayLon, soConBaiIn, soConToLon: soCon, soToLon: sheetsGross, luotIn,
-        soKem: input.soKemIn, loaiKem: kemType,
+        soKem: input.soBoKem != null ? input.soKemIn * soBoKem : input.soKemIn, ...(input.soBoKem != null && soBoKem > 1 ? { soBoKem } : {}), loaiKem: kemType,
         sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
         impositionSource: soConOutcome?.source,
         ...(soConOutcome?.shadow ? { shadow: soConOutcome.shadow } : {}),

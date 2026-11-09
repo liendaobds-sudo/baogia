@@ -22,7 +22,8 @@ export interface ToRoiInput {
     soMatIn: 1 | 2;
     soLuong: number;
     kemType?: 'Kẽm nhỏ' | 'Kẽm lớn'; // tuỳ chọn — mặc định suy từ khổ in
-    soKemIn: number;                  // số màu in (= số bản kẽm)
+    soKemIn: number;                  // số màu in (= số bản kẽm / bộ)
+    soBoKem?: number;                 // số bộ kẽm khi in 2 mặt: 1 = tự trở (mặc định), 2 = bắt đôi
     vatTuBeMat: string;
     khuon: boolean;
     be: boolean;
@@ -121,7 +122,8 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
     const luotIn = Math.ceil(sl / soConBaiIn) * soMat;
 
     const cpGiay = giaGiay(input.materialCode, d) * sheetsGross;
-    const cpLamKem = chiPhiLamKem(kemType, input.soKemIn, d);
+    const soBoKem = Math.max(1, Math.round(Number(input.soBoKem) || 1));
+    const cpLamKem = chiPhiLamKem(kemType, input.soKemIn, d) * soBoKem;
 
     let cpCanMang = 0;
     const vtbm = d.kem.vatTuBeMat.find((v) => v.ten === input.vatTuBeMat);
@@ -131,9 +133,9 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
     }
     const cpKhuon = input.khuon ? phi('Gia_Khuon', d) : 0;
 
-    const giaGocBinhBai = chiPhiBinhBai(kemType, input.soKemIn, luotIn, d);
+    const giaGocBinhBai = chiPhiBinhBai(kemType, input.soKemIn, 0, d);
     const moqBinhBai = kemType === 'Kẽm lớn' ? params.MOQ_BinhBai_Lon : params.MOQ_BinhBai_Nho;
-    const cpBinhBai = luotIn <= moqBinhBai ? giaGocBinhBai : giaGocBinhBai + ((luotIn - moqBinhBai) * giaGocBinhBai) / moqBinhBai;
+    const cpBinhBai = chiPhiBinhBai(kemType, input.soKemIn, luotIn, d);
     // Tách rõ 2 phần (tổng = cpBinhBai): Lên bài = công gốc (trọn gói canh máy); Chạy máy = phần vượt MOQ.
     const cpLenBai = giaGocBinhBai;
     const cpChayMay = Math.max(0, cpBinhBai - giaGocBinhBai);
@@ -172,7 +174,7 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
         { label: 'Thiết kế', amount: cpThietKe },
     ];
     const baseSXTK = cpBinhBai + cpXLBM + cpBeReal + cpTP + cpCatXen + cpDongGoi + cpThietKe;
-    const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
+    const extraLines = extraProcessingLines(input.extraProcessing, sl, d, sheetsGross);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
     const wasteInfo = giaGiay(input.materialCode, d) * (sheetsGross - w.sheetsNet);
@@ -181,7 +183,7 @@ export function tinhToRoi(input: ToRoiInput, d: PricingData): QuoteResult {
     const res = tongHopKetQua(lines, baseSXTKFull, sl, d, wasteInfo, input.chietKhauRate, input.vatRate);
     res.meta = {
         khoBinh, khoGiayLon, soConBaiIn, soConToLon: soCon, soToLon: sheetsGross, luotIn,
-        soKem: input.soKemIn, loaiKem: kemType,
+        soKem: input.soKemIn * soBoKem, ...(soBoKem > 1 ? { soBoKem } : {}), loaiKem: kemType,
         sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
     };
     if (imposition) {

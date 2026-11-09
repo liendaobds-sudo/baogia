@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '../../_components/apiClient';
+import { OffsetSettingsNav } from '../_components/OffsetSettingsNav';
+import { useTrialMode, TrialLockBanner } from '@/lib/scope/use-trial-mode';
 
 /**
  * Phí cố định & Chiết khấu — In Offset. Tất cả CẤU HÌNH ĐƯỢC, không gán cứng.
@@ -19,6 +21,7 @@ const FEE_LABELS: Record<string, { label: string; icon: string; hint: string }> 
 };
 
 export default function OffsetFeesPage() {
+    const { isTrialMode } = useTrialMode();
     const [data, setData] = useState<FeesData>({ fees: [], chietKhauDefault: 0, chietKhauMax: 0 });
     const [mocText, setMocText] = useState('');
     const [loading, setLoading] = useState(true);
@@ -38,6 +41,7 @@ export default function OffsetFeesPage() {
     }, []);
 
     useEffect(() => { loadData(); }, [loadData]);
+    if (isTrialMode) return <TrialLockBanner title="Phí cố định & Mốc bậc giá Offset (Đã ẩn ở Chế độ Dùng thử)" />;
 
     const showToast = (msg: string, type: 'success' | 'error') => {
         setToast({ msg, type });
@@ -83,6 +87,7 @@ export default function OffsetFeesPage() {
                 </button>
             </div>
 
+            <OffsetSettingsNav activeTab="offset-fees" />
             <div className="flex-1 overflow-y-auto">
                 <div className="max-w-3xl mx-auto space-y-6">
                     <div>
@@ -141,6 +146,21 @@ export default function OffsetFeesPage() {
                                 <textarea value={mocText} onChange={e => setMocText(e.target.value)} rows={2}
                                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
                                     placeholder="1, 299, 499, 699, 999, 1999, ..." />
+                                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                                    {mocText.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n) && n > 0).map((n, idx) => (
+                                        <span key={idx} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                            ≥ {n.toLocaleString('vi-VN')}
+                                            <button type="button" onClick={() => {
+                                                const arr = mocText.split(',').map(s => parseInt(s.trim(), 10)).filter(x => Number.isFinite(x) && x > 0 && x !== n);
+                                                setMocText(arr.join(', '));
+                                            }} className="text-indigo-400 hover:text-red-500 ml-0.5">×</button>
+                                        </span>
+                                    ))}
+                                    <button type="button" onClick={() => setMocText('1, 299, 499, 699, 999, 1999, 2999, 3999, 4999, 9999, 14999, 19999')}
+                                        className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 underline ml-2">
+                                        Khôi phục mốc chuẩn
+                                    </button>
+                                </div>
                             </div>
                             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                                 <div className="font-bold text-slate-800 text-sm mb-1">Ngưỡng số lượng ép kim</div>

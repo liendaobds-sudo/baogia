@@ -29,18 +29,26 @@ export class RedisService implements OnModuleDestroy {
     constructor(private configService: ConfigService) {
         const host = this.configService.get('REDIS_HOST', 'localhost');
         const port = this.configService.get<number>('REDIS_PORT', 6379);
+        const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
 
         const options = {
             host,
             port,
             maxRetriesPerRequest: null,
             lazyConnect: true,
-            // Retry VÔ HẠN với backoff trần 30s. Bản cũ bỏ cuộc sau 3 lần (~6s):
+            // Production: retry VÔ HẠN với backoff trần 30s (bản cũ bỏ cuộc sau 3 lần ~6s:
             // Redis chớp nhoáng >6s là client chết vĩnh viễn, kết hợp JWT blacklist
-            // fail-closed ⇒ production tự khóa 401 toàn bộ cho tới khi restart tay.
-            retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+            // fail-closed ⇒ production tự khóa 401 toàn bộ cho tới khi restart tay).
+            // Dev: dừng sau 3 lần nếu máy dev không bật Redis để tránh spam ECONNREFUSED.
+            retryStrategy: (times: number) => {
+                if (!isProduction && times > 3) return null;
+                return Math.min(times * 500, 30_000);
+            },
         } as const;
-        this.client = new Redis(options);
+        // enableOfflineQueue: false trên command client để khi Redis chưa sẵn sàng hoặc đang
+        // reconnect, các lệnh existsStrict/get/set reject ngay lập tức (0ms) thay vì xếp hàng
+        // chờ vô hạn trong offlineQueue làm treo mọi HTTP request qua JwtAuthGuard.
+        this.client = new Redis({ ...options, enableOfflineQueue: false });
         // Pub/sub cần connection riêng; connection đã SUBSCRIBE không được dùng cho
         // lệnh blacklist/cache thông thường.
         this.subscriber = new Redis({ ...options, lazyConnect: false });

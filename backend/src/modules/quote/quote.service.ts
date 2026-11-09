@@ -474,6 +474,7 @@ export class QuoteService implements OnModuleInit {
             }
         } else if (type === 'bound') {
             pricingData.page_count = parsed.pageCount || BOUND_DEFAULT_PAGE_COUNT;
+            if (parsed.size?.width && parsed.size?.height) { pricingData.item_width = parsed.size.width; pricingData.item_height = parsed.size.height; }
 
             // Convert chatbot binding code to Pricing code
             const chatbotBindingCode = parsed.bindingType?.code || BOUND_DEFAULT_BINDING_CODE;
@@ -512,6 +513,7 @@ export class QuoteService implements OnModuleInit {
                 pricingData.inner = [{
                     material_id: innerResolved.material_id,
                     paper_size_id: innerResolved.paper_size_id,
+                    page_count: coverResolved ? Math.max(0, pricingData.page_count - 4) : pricingData.page_count,
                     print_side: 'double',
                 }];
             }
@@ -607,11 +609,18 @@ export class QuoteService implements OnModuleInit {
                 scope_large_format: !!(m.scope_large_format ?? m.scopeLargeFormat),
             })),
             paperSizes: (Array.isArray(this.pricingPaperSizesCache) ? this.pricingPaperSizesCache : []).map((ps: any) => ({
-                id: ps.id, name: ps.name, width: ps.width, height: ps.height,
+                id: ps.id, name: ps.name, width: ps.width || ps.widthMm, height: ps.height || ps.heightMm,
+                marginTop: ps.marginTop ?? ps.margin_top ?? 5,
+                marginBottom: ps.marginBottom ?? ps.margin_bottom ?? 5,
+                marginLeft: ps.marginLeft ?? ps.margin_left ?? 5,
+                marginRight: ps.marginRight ?? ps.margin_right ?? 5,
+                is_standard: ps.is_standard ?? ps.isStandard ?? 1,
             })),
             processingOptions: (Array.isArray(this.pricingProcessingCache) ? this.pricingProcessingCache : []).map((p: any) => ({
                 id: p.id, code: p.code, name: p.name,
                 category: p.category || p.type || 'other',
+                price: p.price || p.base_price || 0,
+                unit: this.mapProcessingUnit(p),
                 scope_loose: !!(p.scope_loose ?? p.scopeLoose),
                 scope_bound: !!(p.scope_bound ?? p.scopeBound),
                 scope_large_format: !!(p.scope_large_format ?? p.scopeLargeFormat),
@@ -656,6 +665,10 @@ export class QuoteService implements OnModuleInit {
                         try {
                             const fc = typeof row.form_config === 'string' ? JSON.parse(row.form_config) : row.form_config;
                             productConfig = {
+                                default_width: fc.item_width || undefined,
+                                default_height: fc.item_height || undefined,
+                                default_material_id: fc.default_material_id || undefined,
+                                default_paper_size_id: fc.default_paper_size_id || undefined,
                                 default_print_side: fc.default_print_side || undefined,
                                 default_print_type: fc.default_print_type || undefined,
                                 default_quantity: fc.default_quantity || undefined,
@@ -674,13 +687,14 @@ export class QuoteService implements OnModuleInit {
                 const cfgRows = await this.dataSource.query(
                     `SELECT * FROM product_quote_configs WHERE product_id = $1 LIMIT 1`, [productId]
                 );
-                if (cfgRows.length > 0) productConfig = cfgRows[0];
+                if (cfgRows.length > 0) productConfig = { ...productConfig, ...cfgRows[0] };
             } catch { /* table may not exist */ }
 
             // ── Filter materials by allowed list ──
             let materials = (data.materials || []).map((m: any) => ({
                 id: m.id, name: m.name, display_name: m.display_name, type: m.type || m.category, gsm: m.gsm,
-                has_pricing: parseInt(m.has_pricing || '0') > 0, paper_size_id: m.paperSizeId || m.paper_size_id,
+                has_pricing: parseInt(m.has_pricing || '0') > 0 || !!m.has_pricing_tier,
+                paper_size_id: m.paperSizeId || m.paper_size_id,
                 valid_paper_size_ids: m.valid_paper_size_ids || [],
             }));
             if (allowedMaterials && allowedMaterials.length > 0) {
@@ -691,16 +705,21 @@ export class QuoteService implements OnModuleInit {
             // ── Filter paper sizes by allowed list ──
             let paperSizes = (data.paper_sizes || []).map((ps: any) => ({
                 id: ps.id, name: ps.name, width: ps.width || ps.widthMm, height: ps.height || ps.heightMm,
+                marginTop: ps.marginTop ?? ps.margin_top ?? 5,
+                marginBottom: ps.marginBottom ?? ps.margin_bottom ?? 5,
+                marginLeft: ps.marginLeft ?? ps.margin_left ?? 5,
+                marginRight: ps.marginRight ?? ps.margin_right ?? 5,
+                is_standard: ps.is_standard ?? ps.isStandard ?? 1,
             }));
             if (allowedPaperSizes && allowedPaperSizes.length > 0) {
                 const allowedSet = new Set(allowedPaperSizes.map(String));
                 paperSizes = paperSizes.filter((ps: any) => allowedSet.has(String(ps.id)));
             }
 
-            // ── Filter processing options strictly by allowed list ──
+            // ── Filter processing options by allowed list (or scope when unconfigured) ──
             let processingOptions = (data.processing_options || data.processing || []).map((p: any) => ({
                 id: p.id, code: p.code, name: p.name, category: p.category || p.type || 'other',
-                price: p.price || p.base_price || 0, unit: p.unit || 'cái',
+                price: p.price || p.base_price || 0, unit: this.mapProcessingUnit(p),
                 scope_loose: !!(p.scope_loose ?? p.scopeLoose),
                 scope_bound: !!(p.scope_bound ?? p.scopeBound),
                 scope_large_format: !!(p.scope_large_format ?? p.scopeLargeFormat),
@@ -710,18 +729,20 @@ export class QuoteService implements OnModuleInit {
                 const allowedSet = new Set(allowedProcessing.map(String));
                 processingOptions = processingOptions.filter((p: any) => allowedSet.has(String(p.id)));
             } else {
-                processingOptions = [];
+                const scopeKey = productQuoteType === 'bound' ? 'scope_bound' : productQuoteType === 'large_format' ? 'scope_large_format' : 'scope_loose';
+                processingOptions = processingOptions.filter((p: any) => {
+                    const hasAnyScope = p.scope_loose || p.scope_bound || p.scope_large_format;
+                    return !hasAnyScope || !!p[scopeKey];
+                });
             }
 
-            // ── Filter accessories strictly by allowed list ──
-            let accessories = (data.accessories || this.pricingAccessoriesCache).map((a: any) => ({
+            // ── Filter accessories by allowed list (keep all active when unconfigured) ──
+            let accessories = (data.accessories || this.pricingAccessoriesCache || []).map((a: any) => ({
                 id: a.id, code: a.code, name: a.name, price: a.price, unit: a.unit,
             }));
             if (allowedAccessories && allowedAccessories.length > 0) {
                 const allowedSet = new Set(allowedAccessories.map(String));
                 accessories = accessories.filter((a: any) => allowedSet.has(String(a.id)));
-            } else {
-                accessories = [];
             }
 
             return {
@@ -738,6 +759,17 @@ export class QuoteService implements OnModuleInit {
             // Fallback to unfiltered cache
             return this.getMasterData();
         }
+    }
+
+    /** Chuẩn hóa đơn vị hiển thị của bước gia công từ priceType/unit. */
+    private mapProcessingUnit(p: any): string {
+        if (p.unit) return p.unit;
+        const pt = p.priceType || p.price_type || '';
+        if (pt === 'per_sheet') return 'tờ';
+        if (pt === 'per_m2') return 'm²';
+        if (pt === 'per_lot' || pt === 'per_batch' || pt === 'fixed') return 'lô';
+        if (pt === 'per_item') return 'SP';
+        return 'cái';
     }
 
     /** Parse a JSON column that could be string, array, or null */
@@ -805,14 +837,14 @@ export class QuoteService implements OnModuleInit {
             if (productType === 'bound') {
                 // Bound: needs page_count, binding_type, cover{}, inner[]
                 const pageCount = input.page_count || BOUND_DEFAULT_PAGE_COUNT;
-                const bindingType = input.binding_type || BOUND_DEFAULT_BINDING_CODE;
+                const bindingType = getPricingBindingCode(input.binding_type || BOUND_DEFAULT_BINDING_CODE);
 
                 const calcPayload: any = {
                     type: 'bound',
                     quantity: input.quantity,
                     page_count: pageCount,
                     binding_type: bindingType,
-                    product_code: input.product_code,
+                    product_code: input.product_code, ...(input.item_width ? { item_width: input.item_width } : {}), ...(input.item_height ? { item_height: input.item_height } : {}),
                     vat_rate: input.vat_rate, // VAT đi theo ô VAT trên form mini (không lấy từ config)
                 };
 
@@ -826,8 +858,9 @@ export class QuoteService implements OnModuleInit {
                     };
                 }
 
-                if (input.inner && Array.isArray(input.inner)) {
-                    calcPayload.inner = input.inner.map((i: any) => ({
+                const innerList = Array.isArray(input.inner) ? input.inner : (input.inner ? [input.inner] : []);
+                if (innerList.length > 0) {
+                    calcPayload.inner = innerList.map((i: any) => ({
                         material_id: i.material_id,
                         paper_size_id: i.paper_size_id || this.getDefaultPaperSizeId(),
                         print_side: normalizePrintSide(i.print_side || 'double'),
@@ -860,7 +893,7 @@ export class QuoteService implements OnModuleInit {
                     width: input.width,
                     height: input.height,
                     print_type: input.print_type || 'uv',
-                    product_code: input.product_code,
+                    product_code: input.product_code, ...(input.item_width ? { item_width: input.item_width } : {}), ...(input.item_height ? { item_height: input.item_height } : {}),
                     vat_rate: input.vat_rate, // VAT đi theo ô VAT trên form mini (không lấy từ config)
                 };
 

@@ -29,6 +29,7 @@ export interface ProcessingInput {
     id?: number;
     name?: string;
     side?: string;
+    code?: string;
 }
 
 export interface AccessoryInput {
@@ -68,6 +69,9 @@ export interface BoundInput {
     quantity: number;
     page_count: number;
     binding_type: string;
+    item_width?: Dimension;
+    item_height?: Dimension;
+    spine_width?: Dimension;
     cover: BoundSectionInput;
     inner: BoundSectionInput;
     accessories?: AccessoryInput[];
@@ -117,6 +121,7 @@ function normalizeProcessing(items?: ProcessingInput[]): Array<Record<string, un
         if (p.id != null) o.id = p.id;
         if (p.name != null) o.name = p.name;
         if (p.side != null) o.side = p.side;
+        if (p.code != null) o.code = p.code;
         return o;
     });
 }
@@ -153,6 +158,9 @@ export function buildBoundPayload(input: BoundInput): PricingPayload {
         quantity: input.quantity,
         page_count: input.page_count,
         binding_type: input.binding_type,
+        ...(input.item_width != null && input.item_width.value > 0 ? { item_width: toMillimeters(input.item_width) } : {}),
+        ...(input.item_height != null && input.item_height.value > 0 ? { item_height: toMillimeters(input.item_height) } : {}),
+        ...(input.spine_width != null && input.spine_width.value > 0 ? { spine_width: toMillimeters(input.spine_width) } : {}),
         cover: {
             material_id: input.cover.material_id,
             paper_size_id: input.cover.paper_size_id,

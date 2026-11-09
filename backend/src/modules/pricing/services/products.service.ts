@@ -115,7 +115,9 @@ export class ProductsService {
         if (data.ai_enabled !== undefined) {
             entity.formConfig = this.mergeFormConfig(entity.formConfig, { ai_enabled: data.ai_enabled });
         }
-        return this.tmplRepo.save(entity);
+        const saved = await this.tmplRepo.save(entity);
+        await this.refreshAiTemplatesCache();
+        return saved;
     }
 
     async updateProduct(id: string, data: any) {
@@ -152,6 +154,7 @@ export class ProductsService {
         }
 
         await this.tmplRepo.save(product);
+        await this.refreshAiTemplatesCache();
         return this.findProductById(id);
     }
 
@@ -163,6 +166,49 @@ export class ProductsService {
 
     async deleteProduct(id: string) {
         await this.tmplRepo.delete(parseInt(id));
+        await this.refreshAiTemplatesCache();
+    }
+
+    /** Làm mới bộ nhớ đệm ProductTemplate cho AI Chatbot & Mini Quote ngay khi cấu hình SP thay đổi. */
+    private async refreshAiTemplatesCache(): Promise<void> {
+        try {
+            if (!this.repo?.manager?.query) return;
+            const { loadProductTemplates } = await import('../../quote/extractors');
+            const rows: any[] = await this.findAllProducts();
+            const templates = (rows || []).map((t: any) => ({
+                id: t.id,
+                code: t.code,
+                name: t.nameVi || t.name_vi || t.name || t.code,
+                product_type: t.quoteType || t.quote_type || 'loose',
+                product_id: t.product_id || t.id || null,
+                allowed_materials: t.allowed_materials || [],
+                allowed_paper_sizes: t.allowed_paper_sizes || [],
+                allowed_processing: t.allowed_processing || [],
+                keywords: t.aiKeywords || t.ai_keywords || [],
+                has_auto_pricing: t.has_auto_pricing !== false,
+                ai_enabled: t.ai_enabled !== false,
+                description: t.description || '',
+                mini_quote_fields: t.mini_quote_fields || null,
+                form_config: t.form_config || null,
+                default_materials: t.default_materials || null,
+                default_finishing: t.default_finishing || null,
+                fields: (t.fields || []).map((f: any) => ({
+                    id: f.id,
+                    field_code: f.field_code,
+                    field_name: f.field_name || f.label,
+                    field_type: f.field_type,
+                    is_required: !!f.is_required,
+                    ai_question: f.ai_question || '',
+                    ai_keywords: f.ai_keywords || [],
+                    default_value: f.default_value,
+                    options: f.options,
+                    source_table: f.source_table,
+                })),
+            }));
+            loadProductTemplates(templates);
+        } catch (err: any) {
+            this.logger.warn(`[refreshAiTemplatesCache] Bỏ qua làm mới cache AI: ${err?.message || err}`);
+        }
     }
 
     private async applyQuoteConfig(product: UnifiedProduct, qc: any) {
@@ -399,6 +445,7 @@ export class ProductsService {
 
         product.miniQuoteFields = filtered.length > 0 ? filtered : null;
         await this.tmplRepo.save(product);
+        await this.refreshAiTemplatesCache();
         return { updated: true, fields: product.miniQuoteFields };
     }
 
@@ -420,6 +467,7 @@ export class ProductsService {
                 results.push({ id, code: '', success: false });
             }
         }
+        await this.refreshAiTemplatesCache();
         return results;
     }
 

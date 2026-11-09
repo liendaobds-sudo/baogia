@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '../../_components/apiClient';
+import { OffsetSettingsNav } from '../_components/OffsetSettingsNav';
+import { useTrialMode, TrialLockBanner } from '@/lib/scope/use-trial-mode';
 
 /**
  * Định mức BÙ HAO THEO CÔNG ĐOẠN — In Offset.
@@ -26,6 +28,7 @@ const ICONS: Record<string, string> = {
 };
 
 export default function WasteStagesPage() {
+    const { isTrialMode } = useTrialMode();
     const [stages, setStages] = useState<StageUI[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -44,6 +47,7 @@ export default function WasteStagesPage() {
     }, []);
 
     useEffect(() => { loadData(); }, [loadData]);
+    if (isTrialMode) return <TrialLockBanner title="Định mức Bù hao theo Công đoạn (Đã ẩn ở Chế độ Dùng thử)" />;
 
     const showToast = (msg: string, type: 'success' | 'error') => {
         setToast({ msg, type });
@@ -172,6 +176,7 @@ export default function WasteStagesPage() {
                 </button>
             </div>
 
+            <OffsetSettingsNav activeTab="waste-stages" />
             <div className="flex-1 overflow-y-auto">
                 <div className="max-w-5xl mx-auto space-y-6">
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-[13px] text-blue-800">

@@ -65,7 +65,7 @@ import { addTransactionalDataSource } from 'typeorm-transactional';
                     lazyConnect: true,
                     // Retry vô hạn (trần 30s) — worker BullMQ tự hồi khi Redis quay lại,
                     // không chết vĩnh viễn sau 3 lần thử như bản cũ.
-                    retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+                    retryStrategy: (times: number) => (config.get<string>('NODE_ENV') !== 'production' && times > 3) ? null : Math.min(times * 500, 30_000),
                 },
             }),
         }),

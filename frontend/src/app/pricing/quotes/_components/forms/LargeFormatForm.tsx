@@ -1,38 +1,31 @@
 // @ts-nocheck
 import React from 'react';
 import SearchableSelect from '@/components/SearchableSelect';
-import { PreviewLayoutSVG } from '../PreviewLayoutSVG';
 import { useQuoteConfigurator } from '../_hooks/useQuoteConfigurator';
 import { formatVND } from '../quote-ui';
+import { useTrialMode } from '@/lib/scope/use-trial-mode';
+import { useCustomPresets, PresetSaveControls } from '@/lib/quote/use-custom-presets';
 
 type QuoteState = ReturnType<typeof useQuoteConfigurator>;
 
 export function LargeFormatForm({ state }: { state: QuoteState }) {
     const {
-        masterData, fileName, setFileName, quantity, setQuantity, materialId, setMaterialId, paperSizeId, setPaperSizeId, printType, setPrintType, printSide, setPrintSide, itemWidth, setItemWidth, itemHeight, setItemHeight, gapH, setGapH, gapV, setGapV, shape, setShape,
+        masterData, fileName, setFileName,
         templates, selectedTemplateCode, handleTemplateChange,
-        allowedMaterialIds, allowedProcessingIds, allowedPaperSizeIds, allowedAccessoryIds,
-        lockPrintSide, lockPrintType,
-        selectedProcessing, setSelectedProcessing, curProcId, setCurProcId, curProcSide, setCurProcSide,
-        selectedAccessories, setSelectedAccessories, curAccId, setCurAccId, curAccQty, setCurAccQty,
+        allowedMaterialIds, allowedProcessingIds, allowedAccessoryIds,
+        lockPrintType, minQuantity = 1, maxQuantity,
         lfQuantity, setLfQuantity, lfMaterialId, setLfMaterialId, lfWidth, setLfWidth, lfHeight, setLfHeight, lfPrintType, setLfPrintType, lfSelectedProc, setLfSelectedProc, lfCurProcId, setLfCurProcId, lfSelectedAcc, setLfSelectedAcc, lfCurAccId, setLfCurAccId, lfCurAccQty, setLfCurAccQty,
-        bQuantity, setBQuantity, bPageCount, setBPageCount, bBindingType, setBBindingType,
-        bCoverMaterialName, setBCoverMaterialName, bCoverMaterialId, setBCoverMaterialId, bCoverPaperSizeId, setBCoverPaperSizeId, bCoverPrintType, setBCoverPrintType, bCoverPrintSide, setBCoverPrintSide, bCoverProc, setBCoverProc,
-        bInnerMaterialName, setBInnerMaterialName, bInnerMaterialId, setBInnerMaterialId, bInnerPaperSizeId, setBInnerPaperSizeId, bInnerPrintType, setBInnerPrintType, bInnerPrintSide, setBInnerPrintSide, bInnerProc, setBInnerProc,
-        pricingResult, lastPricingPayload, optimizedSizes,
-        addItem, productName
+        pricingResult, lastPricingPayload, calculating,
+        addItem, updateItem, editingItemId, setEditingItemId, productName
     } = state;
 
+    const { isTrialMode } = useTrialMode();
+    const { presets: userPresets, savePreset, deletePreset, resetDefaultPresets } = useCustomPresets('large_format');
+    const [activeUserPresetId, setActiveUserPresetId] = React.useState<string | null>(null);
+    const activeUserPreset = userPresets.find((p) => p.id === activeUserPresetId);
     const formatCurrency = formatVND;
+    const isEditingCartItem = Boolean(editingItemId);
 
-    /**
-     * Giá BÁN trước VAT của hạng mục khổ lớn — LẤY TỪ SERVER, không tự cộng thêm.
-     *
-     * `PricingFacadeService.calculateLargeFormat` đã cộng `accessories_cost` vào `subtotal`,
-     * rồi facade áp markup MỘT LẦN ⇒ `selling_subtotal` đã bao gồm phụ kiện. Backend khi lưu
-     * cũng ghi `item_total = selling_subtotal` (OrdersService.recomputeDigitalItems), nên đây
-     * là con số duy nhất khớp giữa: số báo cho khách ⇄ giỏ hàng ⇄ báo giá đã lưu ⇄ PDF.
-     */
     const lfSellingSubtotal = (() => {
         const r = pricingResult as any;
         if (!r || r.type !== 'large_format') return 0;
@@ -40,324 +33,408 @@ export function LargeFormatForm({ state }: { state: QuoteState }) {
         return Number.isFinite(n) ? n : 0;
     })();
 
-                    const allMats = (masterData?.materials as any[]) || [];
-                    const allProc = (masterData?.processing_options as any[]) || [];
-                    
-                    // Robust accessory check
-                    const isAccessory = (m: any) => {
-                        const c = (m.category || '').toLowerCase().trim();
-                        const t = (m.type || '').toLowerCase().trim();
-                        return ['accessory', 'accessories', 'phụ kiện'].includes(c) || ['accessory', 'accessories', 'phụ kiện'].includes(t) || c.includes('accessory') || t.includes('accessory');
-                    };
+    const allMats = (masterData?.materials as any[]) || [];
+    const allProc = (masterData?.processing_options as any[]) || [];
 
-                    // Scope-filtered materials (exclude accessories) — CHỈ vật liệu sản phẩm cho phép
-                    const lfMats = allMats.filter(m => (m.scopeLargeFormat || m.scope_large_format == 1) && !isAccessory(m) && allowedMaterialIds.includes(String(m.id)));
-                    // Accessories for large format — CHỈ phụ kiện sản phẩm cho phép
-                    const lfAccessories = allMats.filter(m => (m.scopeLargeFormat || m.scope_large_format == 1) && isAccessory(m) && allowedAccessoryIds.includes(String(m.id)));
-                    // Processing for large format — CHỈ gia công sản phẩm cho phép
-                    const lfProc = allProc.filter(p => (p.scopeLargeFormat || p.scope_large_format == 1) && allowedProcessingIds.includes(String(p.id)));
-                    // Selected material info
-                    const selectedMat = lfMats.find(m => m.id.toString() === lfMaterialId);
-                    
-                    return (
-                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 w-full">
-                        {/* LEFT AND CENTER PANELS: Form */}
-                        <div className="xl:col-span-8 flex flex-col gap-4">
-                            <div className="bg-white border text-slate-700 border-slate-200 rounded-xl p-5 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.08)]">
-                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-slate-100 pb-3 mb-4 gap-3">
-                                    <h3 className="font-extrabold text-[15px] uppercase tracking-wider flex items-center text-indigo-900">
-                                        <span className="text-xl mr-2 text-indigo-600"><i className="fa-solid fa-print"></i></span> IN KHỔ LỚN
-                                    </h3>
-                                    <div className="flex items-center gap-2">
-                                        <select 
-                                            value={selectedTemplateCode} 
-                                            onChange={handleTemplateChange}
-                                            className="flex-1 sm:w-[260px] text-[11px] font-bold text-indigo-900 bg-indigo-50/70 border border-indigo-200 rounded-lg h-9 px-3 focus:border-indigo-500 focus:bg-white outline-none transition-colors shadow-inner"
-                                        >
-                                            <option value="">-- Chọn mẫu sản phẩm có sẵn --</option>
-                                            {templates.map((group, idx) => {
-                                                const lft = group.templates.filter((t: any) => t.product_type === 'large_format' || t.quoteType === 'large_format');
-                                                if (lft.length === 0) return null;
-                                                const opts = lft.map((t: any) => <option key={t.code || t.id} value={t.code || t.id}>{t.name || t.nameVi}</option>);
-                                                // Nhóm mặc định 'other' (Danh mục chung) → không bọc optgroup cho gọn.
-                                                return group.code === 'other'
-                                                    ? opts
-                                                    : <optgroup key={idx} label={group.name || group.title}>{opts}</optgroup>;
-                                            })}
-                                        </select>
-                                    </div>
-                                </div>
+    const isAccessory = (m: any) => {
+        const c = (m.category || '').toLowerCase().trim();
+        const t = (m.type || '').toLowerCase().trim();
+        return ['accessory', 'accessories', 'phụ kiện'].includes(c) || ['accessory', 'accessories', 'phụ kiện'].includes(t) || c.includes('accessory') || t.includes('accessory');
+    };
 
-                                {/* 1. Thông tin chung */}
-                                <h4 className="font-bold text-[12px] mb-3 text-slate-700 flex items-center gap-1.5">
-                                    <span className="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-[10px]">1</span> Thông tin chung
-                                </h4>
-                                <div className="grid grid-cols-12 gap-3 mb-5">
-                                    <div className="col-span-12 sm:col-span-6">
-                                        <label className="block text-[10px] font-bold text-slate-600 mb-1 tracking-wide uppercase">Tên File / Sản Phẩm <span className="text-red-500">*</span></label>
-                                        <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} placeholder="Ví dụ: Băng rôn Tết, Standee..." className="w-full text-[13px] font-semibold px-3 h-9 border border-slate-300 rounded focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-slate-50 focus:bg-white shadow-inner transition-all" />
-                                    </div>
-                                    <div className="col-span-6 sm:col-span-3">
-                                        <label className="block text-[10px] font-bold text-indigo-700 mb-1 uppercase">Số lượng:</label>
-                                        <input type="number" min="1" value={lfQuantity} onChange={e => setLfQuantity(Number(e.target.value))} className="w-full text-sm font-bold text-center px-2 h-9 border border-indigo-300 rounded focus:border-indigo-500 outline-none shadow-inner bg-indigo-50/50 text-indigo-900" />
-                                    </div>
-                                    <div className="col-span-6 sm:col-span-3">
-                                        <label className="block text-[10px] font-bold text-indigo-700 mb-1 uppercase">ĐVT:</label>
-                                        <select className="w-full px-2 h-9 text-[11px] font-semibold border border-indigo-300 rounded shadow-inner outline-none focus:border-indigo-500 bg-indigo-50/50 text-indigo-900">
-                                            <option value="tấm">Tấm / Tờ</option>
-                                            <option value="cuộn">Cuộn</option>
-                                        </select>
-                                    </div>
-                                </div>
+    const lfMats = allMats.filter(m => (m.scopeLargeFormat || m.scope_large_format == 1) && !isAccessory(m) && (!selectedTemplateCode || allowedMaterialIds.length === 0 || allowedMaterialIds.includes(String(m.id))));
+    const allAcc = ((masterData?.accessories as any[])?.length ? (masterData.accessories as any[]) : allMats.filter(m => isAccessory(m)));
+    const lfAccessories = allAcc.filter(m => (!selectedTemplateCode || allowedAccessoryIds.length === 0 || allowedAccessoryIds.includes(String(m.id))));
+    const lfProc = allProc.filter(p => (p.scopeLargeFormat || p.scope_large_format == 1) && (!selectedTemplateCode || allowedProcessingIds.length === 0 || allowedProcessingIds.includes(String(p.id))));
+    const selectedMat = lfMats.find(m => m.id.toString() === lfMaterialId);
 
-                                {/* 2x2 Grid Layout */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Vật tư & Kích thước */}
-                                    <div className="space-y-4">
-                                        {/* 2. Vật tư */}
-                                        <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-3.5 shadow-sm">
-                                            <h4 className="font-bold text-[11px] mb-3 text-blue-800 uppercase flex items-center gap-1.5">
-                                                <span className="bg-blue-200 text-blue-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px]">2</span> Vật tư
-                                            </h4>
-                                            <div className="mb-2">
-                                                <select value={lfMaterialId} onChange={e => setLfMaterialId(e.target.value)} className="w-full px-1.5 h-8 text-[11px] font-medium border border-blue-200 rounded shadow-inner outline-none transition-colors focus:border-blue-500 bg-white text-blue-900">
-                                                    <option value="">-- Chọn vật liệu (cuộn) --</option>
-                                                    {lfMats.map(m => {
-                                                        const pArea = m.pricePerSqm || m.price_per_sqm;
-                                                        return (<option key={m.id} value={m.id}>{m.name} {pArea ? `- ${formatCurrency(pArea)}/m²` : ''}</option>);
-                                                    })}
-                                                </select>
-                                            </div>
-                                            {selectedMat && (
-                                                <div className="text-[10px] text-blue-800 bg-white/70 p-2 rounded-lg border border-blue-100 space-y-1 mt-2">
-                                                    {(selectedMat.rollWidth || selectedMat.roll_width) && (
-                                                        <div className="font-medium">📐 Khổ cuộn: <b>{((selectedMat.rollWidth || selectedMat.roll_width) / 1000).toFixed(2)}m</b> ({selectedMat.chargeFullWidth || selectedMat.charge_full_width == 1 ? 'Tính bù hao' : 'Không bù hao'})</div>
-                                                    )}
-                                                    <div className={(parseInt(selectedMat.stock) || 0) <= 0 ? 'text-red-600 font-bold' : 'text-emerald-600 font-bold'}>📦 Tồn kho: {(parseInt(selectedMat.stock) || 0).toLocaleString()} {selectedMat.unitName || selectedMat.unit_name || 'đv'}</div>
-                                                </div>
-                                            )}
-                                        </div>
+    const labelClass = 'block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1';
+    const inputClass = 'w-full text-[12px] font-bold px-2.5 h-8 border border-slate-200 rounded-md focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-800 transition-colors';
 
-                                        {/* 3. Kích thước */}
-                                        <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-3.5 shadow-sm">
-                                            <h4 className="font-bold text-[11px] mb-3 text-slate-700 uppercase flex items-center gap-1.5">
-                                                <span className="bg-slate-200 text-slate-600 rounded-full w-5 h-5 flex items-center justify-center text-[10px]">3</span> Kích thước tính(mm)
-                                            </h4>
-                                            <div className="mb-3">
-                                                <label className="block text-[9px] uppercase font-semibold text-slate-500 mb-1.5">Công nghệ in:</label>
-                                                <select value={lfPrintType} onChange={e => setLfPrintType(e.target.value)} disabled={lockPrintType} className={`w-full px-1.5 h-8 text-[11px] font-medium border border-slate-300 rounded shadow-inner outline-none transition-colors focus:border-indigo-500 text-slate-800 ${lockPrintType ? 'bg-slate-100 cursor-not-allowed opacity-70' : 'bg-white'}`}>
-                                                    {((masterData?.print_types as any[]) || []).map(p => (<option key={p.code} value={p.code}>{p.name}</option>))}
-                                                </select>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3 mb-2">
-                                                <div>
-                                                    <label className="block text-[9px] uppercase font-semibold text-slate-500 mb-1.5">Chiều Rộng</label>
-                                                    <div className="relative">
-                                                        <input type="number" min="10" value={lfWidth} onChange={e => setLfWidth(Number(e.target.value))} className="w-full text-center text-[12px] font-bold px-2 h-9 border border-slate-300 rounded focus:border-slate-500 shadow-inner outline-none bg-white text-slate-800" />
-                                                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400">mm</span>
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[9px] uppercase font-semibold text-slate-500 mb-1.5">Chiều Cao</label>
-                                                    <div className="relative">
-                                                        <input type="number" min="10" value={lfHeight} onChange={e => setLfHeight(Number(e.target.value))} className="w-full text-center text-[12px] font-bold px-2 h-9 border border-slate-300 rounded focus:border-slate-500 shadow-inner outline-none bg-white text-slate-800" />
-                                                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400">mm</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="text-[10px] text-slate-500 mt-2 px-1 flex justify-between border-t border-slate-200 pt-2 font-medium">
-                                                <div>Sợi 1 tấm: <b className="text-indigo-600">{(lfWidth * lfHeight / 1000000).toFixed(3)} m²</b></div>
-                                                <div>Tổng: <b className="text-indigo-600">{(lfWidth * lfHeight / 1000000 * lfQuantity).toFixed(3)} m²</b></div>
-                                            </div>
-                                        </div>
-                                    </div>
+    return (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 w-full">
+            {/* LEFT AND CENTER PANELS: Form */}
+            <div className="xl:col-span-8 flex flex-col gap-4">
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.08)] space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-slate-100 pb-2.5 gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <h3 className="font-extrabold text-[13px] uppercase tracking-wider text-slate-800 m-0">
+                                CẤU HÌNH IN KHỔ LỚN
+                            </h3>
+                            <PresetSaveControls
+                                defaultLabel={fileName || (lfWidth && lfHeight ? `Khổ lớn ${Math.round(lfWidth / 10)}×${Math.round(lfHeight / 10)}cm` : '')}
+                                activeCustomPresetId={activeUserPresetId}
+                                activeCustomPresetLabel={activeUserPreset?.label}
+                                hasAnyPreset={userPresets.length > 0}
+                                onResetDefaults={resetDefaultPresets}
+                                onSave={(lbl, updateId) => {
+                                    const saved = savePreset(lbl, fileName || lbl, {
+                                        w: lfWidth,
+                                        h: lfHeight,
+                                        qty: lfQuantity,
+                                        lfMaterialId,
+                                        lfPrintType,
+                                        lfSelectedProc,
+                                        lfSelectedAcc,
+                                    }, updateId);
+                                    setActiveUserPresetId(saved.id);
+                                }}
+                                onDelete={(id) => {
+                                    deletePreset(id);
+                                    setActiveUserPresetId(null);
+                                }}
+                            />
+                        </div>
+                        <div className="w-full sm:w-[300px]">
+                            <SearchableSelect
+                                value={activeUserPresetId || selectedTemplateCode}
+                                onChange={v => {
+                                    const val = v.toString();
+                                    const userPreset = userPresets.find((p) => p.id === val);
+                                    if (userPreset) {
+                                        setActiveUserPresetId(userPreset.id);
+                                        if (selectedTemplateCode) {
+                                            handleTemplateChange({ target: { value: '' } } as React.ChangeEvent<HTMLSelectElement>);
+                                        }
+                                        const d: any = userPreset.data || {};
+                                        setFileName(userPreset.name || userPreset.label);
+                                        if (d.w) setLfWidth(d.w);
+                                        if (d.h) setLfHeight(d.h);
+                                        if (d.qty) setLfQuantity(d.qty);
+                                        if (d.lfMaterialId) setLfMaterialId(d.lfMaterialId);
+                                        if (d.lfPrintType) setLfPrintType(d.lfPrintType);
+                                        if (Array.isArray(d.lfSelectedProc)) setLfSelectedProc(d.lfSelectedProc);
+                                        if (Array.isArray(d.lfSelectedAcc)) setLfSelectedAcc(d.lfSelectedAcc);
+                                        return;
+                                    }
+                                    setActiveUserPresetId(null);
+                                    const syntheticEvent = { target: { value: val } } as React.ChangeEvent<HTMLSelectElement>;
+                                    handleTemplateChange(syntheticEvent);
+                                }}
+                                options={[
+                                    ...userPresets.map((up) => ({ id: up.id, label: up.label, group: 'Mẫu gợi ý nhanh (Sửa / Xoá được)' })),
+                                    ...templates.flatMap((group: any) => {
+                                        const lft = group.templates.filter((t: any) => t.product_type === 'large_format' || t.quoteType === 'large_format');
+                                        return lft.map((t: any) => ({ id: t.code || t.id, label: t.name || t.nameVi, group: group.code === 'other' ? undefined : (group.name || group.title) }));
+                                    }),
+                                ]}
+                                placeholder="-- Chọn mẫu sản phẩm khổ lớn --"
+                            />
+                        </div>
+                    </div>
 
-                                    {/* Gia công & Phụ kiện */}
-                                    <div className="space-y-4 flex flex-col">
-                                        {/* 4. Gia công */}
-                                        <div className="bg-orange-50/40 border border-orange-200 rounded-xl p-3.5 shadow-sm flex-1 flex flex-col min-h-[160px]">
-                                            <h4 className="font-bold text-[11px] mb-3 text-orange-800 uppercase flex items-center gap-1.5">
-                                                <span className="bg-orange-200 text-orange-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px]">4</span> Gia công sau in
-                                            </h4>
-                                            <div className="flex gap-2 mb-2">
-                                                <select value={lfCurProcId} onChange={e => setLfCurProcId(e.target.value)} className="flex-1 px-1.5 h-8 text-[11px] font-medium border border-orange-300 rounded shadow-inner outline-none transition-colors focus:border-orange-500 bg-white text-orange-900">
-                                                    <option value="">-- Chọn gia công --</option>
-                                                    {lfProc.map(p => (<option key={p.id} value={p.name}>{p.name}</option>))}
-                                                </select>
-                                                <button onClick={() => {
-                                                    if (!lfCurProcId) return;
-                                                    if (!lfSelectedProc.find(p => p.name === lfCurProcId)) {
-                                                        setLfSelectedProc(prev => [...prev, {id: lfCurProcId, name: lfCurProcId}]);
-                                                    }
-                                                    setLfCurProcId('');
-                                                }} disabled={!lfCurProcId} className="bg-orange-500 hover:bg-orange-600 text-white w-8 h-8 rounded-lg text-sm font-bold disabled:opacity-50 flex items-center justify-center transition-colors shadow-sm">+</button>
-                                            </div>
-                                            <div className="flex-1 bg-white/70 rounded-lg border border-orange-100 p-2 overflow-y-auto mt-1">
-                                                {lfSelectedProc.length === 0 ? <div className="text-center text-[10px] text-orange-400/80 italic mt-3">Chưa có gia công</div> :
-                                                <div className="flex flex-col gap-1.5">
-                                                    {lfSelectedProc.map(p => (
-                                                        <div key={p.id} className="bg-orange-100/80 border border-orange-200 text-orange-800 text-[10px] font-semibold px-2.5 py-1.5 rounded flex items-center justify-between shadow-sm">
-                                                            <span className="truncate pr-2">{p.name}</span>
-                                                            <button onClick={() => setLfSelectedProc(prev => prev.filter(x => x.name !== p.name))} className="text-red-500 hover:text-red-700 font-bold ml-1 w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-50/50 transition-colors">×</button>
-                                                        </div>
-                                                    ))}
-                                                </div>}
-                                            </div>
-                                        </div>
-
-                                        {/* 5. Phụ kiện */}
-                                        <div className="bg-emerald-50/40 border border-emerald-200 rounded-xl p-3.5 shadow-sm flex-1 flex flex-col min-h-[160px]">
-                                            <h4 className="font-bold text-[11px] mb-3 text-emerald-800 uppercase flex items-center gap-1.5">
-                                                <span className="bg-emerald-200 text-emerald-700 rounded-full w-5 h-5 flex items-center justify-center text-[10px]">5</span> Phụ kiện
-                                            </h4>
-                                            <div className="flex gap-2 mb-2">
-                                                <select value={lfCurAccId} onChange={e => setLfCurAccId(e.target.value)} className="flex-1 px-1.5 h-8 text-[11px] font-medium border border-emerald-300 rounded shadow-inner outline-none transition-colors focus:border-emerald-500 bg-white text-emerald-900">
-                                                    <option value="">-- Chọn phụ kiện --</option>
-                                                    {lfAccessories.map(a => (<option key={a.id} value={a.id}>{a.name} - {formatCurrency(a.unitPrice || a.unit_price || a.price || 0)}</option>))}
-                                                </select>
-                                                <input type="number" min="1" value={lfCurAccQty} onChange={e => setLfCurAccQty(Number(e.target.value))} className="w-12 px-1 text-[11px] h-8 text-center font-bold text-emerald-900 border border-emerald-300 rounded shadow-inner outline-none transition-colors focus:border-emerald-500" />
-                                                <button onClick={() => {
-                                                    if (!lfCurAccId) return;
-                                                    const acc = lfAccessories.find(a => a.id.toString() === lfCurAccId);
-                                                    if (acc && !lfSelectedAcc.find(a => a.id === lfCurAccId)) {
-                                                        setLfSelectedAcc(prev => [...prev, {id: lfCurAccId, qty: lfCurAccQty, name: acc.name, price: acc.unitPrice || acc.unit_price || acc.price || 0}]);
-                                                    }
-                                                    setLfCurAccId(''); setLfCurAccQty(1);
-                                                }} disabled={!lfCurAccId} className="bg-emerald-600 hover:bg-emerald-700 text-white w-8 h-8 rounded-lg text-sm font-bold disabled:opacity-50 flex items-center justify-center transition-colors shadow-sm">+</button>
-                                            </div>
-                                            <div className="flex-1 bg-white/70 rounded-lg border border-emerald-100 p-2 overflow-y-auto mt-1">
-                                                {lfSelectedAcc.length === 0 ? <div className="text-center text-[10px] text-emerald-500/70 italic mt-3">Không kèm phụ kiện</div> :
-                                                <div className="flex flex-col gap-1.5">
-                                                    {lfSelectedAcc.map(a => (
-                                                        <div key={a.id} className="bg-emerald-100/80 border border-emerald-200 text-emerald-800 text-[10px] font-semibold px-2 py-1.5 rounded flex items-center justify-between shadow-sm">
-                                                            <div className="flex-1 truncate pr-1" title={a.name}>{a.name}</div>
-                                                            <div className="font-bold text-emerald-900 mx-1 w-8 text-right">×{a.qty}</div>
-                                                            <button onClick={() => setLfSelectedAcc(prev => prev.filter(x => x.id !== a.id))} className="text-red-500 hover:text-red-700 font-bold w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-50/50 transition-colors">×</button>
-                                                        </div>
-                                                    ))}
-                                                </div>}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-
+                    {/* 1. Thông tin chung */}
+                    <div className="grid grid-cols-12 gap-3">
+                        <div className="col-span-12 sm:col-span-6">
+                            <label className={labelClass}>
+                                Tên File / Sản Phẩm <span className="text-slate-400 font-normal normal-case">(mặc định theo mẫu)</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={fileName}
+                                onChange={e => setFileName(e.target.value)}
+                                placeholder="Ví dụ: Băng rôn Tết, Standee..."
+                                className={inputClass}
+                            />
+                        </div>
+                        <div className="col-span-6 sm:col-span-3">
+                            <label className={labelClass}>
+                                Số lượng {minQuantity > 1 && <span className="text-indigo-600 normal-case font-normal">(≥{minQuantity})</span>}
+                            </label>
+                            <input
+                                type="number"
+                                min={minQuantity || 1}
+                                max={maxQuantity}
+                                value={lfQuantity}
+                                onChange={e => setLfQuantity(Number(e.target.value))}
+                                onBlur={() => {
+                                    if (minQuantity > 1 && lfQuantity < minQuantity) setLfQuantity(minQuantity);
+                                    else if (maxQuantity && lfQuantity > maxQuantity) setLfQuantity(maxQuantity);
+                                }}
+                                className={`${inputClass} text-center`}
+                            />
+                        </div>
+                        <div className="col-span-6 sm:col-span-3">
+                            <label className={labelClass}>ĐVT (theo vật tư)</label>
+                            <div className={`${inputClass} bg-slate-50 text-slate-600 flex items-center justify-center select-none`}>
+                                {selectedMat?.unitName || selectedMat?.unit_name || ((selectedMat?.rollWidth || selectedMat?.roll_width) ? 'Tấm (từ cuộn)' : 'Tấm / Tờ')}
                             </div>
+                        </div>
+                    </div>
 
-                            {/* CENTER PANEL: DETAILED BREAKDOWN */}
-                            {pricingResult && (pricingResult as any).type === 'large_format' && (
-                                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm mb-2 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full blur-2xl -mt-10 -mr-10"></div>
-                                    <h4 className="font-bold text-sm mb-3 text-slate-800 border-b border-slate-100 pb-2 relative z-10 flex items-center gap-2">
-                                        <i className="fa-solid fa-calculator text-indigo-500"></i> CHI TIẾT TÍNH TOÁN
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between items-center bg-slate-50/80 p-2.5 rounded-lg border border-slate-100">
-                                                <span className="text-[11px] text-slate-600 font-medium">Diện tích tinh thô (1 bản)</span>
-                                                <span className="font-bold text-slate-700">{(pricingResult as any).breakdown?.area_m2} m²</span>
-                                            </div>
-                                            <div className="flex justify-between items-center bg-slate-50/80 p-2.5 rounded-lg border border-slate-100">
-                                                <span className="text-[11px] text-slate-600 font-medium">Hạng mục gia công</span>
-                                                <span className="font-bold text-slate-700 text-[11px]">{lfSelectedProc.length} quy trình</span>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between items-center bg-indigo-50/80 p-2.5 rounded-lg border border-indigo-100 shadow-sm">
-                                                <span className="text-[11px] text-indigo-800 font-bold">TỔNG M² TÍNH TIỀN (Quy chuẩn)</span>
-                                                <span className="font-black text-indigo-700 text-[14px]">{(pricingResult as any).breakdown?.charge_area_m2} m²</span>
-                                            </div>
-                                            <div className="flex justify-between items-center bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-100 shadow-sm">
-                                                <span className="text-[11px] text-emerald-800 font-bold">Đơn giá Vật liệu In / m²</span>
-                                                <span className="font-bold text-emerald-700 text-[12px]">{formatCurrency((pricingResult as any).breakdown?.price_per_sqm || 0)}</span>
-                                            </div>
-                                        </div>
-                                    </div>
+                    {/* Vật tư & Kích thước */}
+                    <div className="border-t border-slate-100 pt-3.5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2.5">
+                            <label className={labelClass}>Vật tư cuộn / tấm</label>
+                            <SearchableSelect
+                                value={lfMaterialId}
+                                onChange={v => setLfMaterialId(v.toString())}
+                                options={lfMats.map(m => {
+                                    const pArea = m.pricePerSqm || m.price_per_sqm;
+                                    return {
+                                        id: m.id.toString(),
+                                        label: `${m.name}${m.has_large_format_tier === false && !pArea ? ' ⚠ (chưa có định mức)' : (pArea ? ` — ${formatCurrency(pArea)}/m²` : '')}`,
+                                    };
+                                })}
+                                placeholder="-- Chọn vật liệu (cuộn/bạt/decal) --"
+                            />
+                            {selectedMat && (
+                                <div className="text-[10px] text-slate-600 bg-slate-50 p-2 rounded-md border border-slate-100 flex flex-wrap justify-between gap-2">
+                                    {(selectedMat.rollWidth || selectedMat.roll_width) && (
+                                        <span>Khổ cuộn: <b className="text-slate-800">{((selectedMat.rollWidth || selectedMat.roll_width) / 1000).toFixed(2)}m</b> ({selectedMat.chargeFullWidth || selectedMat.charge_full_width == 1 ? 'Tính bù hao' : 'Không bù hao'})</span>
+                                    )}
+                                    <span className={(parseInt(selectedMat.stock) || 0) <= 0 ? 'text-red-600 font-bold' : 'text-emerald-600 font-bold'}>Tồn: {(parseInt(selectedMat.stock) || 0).toLocaleString()} {selectedMat.unitName || selectedMat.unit_name || 'đv'}</span>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className={labelClass}>Công nghệ in</label>
+                                <select value={lfPrintType} onChange={e => setLfPrintType(e.target.value)} disabled={lockPrintType} className={`${inputClass} ${lockPrintType ? 'bg-slate-100 cursor-not-allowed opacity-70' : ''}`}>
+                                    {((masterData?.print_types as any[]) || []).map(p => (<option key={p.code} value={p.code}>{p.name}</option>))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2.5">
+                            <div className="grid grid-cols-2 gap-2.5">
+                                <div>
+                                    <label className={labelClass}>Chiều Rộng (mm)</label>
+                                    <input type="number" min="10" value={lfWidth} onChange={e => setLfWidth(Number(e.target.value))} className={`${inputClass} text-center`} />
+                                </div>
+                                <div>
+                                    <label className={labelClass}>Chiều Cao (mm)</label>
+                                    <input type="number" min="10" value={lfHeight} onChange={e => setLfHeight(Number(e.target.value))} className={`${inputClass} text-center`} />
+                                </div>
+                            </div>
+                            <div className="text-[11px] text-slate-600 bg-slate-50 rounded-md px-3 py-2 border border-slate-100 flex justify-between font-medium">
+                                <div>Diện tích 1 tấm: <b className="text-indigo-600">{(lfWidth * lfHeight / 1000000).toFixed(3)} m²</b></div>
+                                <div>Tổng: <b className="text-indigo-600">{(lfWidth * lfHeight / 1000000 * lfQuantity).toFixed(3)} m²</b></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Gia công & Phụ kiện */}
+                    <div className="border-t border-slate-100 pt-3.5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className={labelClass}>Gia công sau in</label>
+                            <div className="flex items-center gap-1.5">
+                                <div className="flex-1 min-w-0">
+                                    <SearchableSelect
+                                        value={lfCurProcId}
+                                        onChange={v => setLfCurProcId(v.toString())}
+                                        options={lfProc.map(p => ({ id: String(p.id), label: p.name }))}
+                                        placeholder="-- Chọn gia công --"
+                                    />
+                                </div>
+                                <button type="button" onClick={() => {
+                                    if (!lfCurProcId) return;
+                                    const procItem = lfProc.find(p => String(p.id) === String(lfCurProcId));
+                                    if (procItem && !lfSelectedProc.find(p => String(p.id) === String(lfCurProcId))) {
+                                        setLfSelectedProc(prev => [...prev, { id: String(procItem.id), name: procItem.name }]);
+                                    }
+                                    setLfCurProcId('');
+                                }} disabled={!lfCurProcId} className="bg-indigo-600 hover:bg-indigo-700 text-white w-8 h-8 shrink-0 rounded-md text-sm font-bold disabled:opacity-50 flex items-center justify-center transition-colors">+</button>
+                            </div>
+                            {lfSelectedProc.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {lfSelectedProc.map(p => (
+                                        <span key={p.id} className="bg-orange-50 border border-orange-200 text-orange-800 text-[10px] font-semibold px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                                            {p.name}
+                                            <button type="button" onClick={() => setLfSelectedProc(prev => prev.filter(x => String(x.id) !== String(p.id)))} className="text-slate-400 hover:text-red-500 font-bold">×</button>
+                                        </span>
+                                    ))}
                                 </div>
                             )}
                         </div>
 
-                        {/* RIGHT PANEL: Totals */}
-                        <div className="xl:col-span-4">
-                            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] h-full relative overflow-hidden flex flex-col">
-                                <div className="absolute -right-8 -top-8 w-28 h-28 rounded-full bg-slate-50/80 border border-slate-100 z-0 blur-sm"></div>
-                                <h3 className="font-extrabold text-[15px] mb-5 text-slate-800 relative z-10 border-b border-slate-100 pb-3 uppercase tracking-wider flex items-center justify-between">
-                                    <span>TỔNG CHI PHÍ KHỔ LỚN</span>
-                                    <span className="text-indigo-400"><i className="fa-solid fa-receipt"></i></span>
-                                </h3>
-                                <div className="flex-1 space-y-4 text-[13px] relative z-10">
-                                    <div className="flex flex-col gap-1.5 bg-slate-50/50 p-2.5 rounded-lg border border-slate-100">
-                                        <div className="flex justify-between items-center text-slate-600 font-medium">
-                                            <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div> Chi phí in ấn:</span>
-                                            <span className="font-bold text-slate-800">{pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency((pricingResult as any).material_cost) : '-'}</span>
-                                        </div>
-                                    </div>
-                                    {lfSelectedAcc.length > 0 && (
-                                        <div className="flex flex-col gap-1.5 bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100">
-                                            <div className="flex justify-between items-center text-emerald-700 font-medium">
-                                                <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Phụ kiện ({lfSelectedAcc.length}):</span>
-                                                {/* Giá vốn phụ kiện do SERVER trả về (đã nằm trong subtotal → đã được markup vào
-                                                    "Thành tiền"). Dòng này chỉ để tham chiếu, KHÔNG cộng thêm lần nữa. */}
-                                                <span className="font-bold text-emerald-800">{formatCurrency((pricingResult as any)?.accessories_cost ?? lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0))}</span>
-                                            </div>
-                                            <div className="text-[10px] text-emerald-600 font-medium">Đã bao gồm trong Thành tiền</div>
-                                        </div>
-                                    )}
+                        <div className="space-y-2">
+                            <label className={labelClass}>Phụ kiện (Chân standee, khoen...)</label>
+                            <div className="flex items-center gap-1.5">
+                                <div className="flex-1 min-w-0">
+                                    <SearchableSelect
+                                        value={lfCurAccId}
+                                        onChange={v => setLfCurAccId(v.toString())}
+                                        options={lfAccessories.map(a => ({ id: String(a.id), label: `${a.name} — ${formatCurrency(a.unitPrice || a.unit_price || a.price || 0)}` }))}
+                                        placeholder="-- Chọn phụ kiện --"
+                                    />
                                 </div>
-                                <div className="border-t-2 border-dashed border-slate-200 pt-4 mt-auto">
-                                    <div className="flex justify-between items-end mb-1">
-                                        <span className="text-slate-800 font-extrabold text-[13px] uppercase tracking-wide">Thành tiền:</span>
-                                        {/* NGUỒN SỰ THẬT DUY NHẤT = `selling_subtotal` của server: facade đã cộng phụ kiện
-                                            vào subtotal RỒI mới áp markup (pricing-facade.service.ts: nhánh large_format).
-                                            Trước đây FE cộng thêm Σ(phụ kiện) ⇒ số báo cho khách CAO hơn số backend lưu
-                                            (orders.service.recomputeDigitalItems ghi item_total = selling_subtotal). */}
-                                        <span className="font-black text-[26px] text-indigo-600 leading-none tracking-tight" style={{textShadow: '0 2px 4px rgba(79, 70, 229, 0.15)'}}>
-                                            {pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency(lfSellingSubtotal) : '0 ₫'}
+                                <input type="number" min="1" value={lfCurAccQty} onChange={e => setLfCurAccQty(Number(e.target.value))} className="w-16 shrink-0 px-1 text-[11px] h-8 text-center font-bold text-slate-800 border border-slate-200 rounded-md outline-none focus:border-indigo-500 bg-white" />
+                                <button type="button" onClick={() => {
+                                    if (!lfCurAccId) return;
+                                    const acc = lfAccessories.find(a => a.id.toString() === lfCurAccId);
+                                    if (acc && !lfSelectedAcc.find(a => a.id === lfCurAccId)) {
+                                        setLfSelectedAcc(prev => [...prev, { id: lfCurAccId, qty: lfCurAccQty, name: acc.name, price: acc.unitPrice || acc.unit_price || acc.price || 0 }]);
+                                    }
+                                    setLfCurAccId(''); setLfCurAccQty(1);
+                                }} disabled={!lfCurAccId} className="bg-indigo-600 hover:bg-indigo-700 text-white w-8 h-8 shrink-0 rounded-md text-sm font-bold disabled:opacity-50 flex items-center justify-center transition-colors">+</button>
+                            </div>
+                            {lfSelectedAcc.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                    {lfSelectedAcc.map(a => (
+                                        <span key={a.id} className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-semibold px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                                            {a.name} (×{a.qty})
+                                            <button type="button" onClick={() => setLfSelectedAcc(prev => prev.filter(x => x.id !== a.id))} className="text-slate-400 hover:text-red-500 font-bold">×</button>
                                         </span>
-                                    </div>
-                                    <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide mt-1">
-                                        Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'large_format' && lfQuantity > 0 ? formatCurrency(lfSellingSubtotal / lfQuantity) : '-'}</span> / sản phẩm
-                                    </div>
-                                    <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-md border border-amber-200 font-medium flex items-center gap-1.5">
-                                        <span>💡</span> Chưa bao gồm VAT & phí giao hàng — xem tổng cuối tại sidebar trái
-                                    </div>
+                                    ))}
                                 </div>
-                                {(pricingResult as any)?.error && (
-                                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs font-semibold shadow-inner">
-                                        ⚠️ {(pricingResult as any).error}
-                                    </div>
-                                )}
+                            )}
+                        </div>
+                    </div>
 
-                                {pricingResult && !(pricingResult as any).error && (
-                                    <button 
-                                        onClick={() => {
-                                            const mats = (masterData?.materials as any[]) || [];
-                                            const mat = mats.find(m => String(m.id) === String(lfMaterialId));
-                                            addItem({
-                                                name: fileName || 'In Khổ Lớn',
-                                                type: 'large_format',
-                                                quantity: lfQuantity,
-                                                // Khớp chính xác giá server sẽ ghi khi lưu (item_total = selling_subtotal).
-                                                total: lfSellingSubtotal,
-                                                unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
-                                                details: pricingResult,
-                                                configParams: {
-                                                    lfWidth, lfHeight, lfMaterialId, lfPrintType,
-                                                    materialName: mat?.name || mat?.name_vi || '',
-                                                    accessoryNames: lfSelectedAcc.map(a => a.name || a.id).filter(Boolean),
-                                                },
-                                                pricingPayload: lastPricingPayload ?? undefined,
-                                            });
-                                            setFileName('');
-                                        }}
-                                        className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 text-white font-bold py-3 px-5 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                                        THÊM VÀO BÁO GIÁ
-                                    </button>
+                    {/* DETAILED BREAKDOWN */}
+                    {pricingResult && (pricingResult as any).type === 'large_format' && (
+                        <div className="border-t border-slate-100 pt-3.5">
+                            <h4 className="font-bold text-[10px] mb-2 text-slate-500 uppercase tracking-wider">
+                                Chi tiết diện tích & đơn giá m²
+                            </h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                <div className="bg-slate-50 p-2 rounded-md border border-slate-100">
+                                    <div className="text-[10px] text-slate-500">DT thuần (1 bản)</div>
+                                    <div className="font-bold text-slate-800">{(pricingResult as any).breakdown?.area_m2} m²</div>
+                                </div>
+                                <div className="bg-indigo-50/70 p-2 rounded-md border border-indigo-100">
+                                    <div className="text-[10px] text-indigo-700 font-semibold">Tổng m² tính tiền</div>
+                                    <div className="font-black text-indigo-700">{(pricingResult as any).breakdown?.charge_area_m2} m²</div>
+                                </div>
+                                {!isTrialMode && (
+                                    <div className="bg-emerald-50/70 p-2 rounded-md border border-emerald-100 col-span-2">
+                                        <div className="text-[10px] text-emerald-700 font-semibold">Đơn giá Vật liệu / m²</div>
+                                        <div className="font-bold text-emerald-700">
+                                            {formatCurrency((pricingResult as any).breakdown?.price_per_sqm || 0)} {(pricingResult as any).breakdown?.tier_area_from != null ? `(Bậc ${(pricingResult as any).breakdown.tier_area_from}–${(pricingResult as any).breakdown.tier_area_to && (pricingResult as any).breakdown.tier_area_to < 999999 ? (pricingResult as any).breakdown.tier_area_to : '∞'} m²)` : ''}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         </div>
+                    )}
+                </div>
+            </div>
+
+            {/* RIGHT PANEL: Totals */}
+            <div className="xl:col-span-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.08)] flex flex-col sticky top-0">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
+                        <h3 className="font-extrabold text-[13px] text-slate-800 uppercase tracking-wider m-0">
+                            TỔNG CHI PHÍ KHỔ LỚN
+                        </h3>
+                        {calculating && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                Đang tính...
+                            </span>
+                        )}
                     </div>
-                    );
+                    <div className={`space-y-3 text-[12px] transition-opacity ${calculating ? 'opacity-60' : 'opacity-100'}`}>
+                        <div className="flex justify-between items-center text-slate-600 font-medium gap-2">
+                            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Chi phí in ấn:</span>
+                            <span className="font-bold text-slate-800 whitespace-nowrap shrink-0">{pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency((pricingResult as any).material_cost) : '-'}</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <div className="flex justify-between items-center text-slate-600 font-medium gap-2">
+                                <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span> Chi phí gia công:</span>
+                                <span className="font-bold text-slate-800 whitespace-nowrap shrink-0">{pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency((pricingResult as any).processing_cost || 0) : '-'}</span>
+                            </div>
+                            {(pricingResult as any)?.processing_details?.length > 0 && (
+                                <div className="pl-3 border-l-2 border-slate-100 text-[11px] text-slate-500 font-medium ml-1.5 flex flex-col gap-0.5">
+                                    {(pricingResult as any).processing_details.map((pd: any, i: number) => (
+                                        <span key={i} className="flex justify-between gap-2">
+                                            <span className="truncate">{pd.name}</span>
+                                            <span className="whitespace-nowrap shrink-0">{formatCurrency(pd.cost)}</span>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        {!isTrialMode && pricingResult && (pricingResult as any).type === 'large_format' && lfSellingSubtotal > Number((pricingResult as any).cost_subtotal ?? (pricingResult as any).total ?? 0) && (
+                            <div className="flex justify-between items-center text-slate-500 text-[12px] gap-2">
+                                <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> Lợi nhuận định mức:</span>
+                                <span className="font-bold text-indigo-700 whitespace-nowrap shrink-0">+{formatCurrency(lfSellingSubtotal - Number((pricingResult as any).cost_subtotal ?? (pricingResult as any).total ?? 0))}</span>
+                            </div>
+                        )}
+                        {lfSelectedAcc.length > 0 && (
+                            <div className="flex justify-between items-center text-slate-600 font-medium gap-2">
+                                <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Phụ kiện ({lfSelectedAcc.length}):</span>
+                                <span className="font-bold text-slate-800 whitespace-nowrap shrink-0">{formatCurrency((pricingResult as any)?.accessories_cost ?? lfSelectedAcc.reduce((sum, a) => sum + a.price * a.qty, 0))}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="border-t-2 border-dashed border-slate-200 pt-3 mt-4">
+                        <div className="flex justify-between items-end mb-1 gap-2">
+                            <span className="text-slate-800 font-extrabold text-[11px] uppercase tracking-wide">Thành tiền (trước VAT):</span>
+                            <span className="font-black text-xl text-indigo-600 leading-none tracking-tight whitespace-nowrap">
+                                {pricingResult && (pricingResult as any).type === 'large_format' ? formatCurrency(lfSellingSubtotal) : '0 ₫'}
+                            </span>
+                        </div>
+                        <div className="text-right text-[11px] text-slate-500 font-medium tracking-wide mt-1">
+                            Đơn giá: <span className="text-slate-700 font-bold">{pricingResult && (pricingResult as any).type === 'large_format' && lfQuantity > 0 ? formatCurrency(lfSellingSubtotal / lfQuantity) : '-'}</span> / sản phẩm
+                        </div>
+                    </div>
+
+                    {(pricingResult as any)?.error && (
+                        <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-600 text-[11px] font-semibold">
+                            <div>⚠️ {(pricingResult as any).error}</div>
+                            <div className="mt-1.5 flex flex-wrap gap-2">
+                                <a href="/pricing/settings/pricing-large-format" className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-50">→ Mở Định mức Khổ lớn</a>
+                                {selectedTemplateCode && <a href="/pricing/products" className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded hover:bg-slate-50">→ Cấu hình Sản phẩm</a>}
+                            </div>
+                        </div>
+                    )}
+
+                    {pricingResult && !(pricingResult as any).error && (
+                        <div className="mt-3 flex flex-col gap-1.5">
+                            <button
+                                type="button"
+                                disabled={calculating}
+                                onClick={() => {
+                                    const mats = (masterData?.materials as any[]) || [];
+                                    const mat = mats.find(m => String(m.id) === String(lfMaterialId));
+                                    const itemPayload = {
+                                        name: fileName.trim() || productName || 'In Khổ Lớn',
+                                        type: 'large_format' as const,
+                                        quantity: lfQuantity,
+                                        total: lfSellingSubtotal,
+                                        unitPrice: (pricingResult as any).selling_price_per_item ?? (pricingResult as any).price_per_item,
+                                        details: pricingResult,
+                                        configParams: {
+                                            lfWidth, lfHeight, lfMaterialId, lfPrintType,
+                                            lfSelectedProc, lfSelectedAcc,
+                                            materialName: mat?.name || mat?.name_vi || '',
+                                            accessoryNames: lfSelectedAcc.map(a => a.name || a.id).filter(Boolean),
+                                        },
+                                        pricingPayload: lastPricingPayload ?? undefined,
+                                    };
+                                    if (isEditingCartItem && editingItemId && updateItem) {
+                                        updateItem(editingItemId, itemPayload);
+                                    } else {
+                                        addItem(itemPayload);
+                                    }
+                                    setFileName('');
+                                }}
+                                className={`w-full shadow-md text-white font-bold py-2.5 px-4 rounded-lg text-[13px] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    isEditingCartItem
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                                }`}
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                    {isEditingCartItem ? <polyline points="20 6 9 17 4 12" /> : <><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>}
+                                </svg>
+                                {calculating ? 'ĐANG TÍNH GIÁ...' : isEditingCartItem ? 'CẬP NHẬT HẠNG MỤC' : 'THÊM VÀO BÁO GIÁ'}
+                            </button>
+                            {isEditingCartItem && setEditingItemId && (
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingItemId(null)}
+                                    className="w-full py-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                                >
+                                    Huỷ chỉnh sửa
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 }

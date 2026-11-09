@@ -173,7 +173,8 @@ export class OffsetController {
                 const sm = docKichThuocCm(k.khoIn);
                 if (!sm || sm.w <= 0 || sm.h <= 0) return null;
                 // Nhíp/lề/gutter theo TỪNG khổ (khớp engine giá) → preview ≡ giá, không còn hằng số cứng.
-                const overrides = { nestingMode: nestMode, ...marginsToNestOverrides(resolveMarginConfig(k, d.tyLe.params)) };
+                const mc = resolveMarginConfig(k, d.tyLe.params);
+                const overrides = { nestingMode: nestMode, ...marginsToNestOverrides(mc) };
                 const nest = isBox
                     ? nestOnSheet(params, sm.w * 10, sm.h * 10, overrides)
                     : nestRectOnSheet(bbox.width, bbox.height, sm.w * 10, sm.h * 10, overrides);
@@ -187,6 +188,7 @@ export class OffsetController {
                     utilization: nest.utilization,
                     label: nest.label,
                     positions: nest.positions,
+                    marginConfig: { margin: { top: mc.top, right: mc.right, bottom: mc.bottom, left: mc.left }, gripperMargin: mc.gripper },
                 };
             })
             .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -228,7 +230,40 @@ export class OffsetController {
      * cho 5 loại sản phẩm offset mới. _Requirements: 18.1, 19.1_
      */
     @Get('pricebook')
-    async getPricebook() {
+    async getPricebook(@Query('mode') mode?: string) {
+        await this.engineNew.refreshFromConfigStore();
+        const d0 = await this.configStore.loadPricingData();
+        if (mode === 'catalog') {
+            return {
+                success: true,
+                data: {
+                    materials: d0.materials.map((m) => ({
+                        code: m.code,
+                        aliases: m.aliases,
+                        materialName: m.materialName,
+                        type: m.type,
+                        gsm: m.gsm,
+                        priceVAT: 0,
+                        priceNoVAT: 0,
+                        sheetWidth: m.sheetWidth,
+                        sheetHeight: m.sheetHeight,
+                    })),
+                    khoIn: d0.khoIn,
+                    fixedSizes: d0.fixedSizes,
+                    giaCong: d0.giaCong.map((g) => ({ code: g.code, congDoan: g.congDoan, billingMode: g.billingMode })),
+                    vatTuBeMat: d0.kem.vatTuBeMat.map((v) => ({ ten: v.ten, donGiaKg: 0, soMat: v.soMat })),
+                    kem: { kemNho: [], kemLon: [], donGia1Kem: { kemNho: 0, kemLon: 0 } },
+                    epKim: { tiers: [], rows: d0.epKim.rows.map((r) => ({ viTri: r.viTri })) },
+                    haoHut: [],
+                    params: { TyLe_VAT: d0.tyLe.params.TyLe_VAT, TyLe_ChietKhau: d0.tyLe.params.TyLe_ChietKhau },
+                    mocSoLuong: [],
+                    phiCoDinh: d0.phiCoDinh.filter((p) => p.code === 'Gia_ThietKe'),
+                    productConfig: d0.productConfig ?? {},
+                    tuiBaiIn: (() => { const dyn = buildTuiOptions(d0); return (dyn.length ? dyn : TUI_NEST_OPTIONS).map((o) => o.label); })(),
+                    soMauOptions: [1, 2, 4, 5, 6],
+                },
+            };
+        }
         // Nạp lại cấu hình từ DB (gồm giấy in scope_offset ở bảng materials) để Configurator
         // và lần tính kế tiếp luôn dùng giá mới nhất admin vừa sửa.
         await this.engineNew.refreshFromConfigStore();
@@ -524,6 +559,7 @@ export class OffsetController {
             const ae = strArr(c.allowedEpKim); if (ae) clean.allowedEpKim = ae;
             const ak = strArr(c.allowedKhoIn); if (ak) clean.allowedKhoIn = ak;
             const akt = strArr(c.allowedKichThuoc); if (akt) clean.allowedKichThuoc = akt;
+            const abt = strArr(c.allowedBoxTypes); if (abt) clean.allowedBoxTypes = abt;
             const hidden = strArr(c.hidden); if (hidden) clean.hidden = hidden;
             const locked = strArr(c.locked); if (locked) clean.locked = locked;
             if (c.defaults && typeof c.defaults === 'object' && !Array.isArray(c.defaults)) {
@@ -653,6 +689,7 @@ export class OffsetController {
 
     @Delete('waste-rules/:id')
     @UseGuards(AuthGuard('jwt'))
+    @Permissions('pricing.edit')
     async deleteWasteRule(@Param('id') id: string) {
         await this.masterData.deleteWasteRule(parseInt(id));
         return { success: true };

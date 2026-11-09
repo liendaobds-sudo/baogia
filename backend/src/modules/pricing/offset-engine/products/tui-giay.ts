@@ -261,7 +261,7 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
 
     const bang = opt.kemLon ? d.kem.kemLon : d.kem.kemNho;
     const giaGocBinhBai = (bang.find((k) => k.soKem === input.soKem) ?? bang[bang.length - 1]).donGia;
-    const moqBinhBai = params.MOQ_BinhBai_Nho;
+    const moqBinhBai = opt.kemLon ? params.MOQ_BinhBai_Lon : params.MOQ_BinhBai_Nho;
     const cpBinhBai = luotIn <= moqBinhBai ? giaGocBinhBai : (luotIn * giaGocBinhBai) / moqBinhBai;
     // Tách rõ 2 phần (tổng = cpBinhBai): Lên bài = công gốc (trọn gói canh máy); Chạy máy = phần vượt MOQ.
     const cpLenBai = giaGocBinhBai;
@@ -271,7 +271,7 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
     if (vtbm && input.vatTuBeMat !== 'Không') {
         const xlbm = d.giaCong.find((g) => g.code === 'XLBM')!;
         const rate = pickRate(sl, xlbm.tiers, d.tyLe.mocSoLuong) * (vtbm.soMat === '2 mặt' ? 2 : 1);
-        cpXLBM = sl < MOQ ? rate : rate * pcs('XLBM');
+        cpXLBM = sl < MOQ ? params.GiaMin_XLBM : rate * pcs('XLBM');
     }
     const be = d.giaCong.find((g) => g.code === 'BE')!;
     const beRate = pickRate(sl, be.tiers, d.tyLe.mocSoLuong);
@@ -307,7 +307,7 @@ export function tinhTuiGiay(input: TuiGiayInput, d: PricingData): QuoteResult {
         { label: 'Thiết kế', amount: cpThietKe },
     ];
     const baseSXTK = cpBinhBai + cpXLBM + cpBe + cpTP + cpDongGoi + cpThietKe;
-    const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
+    const extraLines = extraProcessingLines(input.extraProcessing, sl, d, sheetsGross);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
     const wasteInfo = giaTo * (sheetsGross - sheetsNet);

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../../_components/apiClient';
 import { fetchQuoteMaterials } from '../../_components/fetchQuoteMaterials';
+import { DigitalSettingsNav, computePreviewSellingUnit, MarkupSummary } from '../_components/DigitalSettingsNav';
 import React from 'react';
 
 interface LFTier {
@@ -40,13 +41,29 @@ type FormTier = {
 
 const initFormTiers: FormTier[] = [{ areaFrom: 0, areaTo: 999999, materialPrice: 0, machinePrice: 0, laborPrice: 0, overheadPrice: 0 }];
 
+const STANDARD_AREA_BRACKETS: Array<{ from: number; to: number }> = [
+    { from: 0, to: 5 },
+    { from: 5, to: 20 },
+    { from: 20, to: 50 },
+    { from: 50, to: 999999 },
+];
+
 export default function PricingLargeFormatPage() {
     const [tiers, setTiers] = useState<LFTier[]>([]);
     const [materials, setMaterials] = useState<Material[]>([]);
     const [printers, setPrinters] = useState<Printer[]>([]);
+    const [markupRule, setMarkupRule] = useState<MarkupSummary | null>(null);
     const [suggesting, setSuggesting] = useState(false);
     const [loading, setLoading] = useState(true);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+    // Chế độ nhập: 'simple' (1 ô tổng/m²) vs 'detailed' (4 thành phần)
+    const [inputMode, setInputMode] = useState<'simple' | 'detailed'>('simple');
+    const [stepDiscountPct, setStepDiscountPct] = useState<number>(5);
+
+    // Inline quick-edit trong bảng mở rộng
+    const [inlineEdits, setInlineEdits] = useState<Record<number, number>>({});
+    const [savingInlineId, setSavingInlineId] = useState<number | null>(null);
 
     // Form states
     const [showForm, setShowForm] = useState(false);
@@ -65,15 +82,17 @@ export default function PricingLargeFormatPage() {
         setLoading(true);
         // Vật tư: qua fetchQuoteMaterials (scope large_format, cả tấm phẳng + cuộn) — nguồn dùng
         // chung, không tự ghép scope+category nữa.
-        const [tiersRes, mats, printersRes] = await Promise.all([
+        const [tiersRes, mats, printersRes, markupRes] = await Promise.all([
             api.get<LFTier[]>('/erp/large-format-pricing'),
             fetchQuoteMaterials(['large_format']),
             api.get<Printer[]>('/erp/printers'),
+            api.get<MarkupSummary>('/erp/pricing-markup').catch(() => ({ success: false, data: null } as any)),
         ]);
         if (tiersRes.success && tiersRes.data) setTiers(tiersRes.data);
         setMaterials(mats as unknown as Material[]);
         // Chỉ máy đo theo m² (cost_basis='sqm') mới dùng suy giá khổ lớn — máy 'sheet' là của in nhanh.
         if (printersRes.success && printersRes.data) setPrinters(printersRes.data.filter(p => p.costBasis === 'sqm'));
+        if (markupRes?.success && markupRes?.data) setMarkupRule(markupRes.data);
         setLoading(false);
     }, []);
 
@@ -113,6 +132,9 @@ export default function PricingLargeFormatPage() {
     });
 
     const groupEntries = Object.entries(groups);
+    const configuredMaterialIds = new Set(tiers.map(t => Number(t.materialId)));
+    const unconfiguredMaterials = materials.filter(m => !configuredMaterialIds.has(Number(m.id)));
+
     const toggleGroup = (key: string) => {
         setExpandedGroups(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
     };
@@ -121,8 +143,71 @@ export default function PricingLargeFormatPage() {
         const last = formData.tiers[formData.tiers.length - 1];
         setFormData(f => ({
             ...f,
-            tiers: [...f.tiers, { areaFrom: last ? Number(last.areaTo) : 0, areaTo: 999999, materialPrice: 0, machinePrice: 0, laborPrice: 0, overheadPrice: 0 }],
+            tiers: [...f.tiers, {
+                areaFrom: last ? Number(last.areaTo) : 0,
+                areaTo: 999999,
+                materialPrice: last ? last.materialPrice : 0,
+                machinePrice: last ? last.machinePrice : 0,
+                laborPrice: last ? last.laborPrice : 0,
+                overheadPrice: last ? last.overheadPrice : 0,
+            }],
         }));
+    };
+
+    // Tạo nhanh 4 mốc diện tích chuẩn (0-5, 5-20, 20-50, 50+ m²)
+    const handleApplyStandardAreaTiers = () => {
+        const first = formData.tiers[0];
+        const firstTotal = first
+            ? Number(first.materialPrice || 0) + Number(first.machinePrice || 0) + Number(first.laborPrice || 0) + Number(first.overheadPrice || 0)
+            : 0;
+        const baseMat = first && firstTotal > 0 ? Number(first.materialPrice || 0) : (selectedMaterialCost || 40000);
+        const baseMach = first && firstTotal > 0 ? Number(first.machinePrice || 0) : 0;
+        const baseLab = first && firstTotal > 0 ? Number(first.laborPrice || 0) : 0;
+        const baseOvh = first && firstTotal > 0 ? Number(first.overheadPrice || 0) : 0;
+
+        const existingIds = formData.tiers.filter(t => t.id).map(t => t.id!);
+        if (existingIds.length > 0) {
+            setDeletedTierIds(prev => Array.from(new Set([...prev, ...existingIds])));
+        }
+
+        const newTiers: FormTier[] = STANDARD_AREA_BRACKETS.map((b, idx) => {
+            const factor = Math.max(0.5, 1 - (idx * stepDiscountPct) / 100);
+            const round100 = (n: number) => Math.round((n * factor) / 100) * 100;
+            return {
+                areaFrom: b.from,
+                areaTo: b.to,
+                materialPrice: idx === 0 ? baseMat : round100(baseMat),
+                machinePrice: idx === 0 ? baseMach : round100(baseMach),
+                laborPrice: idx === 0 ? baseLab : round100(baseLab),
+                overheadPrice: idx === 0 ? baseOvh : round100(baseOvh),
+            };
+        });
+        setFormData(f => ({ ...f, tiers: newTiers }));
+    };
+
+    const handleQuickSetupMaterial = (mat: Material) => {
+        resetForm();
+        const baseCost = mat.cost_price && Number(mat.cost_price) > 0 ? Number(mat.cost_price) : 40000;
+        const defaultTiers: FormTier[] = STANDARD_AREA_BRACKETS.map((b, idx) => {
+            const factor = Math.max(0.5, 1 - (idx * stepDiscountPct) / 100);
+            return {
+                areaFrom: b.from,
+                areaTo: b.to,
+                materialPrice: idx === 0 ? baseCost : Math.round((baseCost * factor) / 100) * 100,
+                machinePrice: 0,
+                laborPrice: 0,
+                overheadPrice: 0,
+            };
+        });
+        setFormData({
+            materialId: String(mat.id),
+            printerId: printers[0] ? String(printers[0].id) : '',
+            minCharge: 50000,
+            isActive: true,
+            tiers: defaultTiers,
+        });
+        setShowForm(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     // Giá vốn vật liệu/m² hiện tại của vật tư đang chọn (mốc tham chiếu trong form).
@@ -173,9 +258,70 @@ export default function PricingLargeFormatPage() {
         });
     };
 
+    // Chế độ nhập nhanh 1 ô tổng/m²
+    const updateSimpleTotalRow = (idx: number, newTotal: number | string) => {
+        setFormData(f => {
+            const next = [...f.tiers] as any[];
+            const row = next[idx];
+            if (newTotal === '') {
+                next[idx] = { ...row, materialPrice: '' };
+                return { ...f, tiers: next };
+            }
+            const target = Number(newTotal) || 0;
+            const nonPaper = Number(row.machinePrice || 0) + Number(row.laborPrice || 0) + Number(row.overheadPrice || 0);
+            if (target >= nonPaper) {
+                next[idx] = { ...row, materialPrice: target - nonPaper };
+            } else {
+                next[idx] = { ...row, materialPrice: target, machinePrice: 0, laborPrice: 0, overheadPrice: 0 };
+            }
+            return { ...f, tiers: next };
+        });
+    };
+
+    // Lưu nhanh 1 mốc ngay trên dòng mở rộng
+    const handleSaveInlineTier = async (tier: LFTier) => {
+        const newTotal = inlineEdits[tier.id];
+        if (newTotal == null || newTotal === tier.pricePerSqm) return;
+        setSavingInlineId(tier.id);
+        try {
+            const nonPaper = Number(tier.machineCost || 0) + Number(tier.laborCost || 0) + Number(tier.overheadCost || 0);
+            const materialCost = newTotal >= nonPaper ? newTotal - nonPaper : newTotal;
+            const resetOthers = newTotal < nonPaper;
+            await api.put(`/erp/large-format-pricing/${tier.id}`, {
+                id: tier.id,
+                materialId: tier.materialId,
+                printerId: tier.printerId ?? undefined,
+                areaFrom: tier.areaFrom,
+                areaTo: tier.areaTo,
+                materialCost,
+                machineCost: resetOthers ? 0 : Number(tier.machineCost || 0),
+                laborCost: resetOthers ? 0 : Number(tier.laborCost || 0),
+                overheadCost: resetOthers ? 0 : Number(tier.overheadCost || 0),
+                pricePerSqm: newTotal,
+                minCharge: tier.minCharge || 0,
+                isActive: tier.isActive !== false,
+            });
+            setInlineEdits(prev => {
+                const copy = { ...prev };
+                delete copy[tier.id];
+                return copy;
+            });
+            await loadData();
+        } catch (err) {
+            console.error(err);
+            alert('Không lưu được mốc giá.');
+        } finally {
+            setSavingInlineId(null);
+        }
+    };
+
     const handleEditGroup = (key: string) => {
         const group = groups[key];
         if (!group) return;
+        const hasDetailedBreakdown = group.tiers.some(t =>
+            Number(t.machineCost || 0) > 0 || Number(t.laborCost || 0) > 0 || Number(t.overheadCost || 0) > 0
+        );
+        if (hasDetailedBreakdown) setInputMode('detailed');
         setFormData({
             materialId: String(group.materialIdRaw),
             minCharge: group.minCharge,
@@ -260,7 +406,9 @@ export default function PricingLargeFormatPage() {
 
     return (
         <div className="flex flex-col h-full bg-slate-50/50 p-6 overflow-y-auto">
-            <div className="mb-6 flex justify-between items-center">
+            <DigitalSettingsNav activeTab="large-format" markup={markupRule} />
+
+            <div className="mb-4 flex justify-between items-center">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">Định mức giá in khổ lớn</h1>
                     <p className="text-slate-500 text-sm mt-1">Bảng giá theo m² cho sản phẩm in phẳng khổ lớn: banner, decal, pp, hiflex.</p>
@@ -270,6 +418,28 @@ export default function PricingLargeFormatPage() {
                     Thêm định mức mới
                 </button>
             </div>
+
+            {/* Banner phát hiện vật tư khổ lớn chưa có định mức */}
+            {unconfiguredMaterials.length > 0 && !showForm && (
+                <div className="mb-4 bg-amber-50/90 border border-amber-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-amber-900">
+                        <span className="font-bold">💡 Có {unconfiguredMaterials.length} vật tư khổ lớn chưa có định mức giá/m²:</span>{' '}
+                        <span className="text-amber-700">Bấm vào tên vật tư để tạo nhanh 4 mốc diện tích chuẩn.</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {unconfiguredMaterials.slice(0, 6).map(m => (
+                            <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => handleQuickSetupMaterial(m)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors shadow-xs"
+                            >
+                                + Tạo nhanh · #{m.id}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {showForm && (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 p-6">
@@ -328,32 +498,102 @@ export default function PricingLargeFormatPage() {
                         </div>
 
                         <div className="w-full lg:w-2/3">
-                            <label className="block text-[13px] font-bold text-slate-800 mb-2">Bảng giá theo diện tích (m²)</label>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                <label className="block text-[13px] font-bold text-slate-800">Bảng giá theo diện tích (m²)</label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {/* Chuyển đổi Nhập nhanh vs Chi tiết 4 thành phần */}
+                                    <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-100 text-[11px] font-bold">
+                                        <button
+                                            type="button"
+                                            onClick={() => setInputMode('simple')}
+                                            className={`px-2.5 py-1 rounded-md transition-colors ${inputMode === 'simple' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+                                        >
+                                            ⚡ Nhập nhanh (1 ô/m²)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setInputMode('detailed')}
+                                            className={`px-2.5 py-1 rounded-md transition-colors ${inputMode === 'detailed' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+                                        >
+                                            🔬 Chi tiết 4 thành phần
+                                        </button>
+                                    </div>
+                                    {/* Tạo nhanh 4 mốc m² chuẩn */}
+                                    <div className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1 text-[11px]">
+                                        <button
+                                            type="button"
+                                            onClick={handleApplyStandardAreaTiers}
+                                            className="font-bold text-indigo-700 hover:text-indigo-900"
+                                            title="Tạo 4 mốc diện tích: 0–5, 5–20, 20–50, 50+ m² và giảm dần theo % mỗi bậc"
+                                        >
+                                            ⚡ Tạo 4 mốc m² chuẩn
+                                        </button>
+                                        <span className="text-indigo-300">|</span>
+                                        <div className="inline-flex items-center gap-0.5">
+                                            {[0, 5, 10].map(pct => (
+                                                <button
+                                                    key={pct}
+                                                    type="button"
+                                                    onClick={() => setStepDiscountPct(pct)}
+                                                    className={`px-1 rounded text-[10px] font-bold ${stepDiscountPct === pct ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-100'}`}
+                                                >
+                                                    -{pct}%
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="bg-white rounded-xl">
-                                <p className="text-[11px] text-slate-400 mb-2">Giá vốn thuần/m² = vật liệu + máy + công + overhead. Markup áp khi báo giá — KHÔNG nhập lời ở đây.</p>
+                                <p className="text-[11px] text-slate-400 mb-2">
+                                    Giá vốn thuần/m² = vật liệu + máy + công + overhead. Markup áp khi báo giá — cột <b>Giá bán dự kiến</b> bên phải giúp bạn kiểm tra ngay giá báo khách.
+                                </p>
                                 <div className="space-y-3">
                                     {formData.tiers.map((row, idx) => {
                                         const rowTotal = Number(row.materialPrice || 0) + Number(row.machinePrice || 0) + Number(row.laborPrice || 0) + Number(row.overheadPrice || 0);
+                                        const previewSell = computePreviewSellingUnit(rowTotal, markupRule);
                                         return (
-                                        <div key={idx} className="bg-slate-50/60 p-2 rounded-lg border border-slate-100">
+                                        <div key={idx} className="bg-slate-50/60 p-2.5 rounded-lg border border-slate-100">
                                             <div className="grid grid-cols-12 gap-2 items-center mb-2">
                                                 <span className="col-span-2 text-[11px] font-bold text-slate-500">Từ (m²)</span>
-                                                <div className="col-span-3"><input type="number" step="0.01" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200" value={row.areaFrom ?? ''} onChange={e => updateTierRow(idx, 'areaFrom', e.target.value === '' ? '' : Number(e.target.value))} /></div>
+                                                <div className="col-span-3"><input type="number" step="0.01" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 bg-white" value={row.areaFrom ?? ''} onChange={e => updateTierRow(idx, 'areaFrom', e.target.value === '' ? '' : Number(e.target.value))} /></div>
                                                 <span className="col-span-2 text-[11px] font-bold text-slate-500 text-center">Đến (m²)</span>
-                                                <div className="col-span-3"><input type="number" step="0.01" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200" value={row.areaTo ?? ''} onChange={e => updateTierRow(idx, 'areaTo', e.target.value === '' ? '' : Number(e.target.value))} /></div>
+                                                <div className="col-span-3"><input type="number" step="0.01" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 bg-white" value={row.areaTo ?? ''} onChange={e => updateTierRow(idx, 'areaTo', e.target.value === '' ? '' : Number(e.target.value))} /></div>
                                                 <div className="col-span-2 text-right">
                                                     {formData.tiers.length > 1 && (
                                                         <button onClick={() => handleRemoveTierRow(idx)} className="text-red-400 hover:text-red-600 transition-colors"><svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                                                     )}
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-5 gap-2 items-end">
-                                                <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Vật liệu</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200" value={row.materialPrice ?? ''} onChange={e => updateTierRow(idx, 'materialPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                                <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Máy</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200" value={row.machinePrice ?? ''} onChange={e => updateTierRow(idx, 'machinePrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                                <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Công</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200" value={row.laborPrice ?? ''} onChange={e => updateTierRow(idx, 'laborPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                                <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Overhead</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200" value={row.overheadPrice ?? ''} onChange={e => updateTierRow(idx, 'overheadPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
-                                                <div className="text-right"><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Tổng/m²</label><div className="text-sm font-black text-emerald-600 py-1.5">{fmt(rowTotal)}₫</div></div>
-                                            </div>
+                                            {inputMode === 'simple' ? (
+                                                <div className="grid grid-cols-12 gap-3 items-center pt-1 border-t border-slate-200/60">
+                                                    <div className="col-span-6">
+                                                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Đơn giá vốn / m² (₫)</label>
+                                                        <input
+                                                            type="number"
+                                                            className="w-full px-2.5 py-1.5 text-sm font-bold text-emerald-700 rounded border border-emerald-300 bg-white focus:border-indigo-500"
+                                                            value={row.materialPrice === '' ? '' : rowTotal}
+                                                            onChange={e => updateSimpleTotalRow(idx, e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-6 text-right">
+                                                        <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Giá bán dự kiến (đã +Markup)</label>
+                                                        <div className="text-sm font-black text-indigo-600 py-1">
+                                                            → {fmt(previewSell)}₫/m²
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-6 gap-2 items-end">
+                                                    <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Vật liệu</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 bg-white" value={row.materialPrice ?? ''} onChange={e => updateTierRow(idx, 'materialPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
+                                                    <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Máy</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 bg-white" value={row.machinePrice ?? ''} onChange={e => updateTierRow(idx, 'machinePrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
+                                                    <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Công</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 bg-white" value={row.laborPrice ?? ''} onChange={e => updateTierRow(idx, 'laborPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
+                                                    <div><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Overhead</label><input type="number" className="w-full px-2 py-1.5 text-sm rounded border border-slate-200 bg-white" value={row.overheadPrice ?? ''} onChange={e => updateTierRow(idx, 'overheadPrice', e.target.value === '' ? '' : Number(e.target.value))} /></div>
+                                                    <div className="text-right"><label className="block text-[10px] font-bold text-slate-500 mb-0.5">Giá vốn/m²</label><div className="text-sm font-black text-emerald-600 py-1.5">{fmt(rowTotal)}₫</div></div>
+                                                    <div className="text-right"><label className="block text-[10px] font-bold text-indigo-500 mb-0.5">→ Giá bán/m²</label><div className="text-xs font-black text-indigo-600 py-1.5">{fmt(previewSell)}₫</div></div>
+                                                </div>
+                                            )}
                                         </div>
                                         );
                                     })}
@@ -375,7 +615,7 @@ export default function PricingLargeFormatPage() {
                                 <th className="px-4 py-3 text-center">Công nghệ</th>
                                 <th className="px-4 py-3 text-center">Đơn vị</th>
                                 <th className="px-4 py-3 text-center">Số mốc</th>
-                                <th className="px-4 py-3 text-right">Khoảng giá</th>
+                                <th className="px-4 py-3 text-right">Khoảng giá vốn → Giá bán</th>
                                 <th className="px-4 py-3 text-center w-28">Thao tác</th>
                             </tr>
                         </thead>
@@ -388,6 +628,9 @@ export default function PricingLargeFormatPage() {
                                 const minP = Math.min(...prices);
                                 const maxP = Math.max(...prices);
                                 const range = minP === maxP ? `${fmt(minP)}₫/${g.unit}` : `${fmt(minP)} – ${fmt(maxP)}₫/${g.unit}`;
+                                const minSell = computePreviewSellingUnit(minP, markupRule);
+                                const maxSell = computePreviewSellingUnit(maxP, markupRule);
+                                const sellRange = minSell === maxSell ? `${fmt(minSell)}₫/${g.unit}` : `${fmt(minSell)} – ${fmt(maxSell)}₫/${g.unit}`;
                                 // Cảnh báo LỖ: giá bán/m² thấp nhất < giá vốn vật liệu/m². Khổ lớn KHÔNG auto-set
                                 // (giá/m² gộp sẵn mực+cán+lời), chỉ hiện mốc tham chiếu + cờ lỗ để người dùng tự sửa.
                                 const belowCost = g.costPerSqm != null && g.costPerSqm > 0 && minP < g.costPerSqm;
@@ -408,23 +651,57 @@ export default function PricingLargeFormatPage() {
                                             <td className="px-4 py-3 text-center"><span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">{g.technology}</span></td>
                                             <td className="px-4 py-3 text-center text-slate-500">{g.unit}</td>
                                             <td className="px-4 py-3 text-center"><span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">{g.tiers.length} mốc</span></td>
-                                            <td className="px-4 py-3 text-right font-bold text-emerald-600">{range}</td>
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="font-bold text-emerald-600">{range}</div>
+                                                <div className="text-[11px] text-indigo-600 font-semibold">→ Bán: {sellRange}</div>
+                                            </td>
                                             <td className="px-4 py-3 text-center flex justify-center gap-1.5" onClick={e => e.stopPropagation()}>
                                                 <button onClick={() => handleEditGroup(key)} className={`p-1.5 rounded transition-colors ${editModeKey === key ? 'bg-blue-500 text-white shadow-sm' : 'hover:bg-blue-100 text-blue-500'}`} title="Sửa"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                                                 <button onClick={() => handleDeleteGroup(key)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-500" title="Xóa"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                             </td>
                                         </tr>
-                                        {isExpanded && g.tiers.sort((a, b) => a.areaFrom - b.areaFrom).map(tier => (
+                                        {isExpanded && g.tiers.sort((a, b) => a.areaFrom - b.areaFrom).map(tier => {
+                                            const editedVal = inlineEdits[tier.id];
+                                            const currentVal = editedVal !== undefined ? editedVal : tier.pricePerSqm;
+                                            const isDirty = editedVal !== undefined && editedVal !== tier.pricePerSqm;
+                                            return (
                                             <tr key={tier.id} className="bg-slate-50/50">
                                                 <td></td>
-                                                <td className="px-4 py-2 text-xs text-slate-500 pl-10">
-                                                    {fmt(tier.areaFrom)} → {tier.areaTo ? fmt(tier.areaTo) : 'Trở lên'} {g.unit}
+                                                <td className="px-4 py-2 text-xs text-slate-600 pl-10 font-medium">
+                                                    {fmt(tier.areaFrom)} → {tier.areaTo && tier.areaTo < 999999 ? fmt(tier.areaTo) : 'Trở lên'} {g.unit}
                                                 </td>
-                                                <td colSpan={3}></td>
-                                                <td className="px-4 py-2 text-right font-bold text-sm text-slate-700">{fmt(tier.pricePerSqm)}₫/{g.unit}</td>
-                                                <td></td>
+                                                <td colSpan={3} className="px-4 py-2 text-right text-[11px] text-slate-400">
+                                                    Sửa nhanh giá vốn/m²:
+                                                </td>
+                                                <td className="px-4 py-1.5 text-right">
+                                                    <div className="inline-flex items-center justify-end gap-2">
+                                                        <input
+                                                            type="number"
+                                                            value={currentVal}
+                                                            onChange={e => setInlineEdits(prev => ({ ...prev, [tier.id]: Number(e.target.value) || 0 }))}
+                                                            className="w-24 px-2 py-1 text-right text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded focus:border-indigo-500"
+                                                        />
+                                                        <span className="text-xs text-slate-400">₫/{g.unit}</span>
+                                                        <span className="text-[11px] font-semibold text-indigo-600 min-w-[95px]">
+                                                            → {fmt(computePreviewSellingUnit(currentVal, markupRule))}₫
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-1.5 text-center">
+                                                    {isDirty && (
+                                                        <button
+                                                            type="button"
+                                                            disabled={savingInlineId === tier.id}
+                                                            onClick={() => handleSaveInlineTier(tier)}
+                                                            className="px-2.5 py-1 rounded text-[11px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                        >
+                                                            {savingInlineId === tier.id ? '...' : 'Lưu'}
+                                                        </button>
+                                                    )}
+                                                </td>
                                             </tr>
-                                        ))}
+                                            );
+                                        })}
                                     </React.Fragment>
                                 );
                             })}

@@ -99,11 +99,14 @@ export class PricingFacadeService {
                 // backend cũng chặn tính giá (hasAnyTier) — cờ đây chỉ để hiển thị.
                 const tierMatRaw = await mgr.query('SELECT DISTINCT material_id FROM pricing_tiers');
                 const hasTierSet = new Set<number>(tierMatRaw.map((r: any) => parseInt(r.material_id)));
+                const lfTierMatRaw = await mgr.query('SELECT DISTINCT material_id FROM large_format_pricing WHERE is_active IS DISTINCT FROM false').catch(() => []);
+                const hasLfTierSet = new Set<number>(lfTierMatRaw.map((r: any) => parseInt(r.material_id)));
 
                 result.materials = materialsList.map(m => {
                     const mapped = { ...m } as any;
                     mapped.valid_paper_size_ids = validSizesMap.get(m.id) || [];
                     mapped.has_pricing_tier = hasTierSet.has(m.id);
+                    mapped.has_large_format_tier = hasLfTierSet.has(m.id) || Number(m.pricePerSqm) > 0;
                     return mapped;
                 });
             }
@@ -277,17 +280,21 @@ export class PricingFacadeService {
         const procs = parse(rows[0].allowed_processing);
         const accs = parse(rows[0].allowed_accessories);
 
-        if (input.material_id != null && input.material_id !== undefined && !mats.includes(String(input.material_id)))
+        if (mats.length > 0 && input.material_id != null && input.material_id !== undefined && !mats.includes(String(input.material_id)))
             return `Vật liệu (id=${input.material_id}) không nằm trong cấu hình sản phẩm "${code}".`;
-        if (input.paper_size_id != null && input.paper_size_id !== undefined && !papers.includes(String(input.paper_size_id)))
+        if (papers.length > 0 && input.paper_size_id != null && input.paper_size_id !== undefined && !papers.includes(String(input.paper_size_id)))
             return `Khổ giấy (id=${input.paper_size_id}) không nằm trong cấu hình sản phẩm "${code}".`;
-        for (const p of (input.processing || [])) {
-            if (p?.id != null && !procs.includes(String(p.id)))
-                return `Gia công (id=${p.id}) không nằm trong cấu hình sản phẩm "${code}".`;
+        if (procs.length > 0) {
+            for (const p of (input.processing || [])) {
+                if (p?.id != null && !procs.includes(String(p.id)))
+                    return `Gia công (id=${p.id}) không nằm trong cấu hình sản phẩm "${code}".`;
+            }
         }
-        for (const a of (input.accessories || [])) {
-            if (a?.id != null && !accs.includes(String(a.id)))
-                return `Phụ kiện (id=${a.id}) không nằm trong cấu hình sản phẩm "${code}".`;
+        if (accs.length > 0) {
+            for (const a of (input.accessories || [])) {
+                if (a?.id != null && !accs.includes(String(a.id)))
+                    return `Phụ kiện (id=${a.id}) không nằm trong cấu hình sản phẩm "${code}".`;
+            }
         }
 
         // ─── Hàng cuốn: kiểm cả bìa (cover) và ruột (inner[]) ───
@@ -295,13 +302,15 @@ export class PricingFacadeService {
         // nên phải soát riêng để whitelist không bị lách qua bìa/ruột.
         const checkSection = (sec: any, label: string): string | null => {
             if (!sec) return null;
-            if (sec.material_id != null && !mats.includes(String(sec.material_id)))
+            if (mats.length > 0 && sec.material_id != null && !mats.includes(String(sec.material_id)))
                 return `Vật liệu ${label} (id=${sec.material_id}) không nằm trong cấu hình sản phẩm "${code}".`;
-            if (sec.paper_size_id != null && !papers.includes(String(sec.paper_size_id)))
+            if (papers.length > 0 && sec.paper_size_id != null && !papers.includes(String(sec.paper_size_id)))
                 return `Khổ giấy ${label} (id=${sec.paper_size_id}) không nằm trong cấu hình sản phẩm "${code}".`;
-            for (const p of (sec.processing || [])) {
-                if (p?.id != null && !procs.includes(String(p.id)))
-                    return `Gia công ${label} (id=${p.id}) không nằm trong cấu hình sản phẩm "${code}".`;
+            if (procs.length > 0) {
+                for (const p of (sec.processing || [])) {
+                    if (p?.id != null && !procs.includes(String(p.id)))
+                        return `Gia công ${label} (id=${p.id}) không nằm trong cấu hình sản phẩm "${code}".`;
+                }
             }
             return null;
         };
@@ -383,6 +392,41 @@ export class PricingFacadeService {
         const pricePerSheet = await this.pricing.getPricingTierByMaterial(materialId as number, paperSizeId as number, printSide, printType, totalSheets);
         const materialCost = pricePerSheet * totalSheets;
 
+        // Tra cứu thông tin bậc thang hiện tại và bậc kế tiếp rẻ hơn để hiển thị gợi ý trên UI báo giá
+        let tierFrom: number | undefined;
+        let tierTo: number | undefined;
+        let nextTierHint: { sheets_from: number; price_per_sheet: number; min_product_qty: number } | undefined;
+        const tierBracketRows = await this.materialRepo.manager.query(
+            `SELECT quantity_from, quantity_to, price_per_sheet
+             FROM pricing_tiers
+             WHERE material_id = $1
+               AND (paper_size_id = $2 OR paper_size_id IS NULL)
+               AND print_side = $3 AND print_type = $4
+             ORDER BY (paper_size_id IS NULL) ASC, quantity_from ASC`,
+            [materialId, paperSizeId, printSide, printType],
+        ).catch(() => [] as any[]);
+        if (tierBracketRows?.length > 0) {
+            const matched = tierBracketRows.find((r: any) =>
+                Number(r.quantity_from) <= totalSheets && (r.quantity_to == null || Number(r.quantity_to) >= totalSheets),
+            );
+            if (matched) {
+                tierFrom = Number(matched.quantity_from);
+                tierTo = matched.quantity_to != null ? Number(matched.quantity_to) : undefined;
+            }
+            const nextCheaper = tierBracketRows.find((r: any) =>
+                Number(r.quantity_from) > totalSheets && parseFloat(r.price_per_sheet) > 0 && parseFloat(r.price_per_sheet) < pricePerSheet,
+            );
+            if (nextCheaper && layout.itemsPerSheet > 0) {
+                const targetPrintSheets = Math.max(1, Number(nextCheaper.quantity_from) - wasteSheets);
+                const minProductQty = Math.max(quantity + 1, (targetPrintSheets - 1) * layout.itemsPerSheet + 1);
+                nextTierHint = {
+                    sheets_from: Number(nextCheaper.quantity_from),
+                    price_per_sheet: Math.round(parseFloat(nextCheaper.price_per_sheet)),
+                    min_product_qty: minProductQty,
+                };
+            }
+        }
+
         let processingCost = 0;
         const processingDetails: ProcessingDetail[] = [];
         if (input.processing && Array.isArray(input.processing)) {
@@ -444,6 +488,9 @@ export class PricingFacadeService {
                     waste_sheets: wasteSheets,
                     total_sheets: totalSheets,
                     price_per_sheet: pricePerSheet,
+                    ...(tierFrom != null ? { tier_from: tierFrom } : {}),
+                    ...(tierTo != null ? { tier_to: tierTo } : {}),
+                    ...(nextTierHint ? { next_tier: nextTierHint } : {}),
                 },
                 processing_details: processingDetails,
                 accessories_details: accessoriesDetails,
@@ -493,19 +540,55 @@ export class PricingFacadeService {
             if (material.rollWidth < 10) {
                 this.logger.warn(`Material #${materialId} rollWidth=${material.rollWidth} nghi nhập theo MÉT; phải lưu mm (vd 1600). Giá khổ lớn có thể sai 1000 lần.`);
             }
-            chargeAreaM2 = (material.rollWidth * height / 1_000_000) * quantity;
+            // Chỉ nâng bề rộng tính tiền lên khổ cuộn khi khổ in <= khổ cuộn (tránh thu hẹp diện tích khi width > rollWidth).
+            if (width <= Number(material.rollWidth)) {
+                chargeAreaM2 = (Number(material.rollWidth) * height / 1_000_000) * quantity;
+            }
         }
 
-        let pricePerSqm = material.pricePerSqm || 0;
-        if (pricePerSqm <= 0) {
-            const lfp = await this.materialRepo.manager.query(
-                'SELECT price_per_sqm FROM large_format_pricing WHERE material_id = $1 AND print_type = $2 LIMIT 1',
-                [materialId, printType],
-            ).catch((e: unknown) => {
-                this.logger.error(`large_format_pricing lookup failed (material=${materialId}, printType=${printType})`, e as any);
-                return [];
-            });
-            if (lfp.length > 0) pricePerSqm = parseFloat(lfp[0].price_per_sqm);
+        // Diện tích TÍNH TIỀN (đã áp min-charge) — dùng chung cho tra bậc giá m², tiền vật liệu
+        // và gia công per_m2 để các khoản không lệch cơ sở tính.
+        const billedAreaM2 = ((material.minChargeArea || 0) > 0 && chargeAreaM2 < material.minChargeArea)
+            ? material.minChargeArea
+            : chargeAreaM2;
+
+        // Ưu tiên tra bảng định mức theo bậc diện tích (large_format_pricing: area_from..area_to),
+        // nếu chưa cấu hình bậc thì fallback về material.pricePerSqm.
+        let pricePerSqm = 0;
+        let tierMinCharge = 0;
+        let lfTierFrom: number | undefined;
+        let lfTierTo: number | undefined;
+        let lfNextTier: { area_from: number; price_per_sqm: number } | undefined;
+        const lfp = await this.materialRepo.manager.query(
+            `SELECT area_from, area_to, price_per_sqm, min_charge FROM large_format_pricing
+             WHERE material_id = $1 AND is_active = true
+               AND area_from <= $2 AND (area_to IS NULL OR area_to >= $2)
+             ORDER BY area_from DESC LIMIT 1`,
+            [materialId, billedAreaM2],
+        ).catch((e: unknown) => {
+            this.logger.error(`large_format_pricing lookup failed (material=${materialId}, area=${billedAreaM2})`, e as any);
+            return [];
+        });
+        if (lfp?.length > 0 && parseFloat(lfp[0].price_per_sqm) > 0) {
+            pricePerSqm = parseFloat(lfp[0].price_per_sqm);
+            tierMinCharge = parseFloat(lfp[0].min_charge) || 0;
+            if (lfp[0].area_from != null) lfTierFrom = parseFloat(lfp[0].area_from);
+            if (lfp[0].area_to != null) lfTierTo = parseFloat(lfp[0].area_to);
+            const nextRows = await this.materialRepo.manager.query(
+                `SELECT area_from, price_per_sqm FROM large_format_pricing
+                 WHERE material_id = $1 AND is_active = true
+                   AND area_from > $2 AND price_per_sqm < $3
+                 ORDER BY area_from ASC LIMIT 1`,
+                [materialId, billedAreaM2, pricePerSqm],
+            ).catch(() => []);
+            if (nextRows?.length > 0 && parseFloat(nextRows[0].price_per_sqm) > 0) {
+                lfNextTier = {
+                    area_from: parseFloat(nextRows[0].area_from),
+                    price_per_sqm: Math.round(parseFloat(nextRows[0].price_per_sqm)),
+                };
+            }
+        } else {
+            pricePerSqm = Number(material.pricePerSqm) || 0;
         }
 
         // Không có đơn giá m² → KHÔNG trả giá 0đ âm thầm (báo giá sai cho khách).
@@ -514,12 +597,7 @@ export class PricingFacadeService {
             return { success: false, error: `Chưa có đơn giá m² cho vật liệu #${materialId} (print_type=${printType})` };
         }
 
-        // Diện tích TÍNH TIỀN (đã áp min-charge) — dùng chung cho tiền vật liệu
-        // và gia công per_m2 để hai khoản không lệch cơ sở tính.
-        const billedAreaM2 = ((material.minChargeArea || 0) > 0 && chargeAreaM2 < material.minChargeArea)
-            ? material.minChargeArea
-            : chargeAreaM2;
-        const materialCost = billedAreaM2 * pricePerSqm;
+        const materialCost = Math.max(tierMinCharge, billedAreaM2 * pricePerSqm);
 
         // Processing (khoen, hàn biên, cắt bế...) — TRƯỚC ĐÂY BỊ BỎ QUA hoàn toàn
         // (audit 2026-08-13: mini-quote gửi `processing` nhưng nhánh này không đọc
@@ -598,6 +676,9 @@ export class PricingFacadeService {
                     charge_area_m2: Math.round(chargeAreaM2 * 100) / 100,
                     billed_area_m2: Math.round(billedAreaM2 * 100) / 100,
                     price_per_sqm: Math.round(pricePerSqm),
+                    ...(lfTierFrom != null ? { tier_area_from: lfTierFrom } : {}),
+                    ...(lfTierTo != null ? { tier_area_to: lfTierTo } : {}),
+                    ...(lfNextTier ? { next_tier: lfNextTier } : {}),
                 },
             },
         };

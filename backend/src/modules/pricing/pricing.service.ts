@@ -482,7 +482,7 @@ export class PricingService {
         const option = results[0];
         const price = parseFloat(option.price ?? 0);
         const priceType = option.priceType ?? 'per_item';
-        const sideMultiplier = side === 'double' ? 2 : 1;
+        const sideMultiplier = side === 'double' || side === '2' ? 2 : 1;
 
         let cost: number;
         switch (priceType) {

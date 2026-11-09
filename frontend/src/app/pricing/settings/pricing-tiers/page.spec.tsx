@@ -110,4 +110,21 @@ describe('PricingTiersPage — tầng 3: gợi ý giá định mức từ chi ph
         const sug = postCalls.find(c => c.url === '/erp/pricing-tiers/suggest');
         expect((sug!.body as any).material_id).toBe(1);
     });
+
+    it('hỗ trợ chế độ Nhập nhanh 1 ô/mốc và Tạo 5 mốc SL chuẩn 1-click', async () => {
+        render(<PricingTiersPage />);
+        await waitFor(() => expect(screen.getByText('Couche 200')).toBeInTheDocument());
+
+        fireEvent.click(screen.getByRole('button', { name: /Thêm định mức mới/ }));
+        // Mặc định ở chế độ Nhập nhanh (1 ô/mốc)
+        expect(screen.getByText(/Giá vốn\/tờ:/)).toBeInTheDocument();
+
+        // Bấm Tạo 5 mốc SL chuẩn → sinh 5 dòng mốc số lượng
+        fireEvent.click(screen.getByRole('button', { name: /Tạo 5 mốc SL chuẩn/ }));
+        expect(screen.getAllByText(/Giá vốn\/tờ:/)).toHaveLength(5);
+
+        // Chuyển sang Chi tiết 5 thành phần → hiện đủ cột Giấy, Mực, Máy, Công, Overhead
+        fireEvent.click(screen.getByRole('button', { name: /Chi tiết 5 thành phần/ }));
+        expect(screen.getAllByText('Overhead')).toHaveLength(5);
+    });
 });

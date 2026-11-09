@@ -16,6 +16,7 @@ import { QuoteService } from '../quote.service';
 import { PricingApiService } from '../pricing-api.service';
 import { PricingFacadeService } from '../../pricing/services/pricing-facade.service';
 import { PricingService } from '../../pricing/pricing.service';
+import { getPricingBindingCode } from '../extractors/binding-extractor';
 
 // ── Sample master data (nhat quan noi bo) ──
 const PAPER_FULL = { id: 1, widthMm: 450, heightMm: 320, marginLeft: 10, marginRight: 10, marginTop: 10, marginBottom: 10 };
@@ -27,13 +28,13 @@ function dbQuery(sql: string): Promise<any[]> {
     const s = sql.replace(/\s+/g, ' ');
     if (s.includes('pricing_config')) return Promise.resolve([{ config_key: 'vat_rate', config_value: '8' }]);
     if (s.includes('processing_options') && s.includes('WHERE id')) return Promise.resolve([{ id: 5, name: 'Cán màng', price: '100', priceType: 'per_sheet' }]);
-    if (s.includes('processing_options')) return Promise.resolve([{ id: 5, code: 'can_mo', name: 'Cán màng', category: 'lamination', scope_loose: 1 }]);
+    if (s.includes('processing_options')) return Promise.resolve([{ id: 5, code: 'can_mo', name: 'Cán màng', category: 'lamination', priceType: 'per_sheet', scope_loose: 1 }]);
     if (s.includes('DISTINCT material_id, paper_size_id FROM pricing_tiers')) return Promise.resolve([{ material_id: 10, paper_size_id: 1 }]);
     if (s.includes('FROM accessories')) return Promise.resolve([]);
     if (s.includes('FROM unified_products')) return Promise.resolve([{
         allowed_materials: '[10]', allowed_paper_sizes: '[1]', allowed_processing: '[5]', allowed_accessories: null,
         quote_type: 'loose', default_materials: null, default_finishing: null,
-        form_config: '{"default_print_side":"double","lock_print_side":true}',
+        form_config: '{"default_print_side":"double","lock_print_side":true,"item_width":90,"item_height":54}',
     }]);
     if (s.includes('FROM product_quote_configs')) return Promise.resolve([]);
     return Promise.resolve([]);
@@ -59,20 +60,30 @@ function build() {
     const paperSizeRepo: any = {
         findOne: jest.fn().mockResolvedValue(PAPER_FULL),
         find: jest.fn().mockResolvedValue([
-            { id: 1, name: 'SRA3', width: 450, height: 320 },
-            { id: 2, name: 'A4', width: 210, height: 297 },
+            { id: 1, name: 'SRA3', width: 450, height: 320, marginLeft: 10, marginRight: 10, marginTop: 10, marginBottom: 10, isStandard: 1 },
+            { id: 2, name: 'A4', width: 210, height: 297, marginLeft: 5, marginRight: 5, marginTop: 5, marginBottom: 5, isStandard: 0 },
         ]),
         // PricingFacadeService.getMasterData lọc khổ offset-only qua createQueryBuilder
         // (.where().orderBy().getMany()); mock phải cung cấp để không ném → success:false.
         createQueryBuilder: jest.fn(() => makeQB([
-            { id: 1, name: 'SRA3', width: 450, height: 320 },
-            { id: 2, name: 'A4', width: 210, height: 297 },
+            { id: 1, name: 'SRA3', width: 450, height: 320, marginLeft: 10, marginRight: 10, marginTop: 10, marginBottom: 10, isStandard: 1 },
+            { id: 2, name: 'A4', width: 210, height: 297, marginLeft: 5, marginRight: 5, marginTop: 5, marginBottom: 5, isStandard: 0 },
         ])),
     };
     const emptyRepo: any = { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null) };
 
+    const boundCalculateSpy = jest.fn().mockImplementation(async (inp: any) => ({
+        total: 520000,
+        grand_total: 520000,
+        price_per_item: 10400,
+        binding_type: inp.binding_type,
+        item_width: inp.item_width,
+        item_height: inp.item_height,
+        inner: inp.inner,
+    }));
+
     const pricing = new PricingService(tierRepo, materialRepo);
-    const facade = new PricingFacadeService(pricing, materialRepo, paperSizeRepo, emptyRepo, emptyRepo, emptyRepo, emptyRepo, { calculate: jest.fn() } as any);
+    const facade = new PricingFacadeService(pricing, materialRepo, paperSizeRepo, emptyRepo, emptyRepo, emptyRepo, emptyRepo, { calculate: boundCalculateSpy } as any);
     const pricingApi = new PricingApiService(facade);
 
     const dataSource: any = { query: jest.fn(dbQuery) };
@@ -84,7 +95,7 @@ function build() {
     (svc as any).pricingProcessingCache = [{ id: 5, code: 'can_mo', name: 'Cán màng' }];
     (svc as any).pricingPaperSizesCache = [{ id: 1, is_standard: 1, name: 'SRA3' }];
 
-    return { svc };
+    return { svc, boundCalculateSpy };
 }
 
 describe('Quote CONFIG-LINK + nhat quan 2 cua (engine that)', () => {
@@ -129,18 +140,51 @@ describe('Quote CONFIG-LINK + nhat quan 2 cua (engine that)', () => {
         expect(withLam.total).toBeGreaterThan(noLam.total);
     });
 
-    it('CAU HINH SAN PHAM: getMasterDataForProduct loc dung theo allowed list + defaults', async () => {
+    it('CAU HINH SAN PHAM: getMasterDataForProduct loc dung theo allowed list + defaults + margins + unit', async () => {
         const { svc } = build();
         const md: any = await svc.getMasterDataForProduct(100);
 
         // allowed_materials = [10] -> chi con MAT10 (loai MAT11)
         expect(md.materials.map((m: any) => m.id)).toEqual([10]);
-        // allowed_paper_sizes = [1] -> chi con SRA3
+        // allowed_paper_sizes = [1] -> chi con SRA3 + kem marginLeft/Right/Top/Bottom
         expect(md.paperSizes.map((p: any) => p.id)).toEqual([1]);
-        // allowed_processing = [5] -> chi con id 5
+        expect(md.paperSizes[0].marginLeft).toBe(10);
+        // allowed_processing = [5] -> chi con id 5 + unit 'tờ' (map từ per_sheet)
         expect(md.processingOptions.map((p: any) => p.id)).toEqual([5]);
+        expect(md.processingOptions[0].unit).toBe('tờ');
         // form_config defaults duoc lien ket
         expect(md.config.lock_print_side).toBe(true);
         expect(md.config.default_print_side).toBe('double');
+        expect(md.config.default_width).toBe(90);
+        expect(md.config.default_height).toBe(54);
+    });
+
+    it('[MQ-01] & [MQ-02] BOUND PARITY: chuan hoa binding_type tieng Viet sang ma DB binding_types + truyen kich thuoc cuon', async () => {
+        expect(getPricingBindingCode('ghim_long')).toBe('saddle_stitch');
+        expect(getPricingBindingCode('yen_ngua')).toBe('saddle_stitch');
+        expect(getPricingBindingCode('keo_nong')).toBe('perfect_bind');
+        expect(getPricingBindingCode('keo_gay')).toBe('perfect_bind');
+        expect(getPricingBindingCode('lo_xo')).toBe('spiral');
+        expect(getPricingBindingCode('vong_bam')).toBe('wire_o');
+        expect(getPricingBindingCode('bia_cung')).toBe('hardcover');
+
+        const { svc, boundCalculateSpy } = build();
+        const boundRes: any = await svc.calculateMiniQuote({
+            type: 'bound',
+            quantity: 50,
+            page_count: 24,
+            binding_type: 'keo_nong',
+            item_width: 148,
+            item_height: 210,
+            cover: { material_id: 10, paper_size_id: 1, print_side: 'single', print_type: '4c' },
+            inner: { material_id: 10, paper_size_id: 1, print_side: 'double', print_type: '4c', page_count: 20 },
+        });
+        expect(boundRes.error).toBeUndefined();
+        expect(boundRes.total).toBe(520000);
+        expect(boundCalculateSpy).toHaveBeenCalledWith(expect.objectContaining({
+            binding_type: 'perfect_bind',
+            item_width: 148,
+            item_height: 210,
+        }));
     });
 });

@@ -30,11 +30,6 @@ export function QuoteFormFields({
         const w = formData[`${field.field_code}_w`] || '';
         const h = formData[`${field.field_code}_h`] || '';
         const isFilled = w.trim().length > 0 && h.trim().length > 0;
-        
-        const combined = (w && h) ? `${w}x${h}` : '';
-        if (combined && formData[field.field_code] !== combined) {
-            setTimeout(() => handleFieldChange(field.field_code, combined), 0);
-        }
 
         return (
             <div key={field.field_code} className="col-span-2">
@@ -48,7 +43,11 @@ export function QuoteFormFields({
                 <div className="flex items-center gap-2">
                     <input
                         type="number" placeholder="Ngang" value={w}
-                        onChange={e => handleFieldChange(`${field.field_code}_w`, e.target.value)}
+                        onChange={e => {
+                            const newW = e.target.value;
+                            handleFieldChange(`${field.field_code}_w`, newW);
+                            if (newW && h) handleFieldChange(field.field_code, `${newW}x${h}`);
+                        }}
                         className={`flex-1 min-w-0 px-3 py-2 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 ${
                             w 
                                 ? 'bg-emerald-50/50 border border-emerald-200 text-emerald-900 focus:ring-emerald-50 focus:border-emerald-400' 
@@ -58,7 +57,11 @@ export function QuoteFormFields({
                     <span className="text-sm font-bold text-slate-400">×</span>
                     <input
                         type="number" placeholder="Dọc" value={h}
-                        onChange={e => handleFieldChange(`${field.field_code}_h`, e.target.value)}
+                        onChange={e => {
+                            const newH = e.target.value;
+                            handleFieldChange(`${field.field_code}_h`, newH);
+                            if (w && newH) handleFieldChange(field.field_code, `${w}x${newH}`);
+                        }}
                         className={`flex-1 min-w-0 px-3 py-2 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 ${
                             h 
                                 ? 'bg-emerald-50/50 border border-emerald-200 text-emerald-900 focus:ring-emerald-50 focus:border-emerald-400' 
@@ -101,7 +104,7 @@ export function QuoteFormFields({
                 : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
         } border`;
 
-        const isHalfWidthField = ['so_luong', 'quantity', 'so_mat_in', 'print_side', 'mat_in'].includes(field.field_code);
+        const isHalfWidthField = ['so_luong', 'quantity', 'so_mat_in', 'print_side', 'mat_in', 'gap_h', 'gap_v'].includes(field.field_code);
 
         return (
             <div key={field.field_code} className={`${isOptionalProcessing || isHalfWidthField ? "col-span-1" : "col-span-2"} flex flex-col justify-between h-full`}>
@@ -137,31 +140,113 @@ export function QuoteFormFields({
         );
     };
 
-    const BINDING_TYPES = [
-        { value: 'ghim_long', label: '📎 Ghim lồng' },
-        { value: 'keo_nong', label: '📕 Keo nóng (PUR)' },
-        { value: 'lo_xo', label: '🔗 Lò xo' },
-        { value: 'khau_chi', label: '🧵 Khâu chỉ' },
-        { value: 'yen_ngua', label: '📗 Yên ngựa' },
+    // Mã kiểu đóng cuốn chuẩn theo bảng binding_types trong DB (saddle_stitch, perfect_bind, spiral, wire_o, hardcover)
+    const FALLBACK_BINDING_TYPES = [
+        { value: 'saddle_stitch', label: '📎 Ghim lồng (Ghim giữa)' },
+        { value: 'perfect_bind', label: '📕 Keo nhiệt (Keo gáy)' },
+        { value: 'spiral', label: '🔗 Đóng lò xo' },
+        { value: 'wire_o', label: '⛓️ Vòng bấm (Wire-O)' },
+        { value: 'hardcover', label: '📘 Đóng bìa cứng' },
+    ];
+    const BINDING_TYPES = (masterData.bindingTypes && masterData.bindingTypes.length > 0)
+        ? masterData.bindingTypes.map(bt => ({ value: bt.code || String(bt.id), label: bt.name }))
+        : FALLBACK_BINDING_TYPES;
+
+    const BOUND_SIZE_PRESETS = [
+        { label: 'A4 (21×29.7)', w: '21', h: '29.7' },
+        { label: 'A5 (14.8×21)', w: '14.8', h: '21' },
+        { label: 'A6 (10.5×14.8)', w: '10.5', h: '14.8' },
+        { label: 'Vuông (20×20)', w: '20', h: '20' },
     ];
 
     const productType = selectedTemplate.product_type || 'loose';
 
-    /** Render bound-specific fields (page count, binding) */
+    /** Render bound-specific fields (book size, page count, binding) */
     const renderBoundSpecs = () => {
+        const showBookSize = !selectedTemplate.mini_quote_fields
+            || selectedTemplate.mini_quote_fields.length === 0
+            || selectedTemplate.mini_quote_fields.includes('item_width')
+            || selectedTemplate.mini_quote_fields.includes('item_height')
+            || selectedTemplate.mini_quote_fields.includes('kich_thuoc');
+        const w = formData['kich_thuoc_w'] || formData['size_w'] || formData['width'] || '';
+        const h = formData['kich_thuoc_h'] || formData['size_h'] || formData['height'] || '';
+        const isSizeFilled = w.trim().length > 0 && h.trim().length > 0;
+
         return (
             <div className="col-span-2 grid grid-cols-2 gap-3">
+                {showBookSize && (
+                    <div className="col-span-2 p-2.5 bg-indigo-50/40 border border-indigo-100 rounded-lg">
+                        <div className="flex items-center mb-1.5 gap-1.5">
+                            <span className="text-[14px]">{isSizeFilled ? '✅' : '🔴'}</span>
+                            <label className="text-xs font-semibold text-slate-700">
+                                Khổ thành phẩm cuốn <span className="text-[10px] text-slate-400 font-normal">(cm)</span>
+                            </label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="number"
+                                placeholder="Ngang (cm)"
+                                value={w}
+                                onChange={e => {
+                                    const newW = e.target.value;
+                                    handleFieldChange('kich_thuoc_w', newW);
+                                    if (newW && h) handleFieldChange('kich_thuoc', `${newW}x${h}`);
+                                }}
+                                className={`flex-1 min-w-0 px-3 py-1.5 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 border ${
+                                    w ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
+                                }`}
+                            />
+                            <span className="text-sm font-bold text-slate-400">×</span>
+                            <input
+                                type="number"
+                                placeholder="Cao (cm)"
+                                value={h}
+                                onChange={e => {
+                                    const newH = e.target.value;
+                                    handleFieldChange('kich_thuoc_h', newH);
+                                    if (w && newH) handleFieldChange('kich_thuoc', `${w}x${newH}`);
+                                }}
+                                className={`flex-1 min-w-0 px-3 py-1.5 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 border ${
+                                    h ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
+                                }`}
+                            />
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                            {BOUND_SIZE_PRESETS.map(preset => {
+                                const isActive = w === preset.w && h === preset.h;
+                                return (
+                                    <button
+                                        key={preset.label}
+                                        type="button"
+                                        onClick={() => {
+                                            handleFieldChange('kich_thuoc_w', preset.w);
+                                            handleFieldChange('kich_thuoc_h', preset.h);
+                                            handleFieldChange('kich_thuoc', `${preset.w}x${preset.h}`);
+                                        }}
+                                        className={`text-[10px] px-2 py-0.5 rounded border transition-colors font-medium ${
+                                            isActive
+                                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                                : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                                        }`}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
                 {(!selectedTemplate.mini_quote_fields || selectedTemplate.mini_quote_fields.includes('page_count') || selectedTemplate.mini_quote_fields.includes('so_trang')) && (
                     <div>
                         <div className="flex items-center mb-1.5 gap-1.5">
-                            <span className="text-[14px]">{formData['page_count'] ? '✅' : '🔴'}</span>
+                            <span className="text-[14px]">{formData['page_count'] || formData['so_trang'] ? '✅' : '🔴'}</span>
                             <label className="text-xs font-semibold text-slate-700">Số trang</label>
                         </div>
                         <input type="number" min={4} step={4} placeholder="24"
                             value={formData['page_count'] || formData['so_trang'] || ''}
                             onChange={e => handleFieldChange('page_count', e.target.value)}
                             className={`w-full px-3 py-2 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 border ${
-                                formData['page_count'] ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
+                                formData['page_count'] || formData['so_trang'] ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
                             }`}
                         />
                         <div className="text-[10px] text-slate-400 mt-1 px-1">Bội số 4 (VD: 24, 48, 72)</div>
@@ -170,14 +255,14 @@ export function QuoteFormFields({
                 {(!selectedTemplate.mini_quote_fields || selectedTemplate.mini_quote_fields.includes('binding_type') || selectedTemplate.mini_quote_fields.includes('kieu_dong')) && (
                     <div>
                         <div className="flex items-center mb-1.5 gap-1.5">
-                            <span className="text-[14px]">{formData['bindingType'] || formData['kieu_dong'] ? '✅' : '🔴'}</span>
+                            <span className="text-[14px]">{formData['bindingType'] || formData['kieu_dong'] || formData['binding_type'] ? '✅' : '🔴'}</span>
                             <label className="text-xs font-semibold text-slate-700">Kiểu đóng</label>
                         </div>
                         <select
                             value={formData['bindingType'] || formData['kieu_dong'] || formData['binding_type'] || ''}
                             onChange={e => handleFieldChange('bindingType', e.target.value)}
                             className={`w-full px-3 py-2 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 border ${
-                                formData['bindingType'] ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
+                                formData['bindingType'] || formData['kieu_dong'] || formData['binding_type'] ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
                             }`}
                         >
                             <option value="">— Chọn —</option>
@@ -206,7 +291,7 @@ export function QuoteFormFields({
                 {(!selectedTemplate.mini_quote_fields || selectedTemplate.mini_quote_fields.includes('cover_material') || selectedTemplate.mini_quote_fields.includes('vat_lieu_bia')) && (
                     <div className="col-span-2 mt-2 p-3 bg-amber-50/50 border border-amber-200 rounded-lg">
                         <div className="flex items-center mb-2 gap-1.5">
-                            <span className="text-[14px]">{formData['coverMaterial'] ? '✅' : '🔴'}</span>
+                            <span className="text-[14px]">{formData['coverMaterial'] || formData['vat_lieu_bia'] ? '✅' : '🔴'}</span>
                             <label className="text-xs font-bold text-amber-800">📒 Vật liệu BÌA</label>
                             <span className="text-[9px] text-indigo-500 font-bold bg-indigo-50 px-1.5 py-0.5 rounded uppercase tracking-wider ml-auto">Pricing</span>
                         </div>
@@ -236,7 +321,7 @@ export function QuoteFormFields({
                 {(!selectedTemplate.mini_quote_fields || selectedTemplate.mini_quote_fields.includes('inner_material') || selectedTemplate.mini_quote_fields.includes('vat_lieu_ruot')) && (
                     <div className="col-span-2 p-3 bg-sky-50/50 border border-sky-200 rounded-lg">
                         <div className="flex items-center mb-2 gap-1.5">
-                            <span className="text-[14px]">{formData['innerMaterial'] || formData['material'] ? '✅' : '🔴'}</span>
+                            <span className="text-[14px]">{formData['innerMaterial'] || formData['vat_lieu_ruot'] || formData['material'] ? '✅' : '🔴'}</span>
                             <label className="text-xs font-bold text-sky-800">📄 Vật liệu RUỘT</label>
                             <span className="text-[9px] text-indigo-500 font-bold bg-indigo-50 px-1.5 py-0.5 rounded uppercase tracking-wider ml-auto">Pricing</span>
                         </div>
@@ -265,7 +350,7 @@ export function QuoteFormFields({
         );
     };
 
-    /** Render large-format-specific size fields with mm labels */
+    /** Render large-format-specific size fields */
     const renderLargeFormatSize = () => {
         if (selectedTemplate.mini_quote_fields && selectedTemplate.mini_quote_fields.length > 0 && !selectedTemplate.mini_quote_fields.includes('item_width') && !selectedTemplate.mini_quote_fields.includes('item_height') && !selectedTemplate.mini_quote_fields.includes('kich_thuoc')) return null;
 
@@ -282,14 +367,22 @@ export function QuoteFormFields({
                 </div>
                 <div className="flex items-center gap-2">
                     <input type="number" placeholder="Ngang (cm)" value={w}
-                        onChange={e => handleFieldChange('kich_thuoc_w', e.target.value)}
+                        onChange={e => {
+                            const newW = e.target.value;
+                            handleFieldChange('kich_thuoc_w', newW);
+                            if (newW && h) handleFieldChange('kich_thuoc', `${newW}x${h}`);
+                        }}
                         className={`flex-1 min-w-0 px-3 py-2 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 border ${
                             w ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
                         }`}
                     />
                     <span className="text-sm font-bold text-slate-400">×</span>
                     <input type="number" placeholder="Dọc (cm)" value={h}
-                        onChange={e => handleFieldChange('kich_thuoc_h', e.target.value)}
+                        onChange={e => {
+                            const newH = e.target.value;
+                            handleFieldChange('kich_thuoc_h', newH);
+                            if (w && newH) handleFieldChange('kich_thuoc', `${w}x${newH}`);
+                        }}
                         className={`flex-1 min-w-0 px-3 py-2 text-sm rounded-md outline-none transition-all shadow-sm focus:ring-4 border ${
                             h ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900 focus:ring-emerald-50' : 'bg-white border-slate-200 focus:ring-indigo-50 focus:border-indigo-400'
                         }`}
@@ -324,8 +417,13 @@ export function QuoteFormFields({
         'vat_lieu_ruot': 'inner_material', 'innerMaterial': 'inner_material',
     };
     
-    const BOUND_HANDLED_FIELDS = ['page_count', 'so_trang', 'bindingType', 'kieu_dong', 'binding_type', 'coverMaterial', 'vat_lieu_bia', 'cover_material', 'innerMaterial', 'vat_lieu_ruot', 'inner_material'];
-    const LF_HANDLED_FIELDS = ['kich_thuoc', 'size', 'kich_co', 'dimensions', 'width', 'height'];
+    const BOUND_HANDLED_FIELDS = [
+        'page_count', 'so_trang', 'bindingType', 'kieu_dong', 'binding_type',
+        'coverMaterial', 'vat_lieu_bia', 'cover_material',
+        'innerMaterial', 'vat_lieu_ruot', 'inner_material',
+        'kich_thuoc', 'size', 'kich_co', 'dimensions', 'width', 'height', 'item_width', 'item_height',
+    ];
+    const LF_HANDLED_FIELDS = ['kich_thuoc', 'size', 'kich_co', 'dimensions', 'width', 'height', 'item_width', 'item_height'];
 
     const shouldSkipField = (field: ProductField) => {
         const configuredFields = selectedTemplate.mini_quote_fields;
@@ -358,10 +456,10 @@ export function QuoteFormFields({
 
     const isMaterialField = (f: ProductField) => {
         const code = f.field_code;
-        return ['vat_lieu', 'chat_lieu', 'material', 'paper_size', 'kho_giay', 'kich_thuoc_giay'].includes(code);
+        return ['vat_lieu', 'chat_lieu', 'material', 'paper_size', 'kho_giay', 'kich_thuoc_giay', 'cover_paper_size', 'inner_paper_size'].includes(code);
     };
 
-    // Pre-compute the full list of fields to render, injecting dynamic ones if configured but missing
+    // Pre-compute the full list of fields to render, injecting dynamic ones if configured in mini_quote_fields but missing
     const allFieldsToRender = [...(selectedTemplate.fields || [])];
     const configured = selectedTemplate.mini_quote_fields || [];
     if (configured.length > 0) {
@@ -386,8 +484,36 @@ export function QuoteFormFields({
         if ((configured.includes('file_name') || configured.includes('ten_file')) && !allFieldsToRender.some(f => f.field_code === 'ten_file' || f.field_code === 'file_name')) {
             allFieldsToRender.push({ field_code: 'ten_file', field_name: 'Tên file', field_type: 'text', is_required: false, ai_question: 'Tên file là gì?' });
         }
-        if ((configured.includes('print_side') || configured.includes('mat_in')) && !allFieldsToRender.some(f => f.field_code === 'mat_in' || f.field_code === 'print_side')) {
-            allFieldsToRender.push({ field_code: 'mat_in', field_name: 'Mặt in', field_type: 'select', is_required: true, ai_question: 'In 1 hay 2 mặt?' });
+        // Các trường nâng cao từ MINI_QUOTE_MASTER_FIELDS khi Admin bật trong Cài đặt sản phẩm ([MQ-06])
+        if ((configured.includes('shape') || configured.includes('hinh_dang')) && !allFieldsToRender.some(f => f.field_code === 'shape' || f.field_code === 'hinh_dang')) {
+            allFieldsToRender.push({ field_code: 'hinh_dang', field_name: 'Hình dạng', field_type: 'select', is_required: false, ai_question: 'Hình dạng chữ nhật, bo góc hay tròn?' });
+        }
+        if ((configured.includes('print_type') || configured.includes('loai_in') || configured.includes('may_in')) && !allFieldsToRender.some(f => f.field_code === 'print_type' || f.field_code === 'loai_in' || f.field_code === 'may_in')) {
+            allFieldsToRender.push({ field_code: 'print_type', field_name: 'Loại máy in', field_type: 'select', is_required: false, ai_question: 'Chọn loại máy in nào?' });
+        }
+        if (configured.includes('gap_h') && !allFieldsToRender.some(f => f.field_code === 'gap_h')) {
+            allFieldsToRender.push({ field_code: 'gap_h', field_name: 'Khe ngang (mm)', field_type: 'number', is_required: false, ai_question: 'Khoảng cách ngang (mm)' });
+        }
+        if (configured.includes('gap_v') && !allFieldsToRender.some(f => f.field_code === 'gap_v')) {
+            allFieldsToRender.push({ field_code: 'gap_v', field_name: 'Khe dọc (mm)', field_type: 'number', is_required: false, ai_question: 'Khoảng cách dọc (mm)' });
+        }
+        if (configured.includes('cover_paper_size') && !allFieldsToRender.some(f => f.field_code === 'cover_paper_size')) {
+            allFieldsToRender.push({ field_code: 'cover_paper_size', field_name: 'Khổ giấy bìa', field_type: 'select', is_required: false, ai_question: 'Khổ giấy bìa?' });
+        }
+        if (configured.includes('cover_print_side') && !allFieldsToRender.some(f => f.field_code === 'cover_print_side')) {
+            allFieldsToRender.push({ field_code: 'cover_print_side', field_name: 'Mặt in bìa', field_type: 'select', is_required: false, ai_question: 'Bìa in mấy mặt?' });
+        }
+        if (configured.includes('cover_print_type') && !allFieldsToRender.some(f => f.field_code === 'cover_print_type')) {
+            allFieldsToRender.push({ field_code: 'cover_print_type', field_name: 'Máy in bìa', field_type: 'select', is_required: false, ai_question: 'Máy in bìa?' });
+        }
+        if (configured.includes('inner_paper_size') && !allFieldsToRender.some(f => f.field_code === 'inner_paper_size')) {
+            allFieldsToRender.push({ field_code: 'inner_paper_size', field_name: 'Khổ giấy ruột', field_type: 'select', is_required: false, ai_question: 'Khổ giấy ruột?' });
+        }
+        if (configured.includes('inner_print_side') && !allFieldsToRender.some(f => f.field_code === 'inner_print_side')) {
+            allFieldsToRender.push({ field_code: 'inner_print_side', field_name: 'Mặt in ruột', field_type: 'select', is_required: false, ai_question: 'Ruột in mấy mặt?' });
+        }
+        if (configured.includes('inner_print_type') && !allFieldsToRender.some(f => f.field_code === 'inner_print_type')) {
+            allFieldsToRender.push({ field_code: 'inner_print_type', field_name: 'Máy in ruột', field_type: 'select', is_required: false, ai_question: 'Máy in ruột?' });
         }
     }
 
@@ -413,8 +539,8 @@ export function QuoteFormFields({
                     
                     // Sort so that paper size is rendered after material
                     genericMaterials.sort((a, b) => {
-                        const isSizeA = ['paper_size', 'kho_giay', 'kich_thuoc_giay'].includes(a.field_code);
-                        const isSizeB = ['paper_size', 'kho_giay', 'kich_thuoc_giay'].includes(b.field_code);
+                        const isSizeA = ['paper_size', 'kho_giay', 'kich_thuoc_giay', 'cover_paper_size', 'inner_paper_size'].includes(a.field_code);
+                        const isSizeB = ['paper_size', 'kho_giay', 'kich_thuoc_giay', 'cover_paper_size', 'inner_paper_size'].includes(b.field_code);
                         if (isSizeA && !isSizeB) return 1; // Size comes later
                         if (!isSizeA && isSizeB) return -1; // Material comes first
                         return 0;
@@ -493,4 +619,3 @@ export function QuoteFormFields({
         </div>
     );
 }
-

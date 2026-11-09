@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../_components/apiClient';
+import { DigitalSettingsNav } from '../_components/DigitalSettingsNav';
 
 interface WasteConfig {
     digital_waste_pct: number;
@@ -87,6 +88,7 @@ export default function WasteConfigPage() {
 
     return (
         <div className="flex flex-col h-full bg-slate-50/50 p-6">
+            <DigitalSettingsNav activeTab="waste" />
             {toast && <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-semibold text-white ${toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>{toast.msg}</div>}
             
             <div className="mb-6 flex justify-between items-center">

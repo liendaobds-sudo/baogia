@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional, OnModuleInit } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PricingData, QuoteResult, OffsetPricingError } from './pricing-data';
-import { chuanHoaKho } from './lookups';
+import { chuanHoaKho, docKichThuocCm } from './lookups';
 import { loadDefaultPricingData } from './default-data';
 import { ConfigStore } from './config-store.service';
 import { tenantRlsEnabled } from '../../../common/tenant/tenant-background';
@@ -106,6 +107,17 @@ export class EngineOffsetService implements OnModuleInit {
         this.cachedByTenant.clear();
     }
 
+    /** Khi Danh Mục Giấy hoặc Định mức thay đổi, xoá cache và nạp lại PricingData. */
+    @OnEvent('pricing.changed')
+    async onPricingChanged(): Promise<void> {
+        this.invalidateAllPricingData();
+        try {
+            await this.refreshFromConfigStore();
+        } catch (err) {
+            this.logger.warn(`Không làm mới được cấu hình offset sau sự kiện pricing.changed: ${(err as Error)?.message}`);
+        }
+    }
+
     /** Nguồn dữ liệu hiện hành (mặc định JSON đóng gói; có cache). */
     getPricingData(): PricingData {
         if (!this.cached) this.cached = loadDefaultPricingData();
@@ -176,6 +188,25 @@ export class EngineOffsetService implements OnModuleInit {
                 case 'tui_giay': data = tinhTuiGiay(input, d); break;
                 default:
                     return { success: false, error: `Loại sản phẩm offset không được hỗ trợ: ${(input as any).type}` };
+            }
+            const matCode = (input as any).materialCode;
+            const khoGiayLon = data.meta?.khoGiayLon;
+            if (matCode && khoGiayLon) {
+                const mat = d.materials.find((m) => m.code === matCode);
+                const parentCfg = docKichThuocCm(String(khoGiayLon));
+                if (mat && mat.sheetWidth && mat.sheetHeight && parentCfg) {
+                    const mW = Math.min(mat.sheetWidth, mat.sheetHeight);
+                    const mH = Math.max(mat.sheetWidth, mat.sheetHeight);
+                    const pW = Math.min(parentCfg.w, parentCfg.h);
+                    const pH = Math.max(parentCfg.w, parentCfg.h);
+                    if ((Math.abs(mW - pW) > 1 || Math.abs(mH - pH) > 1) && data.meta?.parentSheetMismatch === undefined) {
+                        data.meta = { ...data.meta, parentSheetMismatch: true };
+                        data.warnings = [
+                            ...(data.warnings ?? []),
+                            `Khổ giấy lớn của khổ in (${khoGiayLon}) khác với khổ gốc của giấy "${mat.materialName}" (${mat.sheetWidth}×${mat.sheetHeight}cm). Hãy kiểm tra tương thích khổ giấy.`,
+                        ];
+                    }
+                }
             }
             return { success: true, data };
         } catch (err) {

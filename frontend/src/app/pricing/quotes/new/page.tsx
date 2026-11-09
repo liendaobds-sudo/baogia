@@ -13,6 +13,7 @@ import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
 import { mapCartItemToQuoteItem } from '@/lib/quote/map-cart-item';
 import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
+import { TrialModeSwitch } from '@/lib/scope/use-trial-mode';
 
 type QuoteTab = 'loose' | 'bound' | 'large_format';
 
@@ -149,10 +150,9 @@ export default function NewQuotePage() {
 
     }, [token, clearCart, addItem, setHeaderDiscount]);
 
-    // Prefill từ Báo giá mini (inbox): chỉ chạy khi KHÔNG ở chế độ edit.
-    // Mang theo template + tab + số lượng + kích thước qua URL param rồi nạp vào
-    // giỏ → useQuoteConfigurator hydrate sẵn (tái dùng đúng cơ chế Edit). Vật liệu/
-    // gia công KHÔNG prefill để nhân viên chọn theo whitelist (an toàn, đúng cấu hình).
+    // [MQ-07] Prefill từ Báo giá mini (inbox): chỉ chạy khi KHÔNG ở chế độ edit.
+    // Chuyển đúng tab và làm sạch giỏ tạm; việc nạp cấu hình + whitelist sản phẩm + tính giá live
+    // do useQuoteConfigurator xử lý trực tiếp từ URL query (không đẩy item 0đ giả vào giỏ hàng).
     useEffect(() => {
         if (typeof window === 'undefined') return;
         const sp = new URLSearchParams(window.location.search);
@@ -161,25 +161,8 @@ export default function NewQuotePage() {
         if (!tpl) return;
 
         const tab = (sp.get('prefill_tab') as QuoteTab) || 'loose';
-        const qty = parseInt(sp.get('prefill_qty') || '0') || undefined;
-        const w = parseFloat(sp.get('prefill_w') || '0') || undefined;
-        const h = parseFloat(sp.get('prefill_h') || '0') || undefined;
-        const name = sp.get('prefill_name') || 'Báo giá từ chat';
-
         setQuoteTab(tab);
         clearCart();
-        addItem({
-            name,
-            type: tab,
-            quantity: qty || 1,
-            unitPrice: 0,
-            total: 0,
-            configParams: { templateCode: tpl, ...(w ? { width: w } : {}), ...(h ? { height: h } : {}) },
-            details: {},
-        });
-        // Dọn query để F5 không nạp lại prefill (tránh ghi đè khi user đã chỉnh).
-        try { window.history.replaceState(null, '', window.location.pathname); } catch { /* noop */ }
-        // Chỉ chạy 1 lần lúc mount.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -277,9 +260,9 @@ export default function NewQuotePage() {
     return (
         <div className="flex flex-col h-screen bg-slate-100 overflow-hidden">
             {/* Top Bar - Header Only */}
-            <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-20 relative">
-                <div className="flex items-center gap-4">
-                    <Link href="/pricing/quotes" aria-label="Quay lại danh sách báo giá" className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors shadow-sm">
+            <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap shadow-sm z-20 relative">
+                <div className="flex items-center gap-3 shrink-0">
+                    <Link href="/pricing/quotes" aria-label="Quay lại danh sách báo giá" className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors shadow-sm shrink-0">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
                     </Link>
                     <div>
@@ -288,8 +271,8 @@ export default function NewQuotePage() {
                     </div>
                 </div>
 
-                {/* Centered Tabs */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+                {/* Product Type Tabs (in normal flex flow to prevent overlap on 1280px–1440px screens) */}
+                <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 shrink-0">
                     {[
                         { id: 'loose', label: 'Sản phẩm Rời', icon: '📝' },
                         { id: 'bound', label: 'Sản phẩm Cuốn', icon: '📖' },
@@ -298,7 +281,7 @@ export default function NewQuotePage() {
                         <button
                             key={t.id}
                             onClick={() => setQuoteTab(t.id as QuoteTab)}
-                            className={`px-3.5 py-1.5 font-semibold text-[12px] rounded-md flex items-center gap-1.5 transition-all duration-200 ${
+                            className={`px-3.5 py-1.5 font-semibold text-[12px] rounded-md flex items-center gap-1.5 transition-all duration-200 whitespace-nowrap ${
                                 quoteTab === t.id
                                 ? 'bg-white text-indigo-700 shadow-sm'
                                 : 'text-slate-500 hover:text-indigo-600'
@@ -310,11 +293,22 @@ export default function NewQuotePage() {
                     ))}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 shrink-0">
+                    <TrialModeSwitch />
+                    {!canSave && !isSaving && (
+                        <span className="hidden 2xl:inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+                            <span>💡</span>
+                            {!customerName.trim() && items.length === 0
+                                ? 'Nhập tên KH & thêm hạng mục để lưu'
+                                : !customerName.trim()
+                                    ? 'Nhập tên Khách hàng ở cột trái để lưu'
+                                    : 'Bấm "+ Thêm vào báo giá" ở cột phải để lưu'}
+                        </span>
+                    )}
                     <button onClick={() => router.back()} className="h-9 px-4 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-md text-[13px] font-bold shadow-sm transition-colors">
                         HUỶ
                     </button>
-                    <button onClick={handleSaveQuote} disabled={!canSave} aria-label="Lưu báo giá" className={`h-9 px-5 text-white rounded-md text-[13px] font-bold shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSaving ? 'bg-slate-500' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>
+                    <button onClick={handleSaveQuote} disabled={!canSave} aria-label="Lưu báo giá" title={!canSave ? (!customerName.trim() ? 'Vui lòng nhập tên khách hàng ở cột trái' : 'Vui lòng thêm ít nhất 1 hạng mục vào báo giá') : 'Lưu báo giá'} className={`h-9 px-5 text-white rounded-md text-[13px] font-bold shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSaving ? 'bg-slate-500' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>
                         {isSaving ? (
                             <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         ) : (
@@ -340,7 +334,7 @@ export default function NewQuotePage() {
                     isResizing={isResizingSidebar}
                 />
 
-                {/* Thanh kéo chỉnh độ rộng sidebar (ẩn khi đã thu gọn) */}
+                {/* Thanh kéo chỉnh độ rộng cột khách hàng */}
                 {!isSidebarCollapsed && (
                     <div
                         onPointerDown={startResize}

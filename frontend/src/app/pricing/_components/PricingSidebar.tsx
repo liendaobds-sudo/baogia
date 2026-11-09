@@ -12,6 +12,7 @@ import {
 } from '@/lib/scope/ia-resolver';
 import { useEnabledMethods } from '@/lib/scope/use-enabled-methods';
 import { useEnabledApps } from '@/lib/scope/use-enabled-apps';
+import { useTrialMode, isDeepConfigRoute } from '@/lib/scope/use-trial-mode';
 import type { MethodId } from '@/lib/scope/types';
 
 interface NavChild {
@@ -165,6 +166,7 @@ export default function PricingSidebar({ collapsed, onToggle, userName }: Pricin
   // Trục_Ứng_Dụng của Đơn_Vị — để ẩn link chéo "Inbox CSKH" khi tenant tắt CSKH.
   // Fail-open: chỉ ẩn khi đã nạp xong và KHÔNG có 'cskh' (tránh ẩn nhầm lúc tải).
   const { enabledApps, loaded: appsLoaded } = useEnabledApps();
+  const { isTrialMode, toggleTrialMode } = useTrialMode();
   const showCskhLink = !appsLoaded || enabledApps.includes('cskh');
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     pricing: true,
@@ -200,6 +202,7 @@ export default function PricingSidebar({ collapsed, onToggle, userName }: Pricin
       navItems
         .filter((item) => isNavItemVisible(item, allowedBaogiaNavItems))
         .filter((item) => isMethodEnabled(item, enabledMethods, methodsLoaded))
+        .filter((item) => !(isTrialMode && item.key === 'admin'))
         .map((item) =>
           item.children
             ? {
@@ -207,13 +210,14 @@ export default function PricingSidebar({ collapsed, onToggle, userName }: Pricin
                 children: item.children.filter(
                   (child) =>
                     !isHiddenRoute(child.href) &&
+                    !(isTrialMode && isDeepConfigRoute(child.href)) &&
                     isMethodEnabled(child, enabledMethods, methodsLoaded),
                 ),
               }
             : item,
         )
         .filter((item) => !item.children || item.children.length > 0),
-    [allowedBaogiaNavItems, enabledMethods, methodsLoaded],
+    [allowedBaogiaNavItems, enabledMethods, methodsLoaded, isTrialMode],
   );
 
   const toggleMenu = (key: string) => {
@@ -338,6 +342,69 @@ export default function PricingSidebar({ collapsed, onToggle, userName }: Pricin
           )}
         </div>
       )}
+
+      {/* Thanh gạt Xem trước: Chế độ Dùng thử (Ẩn cấu hình sâu) ↔ Chế độ Chủ xưởng (Full) */}
+      <div style={{ padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={isTrialMode}
+          onClick={toggleTrialMode}
+          title={isTrialMode ? 'Đang bật Chế độ Dùng thử (Đã ẩn cấu hình sâu & gộp chi phí). Bấm để gạt về Chủ xưởng (Full).' : 'Bấm để gạt xem trước giao diện Khách dùng thử (Ẩn cấu hình sâu & bảo vệ bí kíp)'}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: collapsed ? 'center' : 'space-between',
+            gap: 8,
+            padding: '7px 8px',
+            borderRadius: 6,
+            border: isTrialMode ? '1px solid rgba(251,191,36,0.45)' : '1px solid rgba(255,255,255,0.12)',
+            background: isTrialMode ? 'rgba(251,191,36,0.14)' : 'rgba(255,255,255,0.05)',
+            color: isTrialMode ? '#fde68a' : 'rgba(255,255,255,0.85)',
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span>{isTrialMode ? '🔒' : '🔓'}</span>
+            {!collapsed && (
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {isTrialMode ? 'Khách dùng thử' : 'Chủ xưởng (Full)'}
+              </span>
+            )}
+          </span>
+          {/* Thanh gạt (Toggle Switch Track + Thumb) */}
+          {!collapsed && (
+            <span
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                width: 28,
+                height: 16,
+                borderRadius: 999,
+                background: isTrialMode ? '#f59e0b' : 'rgba(255,255,255,0.25)',
+                transition: 'background 0.2s',
+                flexShrink: 0,
+                alignItems: 'center',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: '#fff',
+                  transform: isTrialMode ? 'translateX(14px)' : 'translateX(2px)',
+                  transition: 'transform 0.2s',
+                }}
+              />
+            </span>
+          )}
+        </button>
+      </div>
 
       <div className="relative group" style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between' }}>
         <Link href="/profile" /* title="Hồ sơ cá nhân" */ style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', minWidth: 0, textDecoration: 'none' }}>

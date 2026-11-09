@@ -13,7 +13,7 @@
  * _Tài liệu: docs/offset-waste-model.md_
  */
 import { PricingData, GiaCongTier, WasteStageConfig, QuoteLine, numParam } from '../pricing-data';
-import { pickRate, haoHut as haoHutCurve } from '../lookups';
+import { pickRate, haoHut as haoHutCurve, docKichThuocCm } from '../lookups';
 import { StageWaste, cascadeProduct, qtyOf } from '../waste-cascade';
 
 export const IN_DEFAULT_MAKEREADY = 100;
@@ -122,7 +122,7 @@ export const CORE_PROCESSING_CODES = new Set<string>([
  * theo bậc đơn giá × số lượng (qua `stageCostAt`). Bỏ qua mã 'external' (vd ép kim — đã có field
  * riêng) và mã không có trong cấu hình. Rỗng ⇒ không thêm gì (bảo toàn giá cũ).
  */
-export function extraProcessingLines(codes: string[] | undefined, sl: number, d: PricingData): QuoteLine[] {
+export function extraProcessingLines(codes: string[] | undefined, sl: number, d: PricingData, sheetsGross?: number): QuoteLine[] {
     if (!codes?.length) return [];
     const out: QuoteLine[] = [];
     const seen = new Set<string>();
@@ -131,7 +131,18 @@ export function extraProcessingLines(codes: string[] | undefined, sl: number, d:
         seen.add(code);
         const rec = d.giaCong.find((g) => g.code === code);
         if (!rec || rec.billingMode === 'external' || CORE_PROCESSING_CODES.has(code)) continue;
-        const amount = stageCostAt(code, sl, sl, d);
+        const cfg = d.wasteStages?.[code];
+        let qtyCharged = sl;
+        if ((cfg?.basis === 'sheet' || (rec.billingMode as string) === 'perSheet') && sheetsGross && sheetsGross > 0) {
+            qtyCharged = sheetsGross;
+        } else {
+            const wRate = wasteRate(d, code, sl);
+            const mr = stageMakeready(d, code, 0);
+            if (wRate > 0 || mr > 0) {
+                qtyCharged = Math.ceil(sl * (1 + wRate)) + mr;
+            }
+        }
+        const amount = stageCostAt(code, sl, qtyCharged, d);
         if (amount > 0) out.push({ label: rec.congDoan || code, amount });
     }
     return out;

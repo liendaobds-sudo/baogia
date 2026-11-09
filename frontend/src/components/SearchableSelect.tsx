@@ -28,6 +28,7 @@ export default function SearchableSelect({
   disabled = false
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -61,19 +62,29 @@ export default function SearchableSelect({
     setIsOpen(false);
   };
 
+  const toggleOpen = () => {
+    if (disabled) return;
+    if (!isOpen && wrapperRef.current && typeof window !== 'undefined') {
+      const rect = wrapperRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setOpenUpward(spaceBelow < 250 && rect.top > 250);
+    }
+    setIsOpen(!isOpen);
+  };
+
   return (
     <div className="relative w-full" ref={wrapperRef}>
       {/* Nút bấm để mở Dropdown */}
       <button
         type="button"
         disabled={disabled}
-        onClick={() => { if (!disabled) setIsOpen(!isOpen); }}
+        onClick={toggleOpen}
         className={`flex items-center justify-between w-full px-2 h-8 text-[11px] text-left border rounded-md outline-none transition-colors
           ${disabled ? 'bg-slate-100 cursor-not-allowed opacity-70' : 'bg-white cursor-pointer'}
           ${error ? 'border-red-500 focus:ring-red-500/20' : 'border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'}
         `}
       >
-        <span className={`block truncate ${!selectedOption ? 'text-slate-400' : 'text-slate-800'}`}>
+        <span className={`block flex-1 min-w-0 truncate text-left ${!selectedOption ? 'text-slate-400' : 'text-slate-800'}`}>
           {selectedOption ? displayLabel : placeholder}
         </span>
         {disabled
@@ -83,10 +94,14 @@ export default function SearchableSelect({
 
       {/* Box thả xuống */}
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-border rounded-md shadow-lg max-h-60 overflow-hidden flex flex-col">
+        <div
+          className={`absolute z-50 w-full ${
+            openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
+          } bg-white border border-border rounded-md shadow-lg max-h-60 overflow-hidden flex flex-col`}
+        >
           {/* Ô input Search */}
           <div className="flex items-center px-2 py-2 sticky top-0 bg-white border-b border-border">
-            <Search size={14} className="text-text-muted mr-2" />
+            <Search size={14} className="text-text-muted mr-2 shrink-0" />
             <input
               type="text"
               className="w-full text-sm outline-none border-none focus:ring-0 p-0 text-text-primary placeholder-text-muted"
@@ -96,10 +111,10 @@ export default function SearchableSelect({
               autoFocus
             />
             {searchTerm && (
-              <X 
-                size={14} 
-                className="text-text-muted cursor-pointer hover:text-text-primary ml-1" 
-                onClick={() => setSearchTerm('')} 
+              <X
+                size={14}
+                className="text-text-muted cursor-pointer hover:text-text-primary ml-1 shrink-0"
+                onClick={() => setSearchTerm('')}
               />
             )}
           </div>

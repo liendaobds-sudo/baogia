@@ -42,6 +42,7 @@ import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/
 import { decideEntryRouting } from '@/lib/quote/entry-routing';
 import { mapCartItemToQuoteItem } from '@/lib/quote/map-cart-item';
 import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
+import { TrialModeSwitch } from '@/lib/scope/use-trial-mode';
 
 /* -------------------------------------------------------------------------- */
 /* Kiểu dữ liệu                                                                */
@@ -294,13 +295,17 @@ export default function QuoteEntryPointPage() {
     const renderConfigurator = () => {
         if (selectedMethod === 'digital' && isDigitalTab(quoteType)) {
             return (
-                <div className="absolute inset-0 p-5 overflow-y-auto custom-scrollbar">
+                <div className="absolute inset-0 overflow-hidden">
                     <QuoteConfigurator token={token} activeTab={quoteType} />
                 </div>
             );
         }
         if (selectedMethod === 'offset' && isOffsetType(quoteType)) {
-            return <OffsetQuoteConfigurator activeType={quoteType} />;
+            return (
+                <div className="absolute inset-0 overflow-hidden">
+                    <OffsetQuoteConfigurator activeType={quoteType} />
+                </div>
+            );
         }
         // Phương pháp đã chọn nhưng quoteType không khớp Configurator nào.
         return (
@@ -321,6 +326,22 @@ export default function QuoteEntryPointPage() {
 
     const inConfigurator = selectedMethod !== null && mode === 'method';
 
+    const renderExpandSidebarButton = () => (
+        <div className={`transition-all duration-300 absolute z-20 top-3 ${isSidebarCollapsed ? 'left-0 opacity-100 visible' : '-left-10 opacity-0 invisible'}`}>
+            <button
+                onClick={() => setIsSidebarCollapsed(false)}
+                aria-label="Mở rộng thông tin khách hàng"
+                className="bg-white border border-l-0 border-slate-200 shadow-[2px_0_10px_rgba(0,0,0,0.08)] py-2.5 px-1.5 rounded-r-lg text-indigo-600 hover:bg-indigo-50 transition-colors group"
+                title="Mở rộng thông tin khách hàng"
+            >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover:translate-x-0.5 transition-transform">
+                    <polyline points="13 17 18 12 13 7"></polyline>
+                    <polyline points="6 17 11 12 6 7"></polyline>
+                </svg>
+            </button>
+        </div>
+    );
+
     return (
         <div className="flex flex-col h-screen bg-slate-100 overflow-hidden">
             {/* Header */}
@@ -339,6 +360,7 @@ export default function QuoteEntryPointPage() {
 
                 {/* Breadcrumb chọn lại sản phẩm / phương pháp */}
                 <div className="flex items-center gap-3">
+                    <TrialModeSwitch />
                     {selectedProduct && (
                         <button onClick={resetToProductSelection} className="h-9 px-4 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-md text-[13px] font-bold shadow-sm transition-colors">
                             ↺ Đổi sản phẩm
@@ -413,6 +435,7 @@ export default function QuoteEntryPointPage() {
                             nameError={errors.customerName}
                         />
                         <div className="flex-1 min-w-0 overflow-hidden relative bg-slate-100">
+                            {renderExpandSidebarButton()}
                             <PriceComparator
                                 token={token}
                                 productCode={selectedProduct.code}
@@ -437,6 +460,7 @@ export default function QuoteEntryPointPage() {
                             nameError={errors.customerName}
                         />
                         <div className="flex-1 min-w-0 overflow-hidden relative bg-slate-100">
+                            {renderExpandSidebarButton()}
                             {renderConfigurator()}
                         </div>
                     </div>

@@ -82,7 +82,8 @@ export function tinhSpKhac(input: SpKhacInput, d: PricingData): QuoteResult {
 
     const cpGiay = giaGiay(input.materialCode, d) * sheetsGross;
     const don1Kem = kho.loaiKem === 'Kẽm lớn' ? d.kem.donGia1Kem.kemLon : d.kem.donGia1Kem.kemNho;
-    const cpLamKem = don1Kem * (input.soBoKem ?? 1) * input.soMau;
+    const soBoKem = Math.max(1, Math.round(Number(input.soBoKem) || 1));
+    const cpLamKem = don1Kem * soBoKem * input.soMau;
 
     let cpCanMang = 0;
     const vtbm = d.kem.vatTuBeMat.find((v) => v.ten === input.vatTuBeMat);
@@ -94,7 +95,7 @@ export function tinhSpKhac(input: SpKhacInput, d: PricingData): QuoteResult {
 
     const bang = kho.loaiKem === 'Kẽm lớn' ? d.kem.kemLon : d.kem.kemNho;
     const giaGocBinhBai = (bang.find((k) => k.soKem === input.soMau) ?? bang[bang.length - 1]).donGia;
-    const moqBinhBai = params.MOQ_BinhBai_Nho;
+    const moqBinhBai = kho.loaiKem === 'Kẽm lớn' ? params.MOQ_BinhBai_Lon : params.MOQ_BinhBai_Nho;
     const cpBinhBai = luotIn <= moqBinhBai ? giaGocBinhBai : giaGocBinhBai + ((luotIn - moqBinhBai) * giaGocBinhBai) / moqBinhBai;
     // Tách rõ 2 phần (tổng = cpBinhBai): Lên bài = đơn giá gốc (trọn gói canh máy); Chạy máy = phần vượt MOQ.
     const cpLenBai = giaGocBinhBai;
@@ -137,7 +138,7 @@ export function tinhSpKhac(input: SpKhacInput, d: PricingData): QuoteResult {
         { label: 'Thiết kế', amount: cpThietKe },
     ];
     const baseSXTK = cpBinhBai + cpXLBM + cpBe + cpTP + cpCatXen + cpDongGoi + cpEpKim + cpThietKe;
-    const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
+    const extraLines = extraProcessingLines(input.extraProcessing, sl, d, sheetsGross);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
     const wasteInfo = giaGiay(input.materialCode, d) * (sheetsGross - w.sheetsNet);
@@ -146,7 +147,7 @@ export function tinhSpKhac(input: SpKhacInput, d: PricingData): QuoteResult {
     const res = tongHopKetQua(lines, baseSXTKFull, sl, d, wasteInfo, input.chietKhauRate, input.vatRate);
     res.meta = {
         khoBinh: kho.khoIn, khoGiayLon: kho.khoGiayLon, soConBaiIn, soConToLon: soCon, soToLon: sheetsGross, luotIn,
-        soKem: input.soMau, loaiKem: kho.loaiKem, sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
+        soKem: input.soMau * soBoKem, ...(soBoKem > 1 ? { soBoKem } : {}), loaiKem: kho.loaiKem, sheetW: sheet?.w, sheetH: sheet?.h, itemW, itemH,
         impositionSource: imposition.source,
     };
     if (imposition.shadow) res.meta.shadow = imposition.shadow;

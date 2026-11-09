@@ -67,8 +67,8 @@ export function OffsetPreviewSVG({
     // Đây là nguồn sự thật duy nhất → preview KHỚP cơ sở giá (Req 2.3, 10.2). Không tự dàn khuôn lại.
     if (positions && positions.length > 0 && sheetW && sheetH && sheetW > 0 && sheetH > 0) {
         // positions ở mm, khổ ở cm → vẽ trong khung cm (chia 10), giữ nguyên hướng của engine.
-        const Wp = sheetW;
-        const Hp = sheetH;
+        const Wp = Math.max(sheetW, sheetH);
+        const Hp = Math.min(sheetW, sheetH);
         const vbWp = Wp + pad * 2;
         const vbHp = Hp + pad * 2;
         const mm2cm = (v: number) => v / 10;
@@ -79,7 +79,7 @@ export function OffsetPreviewSVG({
                   x: pad + mm2cm(mc.left),
                   y: pad + mm2cm(mc.top),
                   w: Math.max(0, Wp - mm2cm(mc.left) - mm2cm(mc.right)),
-                  h: Math.max(0, Hp - mm2cm(mc.top) - mm2cm(mc.bottom) - mm2cm(mc.gripper)),
+                  h: Math.max(0, Hp - mm2cm(mc.top) - Math.max(mm2cm(mc.bottom), mm2cm(mc.gripper))),
               }
             : null;
         const gripCm = mc ? mm2cm(mc.gripper) : 0;

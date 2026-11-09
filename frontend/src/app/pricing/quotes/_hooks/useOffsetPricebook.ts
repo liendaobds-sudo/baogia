@@ -101,6 +101,7 @@ export interface OffsetQuoteMeta {
     soToLon?: number;
     luotIn?: number;
     soKem?: number;
+    soBoKem?: number;
     loaiKem?: string;
     sheetW?: number;
     sheetH?: number;
@@ -125,7 +126,7 @@ export function useOffsetPricebook(token: string | null) {
     useEffect(() => {
         let active = true;
         setLoading(true);
-        fetch(`${API_URL}/pricing/offset/pricebook`, {
+        fetch(`${API_URL}/pricing/offset/pricebook?mode=catalog`, {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         })
             .then((r) => r.json())

@@ -94,7 +94,8 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
                             const updated = { ...prev };
                             if (config.default_print_side) {
                                 const psField = selectedTemplate.fields?.find(f => ['printSides', 'so_mat_in', 'print_side'].includes(f.field_code));
-                                if (psField) updated[psField.field_code] = config.default_print_side;
+                                const targetKey = psField ? psField.field_code : 'print_side';
+                                if (!prev[targetKey]) updated[targetKey] = config.default_print_side;
                             }
                             if (config.default_print_type) {
                                 const ptField = selectedTemplate.fields?.find(f => ['printType', 'loai_in', 'print_type'].includes(f.field_code));
@@ -105,10 +106,24 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
                                     if (val === '1c') val = '1 màu';
                                     updated[ptField.field_code] = val;
                                 }
+                                if (!prev['print_type']) updated['print_type'] = config.default_print_type;
                             }
                             if (config.default_quantity && !prev['quantity'] && !prev['so_luong']) {
                                 const qField = selectedTemplate.fields?.find(f => ['quantity', 'so_luong'].includes(f.field_code));
-                                if (qField) updated[qField.field_code] = String(config.default_quantity);
+                                const targetKey = qField ? qField.field_code : 'quantity';
+                                updated[targetKey] = String(config.default_quantity);
+                            }
+                            if (config.default_width && !prev['kich_thuoc_w'] && !prev['size_w']) {
+                                updated['kich_thuoc_w'] = String(Number(config.default_width) / 10);
+                            }
+                            if (config.default_height && !prev['kich_thuoc_h'] && !prev['size_h']) {
+                                updated['kich_thuoc_h'] = String(Number(config.default_height) / 10);
+                            }
+                            if (config.default_material_id && !prev['material'] && !prev['vat_lieu'] && !prev['chat_lieu']) {
+                                updated['material'] = String(config.default_material_id);
+                            }
+                            if (config.default_paper_size_id && !prev['paper_size'] && !prev['kich_thuoc_giay']) {
+                                updated['paper_size'] = String(config.default_paper_size_id);
                             }
                             
                             const sizeField = selectedTemplate.fields?.find(f => ['size', 'kich_thuoc', 'kho_giay_id', 'paper_size_id', 'kho_giay', 'kich_thuoc_giay'].includes(f.field_code));
@@ -210,7 +225,10 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
             fetch(`${API}/product-templates/extract-fields`, {
                 method: 'POST',
                 headers: headers(),
-                body: JSON.stringify({ text: allCustomerText })
+                body: JSON.stringify({
+                    text: allCustomerText,
+                    product_id: selectedTemplate.product_id || selectedTemplate.id,
+                })
             })
                 .then(r => r.ok ? r.json() : { fields: {} })
                 .then(result => {
@@ -244,19 +262,23 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (data?.detected && data.template) {
-                    setSelectedTemplate(data.template);
-                    const defaults = buildDefaultFormData(data.template);
+                    const matchedFull = templates.find(t => t.code === data.template.code) || normalizeMiniQuoteFields(data.template);
+                    setSelectedTemplate(matchedFull);
+                    const defaults = buildDefaultFormData(matchedFull);
                     setAutoDetected(true);
 
                     fetch(`${API}/product-templates/extract-fields`, {
                         method: 'POST',
                         headers: headers(),
-                        body: JSON.stringify({ text: allCustomerText })
+                        body: JSON.stringify({
+                            text: allCustomerText,
+                            product_id: matchedFull.product_id || matchedFull.id,
+                        })
                     })
                         .then(r => r.ok ? r.json() : { fields: {} })
                         .then(result => {
                             const extracted = result.fields || {};
-                            const templateFields = (data.template.fields || []) as ProductField[];
+                            const templateFields = (matchedFull.fields || []) as ProductField[];
                             const merged = { ...defaults };
                             const filledKeys = new Set<string>();
                             for (const [key, rawVal] of Object.entries(extracted)) {
@@ -289,11 +311,26 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
         manuallySelected.current = !!t;
     };
 
-    // Calculate roughly how efficiently an item fits on a paper sheet
-    const calculateEfficiency = (psW: number, psH: number, itemW: number, itemH: number) => {
+    // Đồng bộ công thức tính hiệu suất khổ giấy với Báo giá chính (trừ lề máy in + cộng khe hở dao cắt gap 2mm)
+    const calculateEfficiency = (
+        ps: import('./types').MasterDataItem,
+        itemW: number,
+        itemH: number,
+        gapH = 2,
+        gapV = 2,
+    ) => {
+        const psW = Number(ps.width) || 0;
+        const psH = Number(ps.height) || 0;
         if (!psW || !psH || !itemW || !itemH) return 0;
-        const fit1 = Math.floor(psW / itemW) * Math.floor(psH / itemH);
-        const fit2 = Math.floor(psW / itemH) * Math.floor(psH / itemW);
+        const mL = Number(ps.marginLeft ?? 5);
+        const mR = Number(ps.marginRight ?? 5);
+        const mT = Number(ps.marginTop ?? 5);
+        const mB = Number(ps.marginBottom ?? 5);
+        const usableW = Math.max(0, psW - mL - mR);
+        const usableH = Math.max(0, psH - mT - mB);
+        if (usableW <= 0 || usableH <= 0) return 0;
+        const fit1 = Math.floor((usableW + gapH) / (itemW + gapH)) * Math.floor((usableH + gapV) / (itemH + gapV));
+        const fit2 = Math.floor((usableW + gapH) / (itemH + gapH)) * Math.floor((usableH + gapV) / (itemW + gapV));
         const maxItems = Math.max(fit1, fit2);
         if (maxItems === 0) return 0;
         const usedArea = maxItems * itemW * itemH;
@@ -306,7 +343,7 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
             const next = { ...prev, [fieldCode]: value };
             
             // Smooth constraint: Auto-correct paper size when material or product size changes
-            const triggerFields = ['material', 'vat_lieu', 'chat_lieu', 'innerMaterial', 'coverMaterial', 'kich_thuoc_w', 'kich_thuoc_h', 'size_w', 'size_h', 'width', 'height'];
+            const triggerFields = ['material', 'vat_lieu', 'chat_lieu', 'innerMaterial', 'coverMaterial', 'kich_thuoc_w', 'kich_thuoc_h', 'size_w', 'size_h', 'width', 'height', 'gap_h', 'gap_v'];
             if (triggerFields.includes(fieldCode)) {
                 
                 const wFields = ['kich_thuoc_w', 'size_w', 'width'];
@@ -314,6 +351,8 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
                 let itemW = 0, itemH = 0;
                 for (const kw of wFields) if (next[kw]) itemW = Number(next[kw]) * 10;
                 for (const kh of hFields) if (next[kh]) itemH = Number(next[kh]) * 10;
+                const gapH = next['gap_h'] ? Number(next['gap_h']) : 2;
+                const gapV = next['gap_v'] ? Number(next['gap_v']) : 2;
 
                 const getOptimalPaperSize = (validIds: number[]) => {
                     let finalIds = validIds;
@@ -329,7 +368,7 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
                     for (const psId of finalIds) {
                         const ps = masterData.paperSizes.find(p => Number(p.id) === psId);
                         if (ps && ps.width && ps.height) {
-                            const eff = calculateEfficiency(ps.width, ps.height, itemW, itemH);
+                            const eff = calculateEfficiency(ps, itemW, itemH, gapH, gapV);
                             if (eff > bestEff) {
                                 bestEff = eff;
                                 bestPsId = psId;
@@ -434,6 +473,21 @@ export function useQuoteData(token: string, messages: Array<{ senderType: string
             // NOTE: allowed_materials/paper_sizes/processing filtering is done server-side
             // in getMasterDataForProduct() — no need to re-filter here
 
+            // Material -> Paper Size constraint
+            if (masterKey === 'paperSizes') {
+                const matKey = field.field_code === 'cover_paper_size' ? 'coverMaterial'
+                    : field.field_code === 'inner_paper_size' ? 'innerMaterial'
+                    : null;
+                const materialId = matKey
+                    ? formData[matKey]
+                    : (formData['material'] || formData['vat_lieu'] || formData['chat_lieu'] || formData['innerMaterial'] || formData['coverMaterial']);
+                if (materialId) {
+                    const material = masterData.materials?.find(m => String(m.id) === materialId) as any;
+                    if (material && Array.isArray(material.valid_paper_size_ids) && material.valid_paper_size_ids.length > 0) {
+                        items = items.filter(ps => material.valid_paper_size_ids.includes(Number(ps.id)));
+                    }
+                }
+            }
 
             // ── Category filter: further filter processing by category (e.g. lamination, die_cut) ──
             const categoryFilter = FIELD_CATEGORY_FILTER[field.field_code];

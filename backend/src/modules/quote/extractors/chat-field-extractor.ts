@@ -6,9 +6,11 @@
 
 import { extractQuantity } from './quantity-extractor';
 import { extractSize } from './size-extractor';
-import { extractMaterial } from './material-extractor';
+import { extractMaterial, extractBoundMaterials } from './material-extractor';
 import { extractPrintSides } from './print-sides-extractor';
-import { extractLamination } from './lamination-extractor';
+import { extractLamination, extractCoverLamination } from './lamination-extractor';
+import { extractBinding, getPricingBindingCode } from './binding-extractor';
+import { extractFinishing } from './finishing-extractor';
 
 export interface ExtractedFields {
     [fieldCode: string]: string;
@@ -16,6 +18,7 @@ export interface ExtractedFields {
 
 export interface MasterDataForMatch {
     materials: Array<{ id: number | string; name: string; type?: string; gsm?: string }>;
+    processingOptions?: Array<{ id: number | string; code?: string; name: string; category?: string }>;
 }
 
 /**
@@ -45,6 +48,8 @@ export function extractFieldsFromChat(
         fields['kich_thuoc_h'] = String(hCm);
         fields['size_w'] = String(wCm);
         fields['size_h'] = String(hCm);
+        fields['item_width'] = String(wCm);
+        fields['item_height'] = String(hCm);
     }
 
     // 3. Material — try fuzzy match against master data
@@ -58,6 +63,38 @@ export function extractFieldsFromChat(
         }
     }
 
+    // 3b. Bound fields: page_count, binding_type, cover_material, inner_material
+    const pageMatch = text.match(/(\d+)\s*(?:trang|pages?|tr\b)/iu);
+    if (pageMatch) {
+        fields['page_count'] = pageMatch[1];
+        fields['so_trang'] = pageMatch[1];
+    }
+
+    const binding = extractBinding(text);
+    if (binding) {
+        const pricingBinding = binding.pricingCode || getPricingBindingCode(binding.code);
+        fields['binding_type'] = pricingBinding;
+        fields['kieu_dong'] = pricingBinding;
+    }
+
+    const boundMats = extractBoundMaterials(text);
+    if (masterData?.materials?.length) {
+        if (boundMats.cover) {
+            const matchedCover = fuzzyMatchMaterial(boundMats.cover.name, boundMats.cover.type, boundMats.cover.gsm, masterData.materials);
+            if (matchedCover) {
+                fields['cover_material'] = String(matchedCover.id);
+                fields['chat_lieu_bia'] = String(matchedCover.id);
+            }
+        }
+        if (boundMats.inner) {
+            const matchedInner = fuzzyMatchMaterial(boundMats.inner.name, boundMats.inner.type, boundMats.inner.gsm, masterData.materials);
+            if (matchedInner) {
+                fields['inner_material'] = String(matchedInner.id);
+                fields['chat_lieu_ruot'] = String(matchedInner.id);
+            }
+        }
+    }
+
     // 4. Print sides
     const printSides = extractPrintSides(text);
     if (printSides) {
@@ -67,7 +104,7 @@ export function extractFieldsFromChat(
         fields['print_side'] = value;
     }
 
-    // 5. Lamination — map code to display name
+    // 5. Lamination & Finishing — map code to display name + resolve processing IDs
     const lamination = extractLamination(text);
     if (lamination) {
         const laminationNames: Record<string, string> = {
@@ -77,6 +114,36 @@ export function extractFieldsFromChat(
         const displayName = laminationNames[lamination] || lamination;
         fields['can_mang'] = displayName;
         fields['lamination'] = displayName;
+    }
+
+    const finishingCodes = [...extractFinishing(text)];
+    if (lamination && !finishingCodes.includes(lamination)) {
+        finishingCodes.push(lamination);
+    }
+    const coverLam = extractCoverLamination(text);
+    if (coverLam?.type && !finishingCodes.includes(coverLam.type)) {
+        finishingCodes.push(coverLam.type);
+    }
+    if (finishingCodes.length > 0) {
+        fields['processing_codes'] = finishingCodes.join(',');
+        if (masterData?.processingOptions?.length) {
+            const matchedIds: string[] = [];
+            for (const code of finishingCodes) {
+                const codeLower = code.toLowerCase().replace(/_/g, ' ').replace(/-/g, ' ');
+                const match = masterData.processingOptions.find((p) => {
+                    const pCode = (p.code || '').toLowerCase().replace(/_/g, ' ').replace(/-/g, ' ');
+                    const pName = (p.name || '').toLowerCase();
+                    return pCode === codeLower || (pCode && pCode.includes(codeLower)) ||
+                        pName.includes(codeLower) || (pCode && codeLower.includes(pCode));
+                });
+                if (match && !matchedIds.includes(String(match.id))) {
+                    matchedIds.push(String(match.id));
+                }
+            }
+            if (matchedIds.length > 0) {
+                fields['processing_ids'] = matchedIds.join(',');
+            }
+        }
     }
 
     // 6. Shape detection
@@ -90,13 +157,12 @@ export function extractFieldsFromChat(
 }
 
 /**
- * Extract shape from Vietnamese text
+ * Extract shape from Vietnamese text.
+ * Uses 'round' for circular/oval shapes to match PricingService.calculateLoose contract.
  */
 function extractShape(text: string): string | null {
-    if (/hình\s*tròn|tron|circle|round/iu.test(text)) return 'circle';
-    if (/hình\s*vuông|vuong|square/iu.test(text)) return 'square';
-    if (/oval|bầu\s*dục/iu.test(text)) return 'oval';
-    if (/chữ\s*nhật|rectangle|hình\s*chữ\s*nhật/iu.test(text)) return 'rectangle';
+    if (/hình\s*tròn|tem\s*tròn|bế\s*tròn|\btròn\b|circle|round|oval|bầu\s*dục/iu.test(text)) return 'round';
+    if (/hình\s*vuông|vuong|square|chữ\s*nhật|rectangle|hình\s*chữ\s*nhật/iu.test(text)) return 'rectangle';
     return null;
 }
 

@@ -73,15 +73,22 @@ export function QuoteResultDisplay({
                         </div>
                     ) : quoteResult.total != null ? (
                         <div>
-                            <div className="text-[13px] font-bold text-emerald-600 mb-2 flex items-center gap-1.5">
-                                <span>💰</span> Kết quả báo giá
+                            <div className="text-[13px] font-bold text-emerald-600 mb-2 flex items-center justify-between gap-1.5">
+                                <span className="flex items-center gap-1.5"><span>💰</span> Kết quả báo giá</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                                    Number(quoteResult.vat_rate) > 0
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                }`}>
+                                    {Number(quoteResult.vat_rate) > 0 ? `Đã gồm VAT ${quoteResult.vat_rate}%` : 'Chưa gồm VAT'}
+                                </span>
                             </div>
                             <div className="text-2xl font-black text-emerald-700 mb-1 tracking-tight">
                                 {formatVND(Number(quoteResult.grand_total ?? quoteResult.total))}
                             </div>
                             {Number(quoteResult.vat_rate) > 0 && (
-                                <div className="text-[11px] text-emerald-700/80 mb-1 font-medium">
-                                    Đã gồm VAT {quoteResult.vat_rate}% (+{formatVND(Number(quoteResult.vat_amount || 0))})
+                                <div className="text-[11px] text-emerald-700/80 mb-1.5 font-medium">
+                                    Giá trước thuế: {formatVND(Number(quoteResult.total))} (+VAT {formatVND(Number(quoteResult.vat_amount || 0))})
                                 </div>
                             )}
                             {quoteResult.breakdown && (() => {
@@ -169,4 +176,3 @@ export function QuoteResultDisplay({
         </div>
     );
 }
-

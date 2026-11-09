@@ -15,7 +15,9 @@ function dbQuery(sql: string): Promise<any[]> {
     const s = sql.replace(/\s+/g, ' ');
     if (s.includes('pricing_config')) return Promise.resolve([{ config_key: 'vat_rate', config_value: '8' }]);
     if (s.includes('binding_types')) return Promise.resolve([{ price_per_book: '2000', price_per_page: '0' }]);
-    if (s.includes('processing_options') && s.includes('WHERE id')) return Promise.resolve([{ id: 5, name: 'Cán màng', price: '100', priceType: 'per_sheet' }]);
+    if (s.includes('processing_options') && s.includes('WHERE id')) return Promise.resolve([{ id: 5, name: 'Cán màng', code: 'can_mo', price: '100', priceType: 'per_sheet' }]);
+    if (s.includes('FROM paper_sizes')) return Promise.resolve([{ width: '450', height: '320', margin_left: '10', margin_right: '10', margin_top: '10', margin_bottom: '10' }]);
+    if (s.includes('FROM accessories')) return Promise.resolve([{ price: '5000', name: 'Dây đeo' }]);
     return Promise.resolve([]);
 }
 
@@ -95,5 +97,85 @@ describe('Pricing ADVANCED — bound & large format edge', () => {
         // Thuc te 1x1 = 1 m2 < 5 m2 toi thieu -> tinh 5 m2 x 50.000 = 250.000
         expect(d.breakdown.charge_area_m2).toBe(1);
         expect(d.material_cost).toBe(250000);
+    });
+
+    // ── BOUND A5 (148x210) trên SRA3 (450x320, vùng in 430x300): bìa 2-up, ruột 8 trang/tờ ──
+    it('BOUND A5 trên SRA3: tự động bình bìa 2 cuốn/tờ & ruột 8 trang/tờ + cộng phụ kiện', async () => {
+        const { facade } = build();
+        const res: any = await facade.calculatePrice({
+            type: 'bound',
+            quantity: 100,
+            page_count: 20,
+            binding_type: 'saddle_stitch',
+            item_width: 148,
+            item_height: 210,
+            cover: { material_id: 10, paper_size_id: 1, print_side: 'double', print_type: '4c' },
+            inner: [{ material_id: 10, paper_size_id: 1, page_count: 16, print_side: 'double', print_type: '4c' }],
+            accessories: [{ id: 1, qty: 10 }],
+            vat_rate: 8,
+        } as any);
+
+        expect(res.success).toBe(true);
+        const d = res.data;
+        expect(d.breakdown.cover_sheets_per_book).toBe(0.5);
+        expect(d.breakdown.total_cover_sheets).toBe(55);
+        expect(d.cover_cost).toBe(55000);
+        expect(d.inner_details[0].pages_per_sheet).toBe(8);
+        expect(d.inner_details[0].sheets_per_book).toBe(2);
+        expect(d.inner_details[0].total_sheets).toBe(210);
+        expect(d.inner_cost).toBe(210000);
+        expect(d.accessories_cost).toBe(50000);
+        expect(d.total).toBe(55000 + 210000 + 200000 + 50000);
+    });
+
+    // ── LARGE FORMAT: không thu hẹp diện tích tính tiền khi width > rollWidth ──
+    it('LARGE_FORMAT chargeFullWidth: khi width > rollWidth không được thu hẹp diện tích nhỏ hơn thực tế', async () => {
+        const { facade, materialRepo } = build();
+        materialRepo.findOne.mockResolvedValue({ id: 10, pricePerSqm: 50000, chargeFullWidth: true, rollWidth: 1200, minChargeArea: 0 });
+
+        const res: any = await facade.calculatePrice({
+            type: 'large_format', material_id: 10, width: 2000, height: 1000, quantity: 1, print_type: 'uv',
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.data.breakdown.charge_area_m2).toBe(2);
+        expect(res.data.material_cost).toBe(100000);
+    });
+
+    it('BOUND spine_width & cảnh báo ghim giữa lẻ bội số 4: cộng độ dày gáy vào khổ bìa trải và cảnh báo khi trang ruột không chia hết cho 4', async () => {
+        const { facade } = build();
+        // A5 (148x210) đóng keo nhiệt có gáy 8mm -> bìa trải 304x210mm vượt chiều 300mm của SRA3 (430x300) -> chỉ bình được 1 bìa/tờ thay vì 2 bìa/tờ
+        const resSpine: any = await facade.calculatePrice({
+            type: 'bound',
+            quantity: 100,
+            page_count: 164,
+            binding_type: 'perfect_bind',
+            item_width: 148,
+            item_height: 210,
+            spine_width: 8,
+            cover: { material_id: 10, paper_size_id: 1, print_side: 'single', print_type: '4c' },
+            inner: [{ material_id: 10, paper_size_id: 1, page_count: 160, print_side: 'double', print_type: '4c' }],
+            vat_rate: 8,
+        } as any);
+        expect(resSpine.success).toBe(true);
+        expect(resSpine.data.breakdown.spine_width_mm).toBe(8);
+        expect(resSpine.data.breakdown.cover_spread_width_mm).toBe(304);
+        expect(resSpine.data.breakdown.cover_sheets_per_book).toBe(1);
+        expect(resSpine.data.breakdown.total_cover_sheets).toBe(110);
+
+        // Ghim giữa có trang ruột = 14 (không chia hết cho 4) -> cảnh báo trong breakdown.warnings
+        const resWarn: any = await facade.calculatePrice({
+            type: 'bound',
+            quantity: 50,
+            page_count: 18,
+            binding_type: 'saddle_stitch',
+            item_width: 148,
+            item_height: 210,
+            cover: { material_id: 10, paper_size_id: 1, print_side: 'double', print_type: '4c' },
+            inner: [{ material_id: 10, paper_size_id: 1, page_count: 14, print_side: 'double', print_type: '4c' }],
+            vat_rate: 8,
+        } as any);
+        expect(resWarn.success).toBe(true);
+        expect(resWarn.data.breakdown.warnings?.[0]).toContain('chia hết cho 4');
     });
 });

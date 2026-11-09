@@ -139,4 +139,52 @@ describe('EngineOffset — engine duy nhất (smoke 5 loại)', () => {
         expect(denied.success).toBe(false);
         expect(denied.error).toMatch(/Loại khuôn/);
     });
+
+    it('[O-02] to_roi: khi luotIn > MOQ bình bài, cpBinhBai = cpLenBai + cpChayMay (không nhân bình phương)', () => {
+        const fs = d.fixedSizes.toRoi[0];
+        const res = svc.calculate({
+            type: 'to_roi', kichThuoc: fs.kichThuoc, materialCode: mat, soMatIn: 2, soLuong: 5000,
+            kemType: 'Kẽm lớn', soKemIn: 4, vatTuBeMat: vtbm, khuon: false, be: false,
+            thanhPhamGap: 'khong', catXen: false, dongGoi: false, thietKe: 0,
+        } as any);
+        expect(res.success).toBe(true);
+        const lenBai = res.data!.lines.find((l) => l.label.includes('Lên bài'))!;
+        const chayMay = res.data!.lines.find((l) => l.label.includes('chạy máy'))!;
+        expect(lenBai.amount).toBeCloseTo(800000, 2);
+        expect(chayMay.amount).toBeCloseTo(800000 * (10000 / 6000) - 800000, 2);
+    });
+
+    it('[O-04] tui_giay: khi soLuong < MOQ_GiaCong và có màng, XLBM áp đúng GiaMin_XLBM', () => {
+        const bai = '42cm x 60cm (dán nối)';
+        const res = svc.calculate({
+            type: 'tui_giay', soLuong: 200, cao: 30, rong: 25, hong: 10, mi: 4,
+            materialCode: mat, baiIn: bai, soKem: 4, vatTuBeMat: 'Màng bóng 1m',
+            dayXach: { loai: 'khong', donGia: 0 }, thungCaton: { sl: 0, donGia: 0 },
+            dongGoi: false, thietKe: 0,
+        } as any);
+        expect(res.success).toBe(true);
+        const xlbm = res.data!.lines.find((l) => l.label.includes('XLBM'))!;
+        expect(xlbm.amount).toBe(d.tyLe.params.GiaMin_XLBM);
+    });
+
+    it('[O-05] extraProcessingLines: công đoạn tùy chỉnh basis=sheet nhân theo sheetsGross thay vì sl', () => {
+        const svc2 = new EngineOffsetService();
+        const data = JSON.parse(JSON.stringify(loadDefaultPricingData()));
+        data.giaCong.push({ code: 'UV_DINH_HINH', congDoan: 'UV định hình', billingMode: 'perUnit', tiers: [{ min: 1, max: 999999, price: 500 }] });
+        data.wasteStages = {
+            ...(data.wasteStages ?? {}),
+            UV_DINH_HINH: { stageCode: 'UV_DINH_HINH', stageName: 'UV định hình', basis: 'sheet', billingMode: 'perSheet', wasteRate: 0, stageMakeready: 0, sortOrder: 99, isActive: true },
+        };
+        svc2.setPricingData(data);
+        const res = svc2.calculate({
+            type: 'sp_khac', khoIn: data.khoIn[0].khoIn, materialCode: mat, soMatIn: 1, soLuong: 5000,
+            soBoKem: 1, soMau: 4, vatTuBeMat: 'Không', khuon: 0, be: false,
+            thanhPham: 'khong', catXen: false, dongGoi: false, epKimViTri: 'Không', thietKe: 0,
+            extraProcessing: ['UV_DINH_HINH'],
+        } as any);
+        expect(res.success).toBe(true);
+        const uvLine = res.data!.lines.find((l) => l.label === 'UV định hình')!;
+        expect(uvLine).toBeDefined();
+        expect(uvLine.amount).toBe(res.data!.meta!.soToLon! * 500);
+    });
 });

@@ -20,9 +20,12 @@ export interface ProductTemplate {
     allowed_processing?: number[];
     fields: ProductField[];
     mini_quote_fields?: string[] | null; // per-product field config — null = use defaults
+    form_config?: Record<string, any> | null;
+    default_materials?: Record<string, any> | null;
+    default_finishing?: Record<string, any> | null;
 }
 
-export interface MasterDataItem { id: number | string; name: string; display_name?: string; type?: string; gsm?: string; code?: string; category?: string; width?: number; height?: number; has_pricing?: boolean; paper_size_name?: string; paper_size_id?: number | null; scope_loose?: boolean; scope_bound?: boolean; scope_large_format?: boolean; }
+export interface MasterDataItem { id: number | string; name: string; display_name?: string; type?: string; gsm?: string; code?: string; category?: string; width?: number; height?: number; marginTop?: number; marginBottom?: number; marginLeft?: number; marginRight?: number; is_standard?: number; price?: number; unit?: string; has_pricing?: boolean; paper_size_name?: string; paper_size_id?: number | null; valid_paper_size_ids?: number[]; scope_loose?: boolean; scope_bound?: boolean; scope_large_format?: boolean; }
 export interface AccessoryItem { id: number | string; name: string; code?: string; price?: number; unit?: string }
 
 export interface QuoteResult {
@@ -56,12 +59,17 @@ export interface MasterData {
     paperSizes: MasterDataItem[];
     processingOptions: MasterDataItem[];
     accessories: AccessoryItem[];
+    bindingTypes?: Array<{ id?: number | string; code?: string; name: string }>;
     formOptions: {
         shapes?: FormOptionItem[];
         print_sides?: FormOptionItem[];
         print_types?: FormOptionItem[];
     };
     config?: {
+        default_width?: number;
+        default_height?: number;
+        default_material_id?: string | number;
+        default_paper_size_id?: string | number;
         default_print_side?: string;
         default_print_type?: string;
         default_quantity?: number;
@@ -73,7 +81,8 @@ export interface MasterData {
 export const FIELD_MASTER_MAP: Record<string, keyof MasterData> = {
     'material': 'materials', 'vat_lieu': 'materials', 'chat_lieu': 'materials',
     'giay': 'materials', 'paper': 'materials', 'coverMaterial': 'materials', 'innerMaterial': 'materials',
-    'paper_size': 'paperSizes', 'kich_thuoc_giay': 'paperSizes',
+    'paper_size': 'paperSizes', 'kho_giay': 'paperSizes', 'kich_thuoc_giay': 'paperSizes',
+    'cover_paper_size': 'paperSizes', 'inner_paper_size': 'paperSizes',
     'gia_cong': 'processingOptions', 'can_mang': 'processingOptions',
     'lamination': 'processingOptions', 'finishing': 'processingOptions',
     'gia_cong_be': 'processingOptions', 'processing': 'processingOptions',
@@ -93,10 +102,16 @@ export const FORM_OPTIONS_MAP: Record<string, 'shapes' | 'print_sides' | 'print_
     'hinh_dang': 'shapes',
     'printSides': 'print_sides',
     'so_mat_in': 'print_sides',
+    'mat_in': 'print_sides',
     'print_side': 'print_sides',
+    'cover_print_side': 'print_sides',
+    'inner_print_side': 'print_sides',
     'printType': 'print_types',
     'loai_in': 'print_types',
+    'may_in': 'print_types',
     'print_type': 'print_types',
+    'cover_print_type': 'print_types',
+    'inner_print_type': 'print_types',
 };
 
 export const SOURCE_TABLE_MAP: Record<string, keyof MasterData> = {

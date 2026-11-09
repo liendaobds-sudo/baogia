@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '../../_components/apiClient';
+import { OffsetSettingsNav } from '../_components/OffsetSettingsNav';
+import { useTrialMode, TrialLockBanner } from '@/lib/scope/use-trial-mode';
 
 /**
  * Định mức Kẽm / Vật tư bề mặt / Ép kim — In Offset. Trước đây chỉ seed, chưa có UI.
@@ -12,6 +14,7 @@ interface Vtbm { ten: string; donGiaKg: number; soMat: string | null }
 interface EpKim { viTri: string; duoi100: number; tu100_499: number; tu500_999: number; tren1000: number }
 
 export default function OffsetMaterialsPage() {
+    const { isTrialMode } = useTrialMode();
     const [kemNho, setKemNho] = useState<KemRow[]>([]);
     const [kemLon, setKemLon] = useState<KemRow[]>([]);
     const [don1Nho, setDon1Nho] = useState(0);
@@ -45,6 +48,7 @@ export default function OffsetMaterialsPage() {
         setLoading(false);
     }, []);
     useEffect(() => { load(); }, [load]);
+    if (isTrialMode) return <TrialLockBanner title="Định mức Bản kẽm · Màng · Ép kim (Đã ẩn ở Chế độ Dùng thử)" />;
 
     const showToast = (msg: string, type: 'success' | 'error') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
@@ -79,8 +83,9 @@ export default function OffsetMaterialsPage() {
         setEpkim(prev => prev.filter(e => e.viTri !== viTri));
     };
 
-    const numCls = 'w-full text-right text-sm px-2 py-1 border border-slate-200 rounded bg-white focus:border-indigo-500 outline-none';
-    const txtCls = 'w-full text-sm px-2 py-1 border border-slate-200 rounded bg-white focus:border-indigo-500 outline-none';
+    const baseInpCls = 'text-sm px-2 py-1 border border-slate-200 rounded bg-white focus:border-indigo-500 outline-none';
+    const numCls = `${baseInpCls} w-full text-right`;
+    const txtCls = `${baseInpCls} w-full`;
 
     if (loading) return <div className="flex items-center justify-center h-full"><svg className="animate-spin h-8 w-8 text-indigo-500" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>;
 
@@ -96,7 +101,7 @@ export default function OffsetMaterialsPage() {
                 <tbody>
                     {rows.map((r, i) => (
                         <tr key={i} className="border-t border-slate-50">
-                            <td className="py-1 pr-2"><input type="number" value={r.soKem} onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, soKem: Number(e.target.value) } : x))} className={`${numCls} w-16 text-left`} /></td>
+                            <td className="py-1 pr-2"><input type="number" value={r.soKem} onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, soKem: Number(e.target.value) } : x))} className={`${baseInpCls} w-16 text-left`} /></td>
                             <td><input type="number" value={r.donGia} onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, donGia: Number(e.target.value) } : x))} className={numCls} /></td>
                             <td className="text-right pl-2"><button onClick={() => delKem(bang, r.soKem)} className="text-red-500 text-xs">Xoá</button></td>
                         </tr>
@@ -119,6 +124,7 @@ export default function OffsetMaterialsPage() {
                 <button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-5 rounded-lg shadow-sm disabled:opacity-50">{saving ? 'Đang lưu...' : '💾 Lưu'}</button>
             </div>
 
+            <OffsetSettingsNav activeTab="offset-materials" />
             <div className="flex-1 overflow-y-auto"><div className="max-w-5xl mx-auto space-y-6">
                 {/* Giới thiệu: 3 khối nuôi dòng nào trong báo giá */}
                 <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl p-4 text-[12px] text-slate-600 leading-relaxed">
@@ -137,11 +143,11 @@ export default function OffsetMaterialsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                             <div className="text-[12px] font-bold text-slate-600 mb-1">Phí làm 1 bản kẽm nhỏ (VND)</div>
-                            <input type="number" value={don1Nho} onChange={e => setDon1Nho(Number(e.target.value))} className={`${numCls} w-40`} />
+                            <input type="number" value={don1Nho} onChange={e => setDon1Nho(Number(e.target.value))} className={`${baseInpCls} w-40 text-right`} />
                         </div>
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                             <div className="text-[12px] font-bold text-slate-600 mb-1">Phí làm 1 bản kẽm lớn (VND)</div>
-                            <input type="number" value={don1Lon} onChange={e => setDon1Lon(Number(e.target.value))} className={`${numCls} w-40`} />
+                            <input type="number" value={don1Lon} onChange={e => setDon1Lon(Number(e.target.value))} className={`${baseInpCls} w-40 text-right`} />
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -17,7 +17,10 @@ export interface QuoteCartItem {
 
 interface QuoteCartState {
   items: QuoteCartItem[];
+  editingItemId: string | null;
   addItem: (item: Omit<QuoteCartItem, 'id'>) => void;
+  updateItem: (id: string, item: Omit<QuoteCartItem, 'id'>) => void;
+  setEditingItemId: (id: string | null) => void;
   removeItem: (id: string) => void;
   clearCart: () => void;
   getTotalAmount: () => number;
@@ -46,15 +49,22 @@ interface QuoteCartState {
 
 export const useQuoteCart = create<QuoteCartState>((set, get) => ({
   items: [],
+  editingItemId: null,
   addItem: (item) => set((state) => ({
     items: [...state.items, { ...item, id: crypto.randomUUID() }]
   })),
+  updateItem: (id, item) => set((state) => ({
+    items: state.items.map((it) => (it.id === id ? { ...item, id } : it)),
+    editingItemId: state.editingItemId === id ? null : state.editingItemId,
+  })),
+  setEditingItemId: (id) => set({ editingItemId: id }),
   removeItem: (id) => set((state) => ({
-    items: state.items.filter((i) => i.id !== id)
+    items: state.items.filter((i) => i.id !== id),
+    editingItemId: state.editingItemId === id ? null : state.editingItemId,
   })),
   // Bắt đầu báo giá mới phải quay header discount về mặc định; discount engine là
   // cấu hình tính giá riêng nên không bị xoá cùng giỏ hàng.
-  clearCart: () => set({ items: [], headerDiscountType: 'percent', headerDiscountValue: 0 }),
+  clearCart: () => set({ items: [], editingItemId: null, headerDiscountType: 'percent', headerDiscountValue: 0 }),
   getTotalAmount: () => {
     return get().items.reduce((sum, item) => sum + (item.total || 0), 0);
   },

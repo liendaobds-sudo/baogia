@@ -57,8 +57,10 @@ function toLooseInput(
         item_width: { value: parseFloat(getField(formData, 'kich_thuoc_w', 'size_w')) || 0, unit: 'cm' },
         item_height: { value: parseFloat(getField(formData, 'kich_thuoc_h', 'size_h')) || 0, unit: 'cm' },
         print_side: getField(formData, 'printSides', 'so_mat_in', 'print_side') || 'single',
-        print_type: masterData.config?.default_print_type || '4c',
+        print_type: getField(formData, 'print_type', 'printType', 'loai_in') || masterData.config?.default_print_type || '4c',
         shape: getField(formData, 'shape', 'hinh_dang') || 'rectangle',
+        ...(getField(formData, 'gap_h') ? { gap_h: parseFloat(getField(formData, 'gap_h')) } : {}),
+        ...(getField(formData, 'gap_v') ? { gap_v: parseFloat(getField(formData, 'gap_v')) } : {}),
         // gap để trống → Lớp_Dựng_Payload áp DEFAULT_GAP_MM thống nhất với chi tiết
         processing: processingItems,
         accessories: selectedAccessories,
@@ -69,16 +71,28 @@ function toLooseInput(
 function toBoundInput(
     formData: Record<string, string>,
     template: ProductTemplate,
-    selectedProcessing: Array<{ id: number; name?: string; section?: 'cover' | 'inner' }>,
+    masterData: MasterData,
+    selectedProcessing: Array<{ id: number; name?: string; side?: 'single' | 'double'; section?: 'cover' | 'inner' }>,
     selectedAccessories: Array<{ id: number; qty: number; name?: string; price?: number }>,
 ): BoundInput {
     const pageCount = parseInt(getField(formData, 'page_count', 'so_trang') || '0') || 24;
-    const bindingType = getField(formData, 'bindingType', 'kieu_dong', 'binding_type') || 'ghim_long';
+    const bindingType = getField(formData, 'bindingType', 'kieu_dong', 'binding_type') || 'saddle_stitch';
 
     const coverMaterialId = getField(formData, 'coverMaterial', 'vat_lieu_bia', 'cover_material');
     const coverPaperSizeId = getField(formData, 'cover_paper_size', 'paper_size', 'kich_thuoc_giay');
     const innerMaterialId = getField(formData, 'innerMaterial', 'vat_lieu_ruot', 'inner_material', 'material', 'vat_lieu');
     const innerPaperSizeId = getField(formData, 'inner_paper_size', 'paper_size', 'kich_thuoc_giay');
+
+    const resolvePaperSize = (explicitId: string, matId: string): number => {
+        if (parseInt(explicitId) > 0) return parseInt(explicitId);
+        const mat = masterData.materials.find(m => String(m.id) === matId);
+        if (mat?.paper_size_id) return Number(mat.paper_size_id);
+        if (mat?.valid_paper_size_ids?.length) return Number(mat.valid_paper_size_ids[0]);
+        return Number(masterData.paperSizes[0]?.id) || 1;
+    };
+
+    const wCm = parseFloat(getField(formData, 'kich_thuoc_w', 'size_w', 'item_width')) || 0;
+    const hCm = parseFloat(getField(formData, 'kich_thuoc_h', 'size_h', 'item_height')) || 0;
 
     // Gia công bìa (cán màng, v.v.) — gom từ field cover_* / can_mang map sang processingOptions
     const coverProcessing: ProcessingInput[] = [];
@@ -97,10 +111,10 @@ function toBoundInput(
         if (p.id == null) continue;
         if (p.section === 'inner') {
             if (!innerProcessing.some(c => c.id === p.id)) {
-                innerProcessing.push({ id: p.id, ...(p.name ? { name: p.name } : {}) });
+                innerProcessing.push({ id: p.id, ...(p.name ? { name: p.name } : {}), ...(p.side ? { side: p.side } : {}) });
             }
         } else if (!coverProcessing.some(c => c.id === p.id)) {
-            coverProcessing.push({ id: p.id, ...(p.name ? { name: p.name } : {}) });
+            coverProcessing.push({ id: p.id, ...(p.name ? { name: p.name } : {}), ...(p.side ? { side: p.side } : {}) });
         }
     }
 
@@ -109,16 +123,20 @@ function toBoundInput(
         quantity: parseInt(getField(formData, 'quantity', 'so_luong') || '0') || 0,
         page_count: pageCount,
         binding_type: bindingType,
+        ...(wCm > 0 && hCm > 0 ? {
+            item_width: { value: wCm, unit: 'cm' },
+            item_height: { value: hCm, unit: 'cm' },
+        } : {}),
         cover: {
             material_id: parseInt(coverMaterialId) || 0,
-            paper_size_id: parseInt(coverPaperSizeId) || 1,
+            paper_size_id: resolvePaperSize(coverPaperSizeId, coverMaterialId),
             print_side: getField(formData, 'cover_print_side') || 'double',
             print_type: getField(formData, 'cover_print_type') || '4c',
             ...(coverProcessing.length > 0 ? { processing: coverProcessing } : {}),
         },
         inner: {
             material_id: parseInt(innerMaterialId) || 0,
-            paper_size_id: parseInt(innerPaperSizeId) || 1,
+            paper_size_id: resolvePaperSize(innerPaperSizeId, innerMaterialId),
             print_side: getField(formData, 'inner_print_side') || 'double',
             print_type: getField(formData, 'inner_print_type') || '4c',
             ...(innerProcessing.length > 0 ? { processing: innerProcessing } : {}),
@@ -156,7 +174,7 @@ export function useQuoteCalculator(
     formData: Record<string, string>,
     masterData: MasterData,
     selectedAccessories: Array<{ id: number; name: string; qty: number; price: number }>,
-    selectedProcessing: Array<{ id: number; name: string; price: number; qty?: number; unit?: string; section?: 'cover' | 'inner' }> = [],
+    selectedProcessing: Array<{ id: number; name: string; price: number; qty?: number; unit?: string; side?: 'single' | 'double'; section?: 'cover' | 'inner' }> = [],
     vatRate: number = 0,
 ) {
     const [quoteResult, setQuoteResult] = useState<import('./types').QuoteResult | null>(null);
@@ -167,8 +185,12 @@ export function useQuoteCalculator(
         setIsCalculating(true);
         setQuoteResult(null);
         try {
-            // Processing & accessories chuẩn hóa (kèm name để engine khổ lớn khớp theo tên)
-            const processingItems: ProcessingInput[] = selectedProcessing.map(p => ({ id: p.id, name: p.name }));
+            // Processing & accessories chuẩn hóa (kèm name & side để đồng bộ 1:1 với báo giá chi tiết)
+            const processingItems: ProcessingInput[] = selectedProcessing.map(p => ({
+                id: p.id,
+                name: p.name,
+                ...(p.side ? { side: p.side } : {}),
+            }));
             const accPayload = selectedAccessories.map(a => ({ id: a.id, qty: a.qty, name: a.name, price: a.price }));
             const productType = selectedTemplate.product_type || 'loose';
 
@@ -176,7 +198,7 @@ export function useQuoteCalculator(
             let normalized: NormalizedInput;
             switch (productType) {
                 case 'bound':
-                    normalized = toBoundInput(formData, selectedTemplate, selectedProcessing, accPayload);
+                    normalized = toBoundInput(formData, selectedTemplate, masterData, selectedProcessing, accPayload);
                     break;
                 case 'large_format':
                     normalized = toLargeFormatInput(formData, masterData, processingItems, accPayload);

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { DataTable, ColumnDef } from '../../../_components/DataTable';
 import { CrudModal, DeleteConfirm, FieldDef } from '../../../_components/CrudModal';
 import { api } from '../../../_components/apiClient';
+import { OffsetSettingsNav } from '../../_components/OffsetSettingsNav';
 
 interface PaperSize {
     id: number;
@@ -21,6 +22,8 @@ interface PaperSize {
     soConBaiIn?: number;
     soConToLon?: number;
     loaiKem?: string;
+    gripperCm?: number;
+    gutterCm?: number;
 }
 
 const FIELDS: FieldDef[] = [
@@ -32,6 +35,8 @@ const FIELDS: FieldDef[] = [
     { key: 'marginBottom', label: 'Nhíp dưới (mm)', type: 'number', required: false, min: 0 },
     { key: 'marginLeft', label: 'Lề trái (mm)', type: 'number', required: false, min: 0 },
     { key: 'marginRight', label: 'Lề phải (mm)', type: 'number', required: false, min: 0 },
+    { key: 'gripperCm', label: 'Nhíp máy in (cm) — mặc định 1.0cm', type: 'number', required: false, min: 0 },
+    { key: 'gutterCm', label: 'Khe hở dao cắt (cm) — mặc định 0.3cm', type: 'number', required: false, min: 0 },
     { key: 'khoGiayLon', label: 'Khổ giấy lớn', type: 'text', required: true, placeholder: 'VD: 79cm x 109cm' },
     { key: 'chiaTo', label: 'Kiểu chia tờ', type: 'text', required: false, placeholder: 'VD: Cắt 2' },
     { key: 'soConToLon', label: 'Số con / tờ lớn', type: 'number', required: false, min: 1 },
@@ -90,6 +95,7 @@ export function OffsetPaperSizes() {
         { header: 'Kích Thước', cell: (p) => <span className="font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{p.widthMm} x {p.heightMm} mm</span> },
         { header: 'Nhíp Trên / Dưới', cell: (p) => <span className="text-slate-600">{p.marginTop || 0} / {p.marginBottom || 0} mm</span> },
         { header: 'Lề Trái / Phải', cell: (p) => <span className="text-slate-600">{p.marginLeft || 0} / {p.marginRight || 0} mm</span> },
+        { header: 'Nhíp / Khe (cm)', cell: (p) => <span className="text-slate-600 text-xs">{p.gripperCm ?? 1.0} / {p.gutterCm ?? 0.3} cm</span> },
         { header: 'Khổ giấy lớn', cell: (p) => p.khoGiayLon ? <span className="text-slate-600">{p.khoGiayLon}</span> : <span className="text-slate-300 text-xs">—</span> },
         { header: 'Số con/tờ', cell: (p) => p.soConToLon ? <span className="text-slate-700 font-semibold">{p.soConToLon}</span> : <span className="text-slate-300 text-xs">—</span> },
         { header: 'Loại kẽm', cell: (p) => p.loaiKem ? <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700">{p.loaiKem}</span> : <span className="text-slate-300 text-xs">—</span> },
@@ -107,6 +113,7 @@ export function OffsetPaperSizes() {
 
     return (
         <div className="flex flex-col h-full bg-white rounded-b-xl border border-t-0 border-slate-200">
+            <div className="p-4 pb-0 bg-slate-50/40"><OffsetSettingsNav activeTab="paper-sizes" /></div>
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50/30">
                 <div className="text-sm text-slate-600">
                     Khai báo kích thước khổ in Offset và không gian chừa mép cho Nhíp (Gripper Margin).

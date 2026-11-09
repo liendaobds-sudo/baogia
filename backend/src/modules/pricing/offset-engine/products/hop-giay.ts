@@ -202,7 +202,8 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     const cpGiay = giaTo * parentGross;
 
     const don1Kem = kho.loaiKem === 'Kẽm lớn' ? d.kem.donGia1Kem.kemLon : d.kem.donGia1Kem.kemNho;
-    const cpLamKem = don1Kem * (input.soBoKem ?? 1) * input.soMau;
+    const soBoKem = Math.max(1, Math.round(Number(input.soBoKem) || 1));
+    const cpLamKem = don1Kem * soBoKem * input.soMau;
 
     let cpCanMang = 0;
     const vtbm = d.kem.vatTuBeMat.find((v) => v.ten === input.vatTuBeMat);
@@ -215,7 +216,7 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
 
     const bang = kho.loaiKem === 'Kẽm lớn' ? d.kem.kemLon : d.kem.kemNho;
     const giaGocBinhBai = (bang.find((k) => k.soKem === input.soMau) ?? bang[bang.length - 1]).donGia;
-    const moqBinhBai = params.MOQ_BinhBai_Nho;
+    const moqBinhBai = kho.loaiKem === 'Kẽm lớn' ? params.MOQ_BinhBai_Lon : params.MOQ_BinhBai_Nho;
     const cpBinhBai = luotIn <= moqBinhBai ? giaGocBinhBai : (luotIn * giaGocBinhBai) / moqBinhBai;
     // Tách rõ 2 phần (tổng = cpBinhBai): Lên bài = công gốc (trọn gói canh máy); Chạy máy = phần vượt MOQ.
     const cpLenBai = giaGocBinhBai;
@@ -270,7 +271,7 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     // Ảnh hưởng golden: fixture hop_giay có `boi2Lop: false` ⇒ cpGiayBoi = 0 ⇒ số pin KHÔNG đổi.
     // Đơn hộp bồi 2 lớp thật sẽ có chiết khấu giảm đúng bằng `giaGiayBoi × TyLe_ChietKhau`.
     const baseSXTK = cpBinhBai + cpXLBM + cpBe + cpDanHop + cpBoi + cpDongGoi + cpEpKim + cpThietKe;
-    const extraLines = extraProcessingLines(input.extraProcessing, sl, d);
+    const extraLines = extraProcessingLines(input.extraProcessing, sl, d, sheetsGross);
     lines.push(...extraLines);
     const baseSXTKFull = baseSXTK + extraLines.reduce((s, l) => s + l.amount, 0);
     const wasteInfo = giaTo * (parentGross - parentNet);
@@ -291,7 +292,7 @@ export function tinhHopGiay(input: HopGiayInput, d: PricingData): QuoteResult {
     const res = tongHopKetQua(lines, baseSXTKFull, sl, d, wasteInfo, input.chietKhauRate, input.vatRate);
     res.meta = {
         khoBinh: kho.khoIn, khoGiayLon: kho.khoGiayLon, soConBaiIn: soConBaiInVal, soConToLon: metaSoConToLon,
-        soToLon: parentGross, luotIn, soKem: input.soMau, loaiKem: kho.loaiKem,
+        soToLon: parentGross, luotIn, soKem: input.soMau * soBoKem, ...(soBoKem > 1 ? { soBoKem } : {}), loaiKem: kho.loaiKem,
         sheetW: sheet?.w, sheetH: sheet?.h, itemW: trai.ngang, itemH: trai.doc,
         dielineStdCode, dielineWarnings,
         impositionSource: outcome.source,

@@ -46,4 +46,32 @@ describe('EngineOffsetService (dữ liệu thật đóng gói)', () => {
         expect(res.success).toBe(false);
         expect(res.error).toContain('không được hỗ trợ');
     });
+
+    it('hỗ trợ chọn Kiểu trở bản: Bắt đôi (soBoKem=2) nhân đôi chi phí làm kẽm và tổng số bản kẽm so với Tự trở (soBoKem=1)', () => {
+        const baseInput = {
+            type: 'to_roi' as const,
+            kichThuoc: '14.8cm x 20.5cm (tờ rơi, gấp giấy Coucher)',
+            materialCode: 'C150',
+            soMatIn: 2 as const,
+            soLuong: 5000,
+            soKemIn: 4,
+            vatTuBeMat: 'Không',
+            khuon: false,
+            be: false,
+            thanhPhamGap: 'khong' as const,
+            catXen: true,
+            dongGoi: true,
+            thietKe: 0,
+        };
+        const tuTro = svc.calculate({ ...baseInput, soBoKem: 1 });
+        const batDoi = svc.calculate({ ...baseInput, soBoKem: 2 });
+        expect(tuTro.success).toBe(true);
+        expect(batDoi.success).toBe(true);
+        const kemTuTro = tuTro.data!.lines.find((l) => l.label === 'Làm kẽm')!.amount;
+        const kemBatDoi = batDoi.data!.lines.find((l) => l.label === 'Làm kẽm')!.amount;
+        expect(kemBatDoi).toBe(kemTuTro * 2);
+        expect(tuTro.data!.meta?.soKem).toBe(4);
+        expect(batDoi.data!.meta?.soKem).toBe(8);
+        expect(batDoi.data!.meta?.soBoKem).toBe(2);
+    });
 });

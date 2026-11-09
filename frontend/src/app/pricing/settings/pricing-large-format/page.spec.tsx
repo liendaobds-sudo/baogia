@@ -98,4 +98,18 @@ describe('PricingLargeFormatPage — cảnh báo dưới giá vốn + gợi ý',
         const sug = postCalls.find(c => c.url === '/erp/large-format-pricing/suggest');
         expect((sug!.body as any).material_id).toBe(1);
     });
+
+    it('hỗ trợ chế độ Nhập nhanh 1 ô/m² và Tạo 4 mốc m² chuẩn 1-click', async () => {
+        render(<PricingLargeFormatPage />);
+        await waitFor(() => expect(screen.getByText('Bạt Hiflex')).toBeInTheDocument());
+
+        fireEvent.click(screen.getByRole('button', { name: /Thêm định mức mới/ }));
+        expect(screen.getByText(/Đơn giá vốn \/ m² \(₫\)/)).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /Tạo 4 mốc m² chuẩn/ }));
+        expect(screen.getAllByText(/Đơn giá vốn \/ m² \(₫\)/)).toHaveLength(4);
+
+        fireEvent.click(screen.getByRole('button', { name: /Chi tiết 4 thành phần/ }));
+        expect(screen.getAllByText('Overhead')).toHaveLength(4);
+    });
 });

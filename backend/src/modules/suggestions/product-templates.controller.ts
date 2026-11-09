@@ -60,10 +60,17 @@ export class ProductTemplatesController {
                 id: template.id,
                 code: template.code,
                 name: template.name,
-                product_id: (template as any).product_id || null,
+                product_type: (template as any).product_type || match.type || 'loose',
+                product_id: (template as any).product_id || template.id || null,
                 allowed_materials: (template as any).allowed_materials || [],
                 allowed_paper_sizes: (template as any).allowed_paper_sizes || [],
                 allowed_processing: (template as any).allowed_processing || [],
+                mini_quote_fields: (template as any).mini_quote_fields || null,
+                form_config: (template as any).form_config || null,
+                default_materials: (template as any).default_materials || null,
+                default_finishing: (template as any).default_finishing || null,
+                has_auto_pricing: (template as any).has_auto_pricing !== false,
+                ai_enabled: (template as any).ai_enabled !== false,
                 fields: (template.fields || []).map(f => ({
                     field_code: f.field_code,
                     field_name: f.field_name,
@@ -84,15 +91,28 @@ export class ProductTemplatesController {
      * Returns { fields: { [field_code]: value } }
      */
     @Post('extract-fields')
-    async extractFields(@Body('text') text: string) {
+    async extractFields(
+        @Body('text') text: string,
+        @Body('product_id') productId?: number | string,
+    ) {
         if (!text) return { fields: {} };
 
-        const masterData = await this.quoteService.getMasterData();
+        let resolvedProductId = productId ? Number(productId) : null;
+        if (!resolvedProductId) {
+            const match = detectProduct(text);
+            const tmpl = match?.templateCode ? findProductTemplate(match.templateCode) : undefined;
+            resolvedProductId = Number((tmpl as any)?.product_id || tmpl?.id || 0) || null;
+        }
+
+        const masterData = resolvedProductId
+            ? await this.quoteService.getMasterDataForProduct(resolvedProductId)
+            : await this.quoteService.getMasterData();
+
         const fields = extractFieldsFromChat(text, {
-            materials: masterData.materials,
+            materials: masterData.materials || [],
+            processingOptions: masterData.processingOptions || [],
         });
 
         return { fields };
     }
 }
-

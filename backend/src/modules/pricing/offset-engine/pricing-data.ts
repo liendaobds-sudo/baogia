@@ -244,7 +244,8 @@ export interface QuoteMeta {
     soConToLon?: number;     // số con / tờ giấy lớn
     soToLon?: number;        // số tờ giấy lớn cần in
     luotIn?: number;         // lượt in
-    soKem?: number;          // số kẽm
+    soKem?: number;          // tổng số bản kẽm
+    soBoKem?: number;        // số bộ kẽm (1 = tự trở, 2 = bắt đôi)
     loaiKem?: string;        // 'Kẽm nhỏ' | 'Kẽm lớn'
     // Hình học (cm) cho preview bình bài — có thể thiếu nếu không suy được.
     sheetW?: number;

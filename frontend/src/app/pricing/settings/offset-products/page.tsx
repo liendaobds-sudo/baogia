@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { api } from '../../_components/apiClient';
+import { OffsetSettingsNav } from '../_components/OffsetSettingsNav';
 
 /**
  * Cấu hình form báo giá THEO LOẠI SẢN PHẨM — In Offset. Tất cả CẤU HÌNH ĐƯỢC, không gán cứng.
@@ -49,6 +50,7 @@ interface FieldDef { key: string; label: string; kind: FieldKind; options?: { id
 
 const TP: { id: string; label: string }[] = [{ id: 'khong', label: 'Không' }, { id: 'tc', label: 'Thủ công' }, { id: 'may', label: 'Máy' }];
 const MAT_IN: { id: string; label: string }[] = [{ id: '1', label: '1 mặt' }, { id: '2', label: '2 mặt' }];
+const BO_KEM: { id: string; label: string }[] = [{ id: '1', label: 'Tự trở (1 bộ kẽm)' }, { id: '2', label: 'Bắt đôi (2 bộ kẽm)' }];
 
 // Loại khuôn bế (dieline) cho hộp giấy — whitelist + mặc định theo sản phẩm.
 const BOX_TYPES: { id: string; label: string }[] = [
@@ -67,6 +69,7 @@ const FIELDS: Record<ProductType, FieldDef[]> = {
         { key: 'materialCode', label: 'Giấy in', kind: 'mat' },
         { key: 'soMatIn', label: 'Số mặt in', kind: 'select', options: MAT_IN },
         { key: 'soKemIn', label: 'Kiểu in (số màu)', kind: 'soMau' },
+        { key: 'soBoKem', label: 'Kiểu trở bản (bộ kẽm)', kind: 'select', options: BO_KEM },
         { key: 'vatTuBeMat', label: 'Vật tư bề mặt', kind: 'vtbm' },
         { key: 'thanhPhamGap', label: 'Thành phẩm gấp', kind: 'select', options: TP },
         { key: 'khuon', label: 'Khuôn bế', kind: 'bool' },
@@ -81,6 +84,7 @@ const FIELDS: Record<ProductType, FieldDef[]> = {
         { key: 'materialCode', label: 'Giấy in', kind: 'mat' },
         { key: 'soMatIn', label: 'Số mặt in', kind: 'select', options: MAT_IN },
         { key: 'soKemIn', label: 'Kiểu in (số màu)', kind: 'soMau' },
+        { key: 'soBoKem', label: 'Kiểu trở bản (bộ kẽm)', kind: 'select', options: BO_KEM },
         { key: 'vatTuBeMat', label: 'Vật tư bề mặt', kind: 'vtbm' },
         { key: 'thanhPhamDan', label: 'Thành phẩm dán', kind: 'select', options: TP },
         { key: 'khuon', label: 'Khuôn bế', kind: 'bool' },
@@ -94,6 +98,7 @@ const FIELDS: Record<ProductType, FieldDef[]> = {
         { key: 'khoIn', label: 'Khổ in', kind: 'kho' },
         { key: 'materialCode', label: 'Giấy in', kind: 'mat' },
         { key: 'soMau', label: 'Kiểu in (số màu)', kind: 'soMau' },
+        { key: 'soBoKem', label: 'Kiểu trở bản (bộ kẽm)', kind: 'select', options: BO_KEM },
         { key: 'vatTuBeMat', label: 'Vật tư bề mặt', kind: 'vtbm' },
         { key: 'khuon', label: 'Khuôn bế', kind: 'bool' },
         { key: 'epKimViTri', label: 'Ép kim', kind: 'epkim' },
@@ -113,6 +118,7 @@ const FIELDS: Record<ProductType, FieldDef[]> = {
         { key: 'materialCode', label: 'Giấy in', kind: 'mat' },
         { key: 'soMatIn', label: 'Số mặt in', kind: 'select', options: MAT_IN },
         { key: 'soMau', label: 'Kiểu in (số màu)', kind: 'soMau' },
+        { key: 'soBoKem', label: 'Kiểu trở bản (bộ kẽm)', kind: 'select', options: BO_KEM },
         { key: 'vatTuBeMat', label: 'Vật tư bề mặt', kind: 'vtbm' },
         { key: 'danHop', label: 'Dán hộp', kind: 'select', options: [{ id: 'khong', label: 'Không' }, { id: 'tc', label: 'Thủ công' }, { id: 'auto', label: 'Máy/Tự động' }] },
         { key: 'epKimViTri', label: 'Ép kim', kind: 'epkim' },
@@ -190,10 +196,10 @@ export default function OffsetProductsPage() {
     type ListKey = 'allowedMaterials' | 'allowedVatTuBeMat' | 'allowedEpKim' | 'allowedKhoIn' | 'allowedKichThuoc' | 'allowedBoxTypes';
     const isAllowed = (listKey: ListKey, id: string) => {
         const arr = cfg[listKey];
-        return !arr || arr.length === 0 || arr.includes(id);
+        return !arr || arr.includes(id);
     };
     const toggleAllowed = (listKey: ListKey, full: string[], id: string) => patch(c => {
-        const cur = (c[listKey] && c[listKey]!.length ? c[listKey]! : full).slice();
+        const cur = (c[listKey] !== undefined ? c[listKey]! : full).slice();
         const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id];
         // Đủ tất cả → undefined (nghĩa là "cho phép tất cả"); rỗng giữ [] (ẩn hết).
         const sameAsAll = next.length === full.length && full.every(x => next.includes(x));
@@ -249,6 +255,7 @@ export default function OffsetProductsPage() {
             </div>
 
             {/* Tabs loại sản phẩm */}
+            <OffsetSettingsNav activeTab="offset-products" />
             <div className="flex gap-2 mb-5 flex-wrap">
                 {TABS.map(t => (
                     <button key={t.id} onClick={() => setActive(t.id)}

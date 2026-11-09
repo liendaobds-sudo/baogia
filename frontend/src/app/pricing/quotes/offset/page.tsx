@@ -13,6 +13,7 @@ import { useToast } from '@/lib/ui/toast';
 import { validateQuoteDraft, isQuoteDraftValid, type QuoteDraftErrors } from '@/lib/quote/validate';
 import { mapCartItemToQuoteItem } from '@/lib/quote/map-cart-item';
 import { calculateHeaderDiscount } from '@/lib/quote/header-discount';
+import { TrialModeSwitch } from '@/lib/scope/use-trial-mode';
 
 /**
  * Ánh xạ item offset sang QuoteItemDto — nay dùng helper chung
@@ -111,6 +112,27 @@ export default function OffsetQuotePage() {
         return () => { alive = false; };
     }, [token, clearCart, addItem, setHeaderDiscount]);
 
+    // [MQ-08] Prefill loại sản phẩm Offset khi bàn giao từ Báo giá Mini (Inbox)
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('edit')) return;
+        const rawProd = sp.get('prefill_product') || '';
+        if (!rawProd) return;
+        const aliasMap: Record<string, OffsetProductType> = {
+            to_roi: 'to_roi',
+            bi_thu_folder: 'bi_thu_folder',
+            bi_thu: 'bi_thu_folder',
+            folder: 'bi_thu_folder',
+            hop_giay: 'hop_giay',
+            tui_giay: 'tui_giay',
+            sp_khac: 'sp_khac',
+            catalogue: 'sp_khac',
+        };
+        const mapped = aliasMap[rawProd] || 'sp_khac';
+        setProductType(mapped);
+    }, []);
+
     const handleCustomerNameChange = useCallback((name: string) => {
         setCustomerName(name);
         setErrors(prev => (prev.customerName ? { ...prev, customerName: undefined } : prev));
@@ -208,9 +230,9 @@ export default function OffsetQuotePage() {
     return (
         <div className="flex flex-col h-screen bg-slate-100 overflow-hidden">
             {/* Top Bar */}
-            <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-20 relative">
-                <div className="flex items-center gap-4">
-                    <Link href="/pricing/quotes" aria-label="Quay lại danh sách báo giá" className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors shadow-sm">
+            <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap shadow-sm z-20 relative">
+                <div className="flex items-center gap-3 shrink-0">
+                    <Link href="/pricing/quotes" aria-label="Quay lại danh sách báo giá" className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors shadow-sm shrink-0">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
                     </Link>
                     <div>
@@ -218,12 +240,12 @@ export default function OffsetQuotePage() {
                         <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider m-0">Hệ thống tính giá Offset</p>
                     </div>
                 </div>
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+                <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 shrink-0 flex-wrap">
                     {OFFSET_TABS.map(t => (
                         <button
                             key={t.id}
                             onClick={() => setProductType(t.id)}
-                            className={`px-3 py-1.5 font-semibold text-[12px] rounded-md flex items-center gap-1.5 transition-all duration-200 ${
+                            className={`px-3 py-1.5 font-semibold text-[12px] rounded-md flex items-center gap-1.5 transition-all duration-200 whitespace-nowrap ${
                                 productType === t.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-indigo-600'
                             }`}
                         >
@@ -233,7 +255,8 @@ export default function OffsetQuotePage() {
                     ))}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 shrink-0">
+                    <TrialModeSwitch />
                     <button onClick={() => router.back()} className="h-9 px-4 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-md text-[13px] font-bold shadow-sm transition-colors">HUỶ</button>
                     <button onClick={handleSaveQuote} disabled={!canSave} aria-label="Lưu báo giá" className={`h-9 px-5 text-white rounded-md text-[13px] font-bold shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isSaving ? 'bg-slate-500' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>
                         {isSaving ? <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
